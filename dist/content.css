@@ -1,0 +1,19 @@
+/* Content script styles for Lector AI */
+
+.lector-ai-popup {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.lector-ai-popup::-webkit-scrollbar {
+  width: 6px;
+}
+
+.lector-ai-popup::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.lector-ai-popup::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
