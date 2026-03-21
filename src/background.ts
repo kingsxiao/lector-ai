@@ -1,10 +1,8 @@
-// Background Service Worker for Lector AI
-// Handles API calls and context menu actions
+const API_BASE = 'https://your-app.vercel.app/api'
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Lector AI installed')
   
-  // Create context menu for quick actions
   chrome.contextMenus.create({
     id: 'summarize-selection',
     title: 'Summarize with Lector AI',
@@ -18,45 +16,45 @@ chrome.runtime.onInstalled.addListener(() => {
   })
 })
 
-// Handle context menu clicks
-chrome.contextMenus.onClicked.addListener((itemData, tab) => {
+chrome.contextMenus.onClicked.addListener((itemData) => {
   if (itemData.menuItemId === 'summarize-selection' && itemData.selectionText) {
-    // Send selection to popup or process directly
-    chrome.runtime.sendMessage({
-      action: 'summarize',
-      text: itemData.selectionText
+    handleSummarize(itemData.selectionText).then(result => {
+      chrome.runtime.sendMessage({ action: 'summary-result', ...result }).catch(() => {})
     })
   }
   
   if (itemData.menuItemId === 'translate-selection' && itemData.selectionText) {
-    chrome.runtime.sendMessage({
-      action: 'translate',
-      text: itemData.selectionText
+    handleTranslate(itemData.selectionText).then(result => {
+      chrome.runtime.sendMessage({ action: 'translate-result', ...result }).catch(() => {})
     })
   }
 })
 
-// Listen for messages from popup or content scripts
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === 'summarize') {
-    // Handle summarize action
     handleSummarize(message.text).then(sendResponse)
-    return true // Keep channel open for async response
+    return true
   }
   
   if (message.action === 'translate') {
     handleTranslate(message.text, message.targetLang).then(sendResponse)
     return true
   }
+  
+  return false
 })
 
 async function handleSummarize(text: string) {
   try {
-    const response = await fetch('https://your-app.vercel.app/api/summarize', {
+    const response = await fetch(`${API_BASE}/summarize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text })
     })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
     
     return await response.json()
   } catch (error) {
@@ -67,11 +65,15 @@ async function handleSummarize(text: string) {
 
 async function handleTranslate(text: string, targetLang: string = 'en') {
   try {
-    const response = await fetch('https://your-app.vercel.app/api/translate', {
+    const response = await fetch(`${API_BASE}/translate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, targetLang })
     })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
     
     return await response.json()
   } catch (error) {

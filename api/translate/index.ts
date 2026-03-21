@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY
 
 interface TranslateRequest {
   text: string
@@ -22,49 +22,47 @@ export default async function handler(
   }
 
   try {
-    if (!OPENAI_API_KEY) {
+    if (!GEMINI_API_KEY) {
       return res.status(500).json({ error: 'API key not configured' })
     }
 
-    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a professional translator. Translate the following text to ${targetLang}.
+    const systemPrompt = `You are a professional translator. Translate the following text to ${targetLang}.
             
 Requirements:
 - Maintain the original tone and style
 - Keep formatting when possible
 - Provide accurate, natural translation
 
-Output format:
+Output format (ALWAYS use this exact JSON format):
 {"translatedText": "..."}`
-          },
-          {
-            role: 'user',
-            content: text
-          }
-        ],
-        max_tokens: 2000,
-        temperature: 0.3
+
+    const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ text: text }]
+        }],
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        generationConfig: {
+          temperature: 0.3,
+          responseMimeType: "application/json"
+        }
       })
     })
 
-    if (!openaiResponse.ok) {
-      const errorData = await openaiResponse.text()
-      console.error('OpenAI API error:', errorData)
+    if (!geminiResponse.ok) {
+      const errorData = await geminiResponse.text()
+      console.error('Gemini API error:', errorData)
       return res.status(500).json({ error: 'AI service error' })
     }
 
-    const data = await openaiResponse.json()
-    const content = data.choices?.[0]?.message?.content
+    const data = await geminiResponse.json()
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text
 
     if (!content) {
       return res.status(500).json({ error: 'No response from AI' })

@@ -51,11 +51,6 @@ if (existsSync(popupHtmlSrc)) {
   rmSync(resolve(distDir, 'src'), { recursive: true })
 }
 
-// Update manifest paths
-let manifest = require(resolve(distDir, 'manifest.json'))
-manifest.action.default_popup = 'popup/index.html'
-manifest.background.service_worker = 'background.js'
-
 console.log('✅ Extension built successfully!')
 console.log(`📁 Output: ${distDir}`)
 console.log('')

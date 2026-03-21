@@ -1,4 +1,12 @@
-const API_BASE = 'https://your-app.vercel.app/api'
+const DEFAULT_API_BASE = 'https://your-app.vercel.app/api'
+
+async function getApiBase(): Promise<string> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['apiBase'], (result) => {
+      resolve((result.apiBase as string) || DEFAULT_API_BASE)
+    })
+  })
+}
 
 export interface SummarizeResponse {
   summary: string
@@ -6,7 +14,8 @@ export interface SummarizeResponse {
 }
 
 export async function summarizeUrl(url: string): Promise<SummarizeResponse> {
-  const response = await fetch(`${API_BASE}/summarize`, {
+  const apiBase = await getApiBase()
+  const response = await fetch(`${apiBase}/summarize`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -22,7 +31,8 @@ export async function summarizeUrl(url: string): Promise<SummarizeResponse> {
 }
 
 export async function translateText(text: string, targetLang: string = 'en'): Promise<string> {
-  const response = await fetch(`${API_BASE}/translate`, {
+  const apiBase = await getApiBase()
+  const response = await fetch(`${apiBase}/translate`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

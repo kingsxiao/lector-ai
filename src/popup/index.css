@@ -10,10 +10,17 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-body {
+html, body {
   margin: 0;
-  min-width: 320px;
-  min-height: 320px;
+  padding: 0;
+  background: transparent;
+  min-width: unset;
+  min-height: unset;
+}
+
+body {
+  min-width: unset;
+  min-height: unset;
 }
 
 #root {

@@ -1,8 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
-// OpenAI API call for summarization
-// Note: In production, use environment variables for API keys
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY
+// Gemini API call for summarization
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY
 
 interface SummarizeRequest {
   url?: string
@@ -39,53 +38,51 @@ export default async function handler(
         .replace(/<[^>]+>/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
-        .slice(0, 10000) // Limit content
+        .slice(0, 15000) // Limit content
     }
 
-    // Call OpenAI API for summarization
-    if (!OPENAI_API_KEY) {
+    // Call Gemini API for summarization
+    if (!GEMINI_API_KEY) {
       return res.status(500).json({ error: 'API key not configured' })
     }
 
-    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a helpful reading assistant. Summarize the following content in a concise way.
+    const systemPrompt = `You are a helpful reading assistant. Summarize the following content in a concise way.
             
 Your task:
 - Provide a clear, informative summary (3-5 sentences)
 - Extract 3-5 key points as bullet points
 - Keep the summary accessible to general readers
 
-Output format (ALWAYS use this exact format):
+Output format (ALWAYS use this exact JSON format):
 {"summary": "...", "keyPoints": ["point 1", "point 2", "point 3"]}`
-          },
-          {
-            role: 'user',
-            content: contentToSummarize?.slice(0, 15000) || ''
-          }
-        ],
-        max_tokens: 1000,
-        temperature: 0.7
+
+    const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ text: contentToSummarize?.slice(0, 20000) || '' }]
+        }],
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        generationConfig: {
+          temperature: 0.7,
+          responseMimeType: "application/json"
+        }
       })
     })
 
-    if (!openaiResponse.ok) {
-      const errorData = await openaiResponse.text()
-      console.error('OpenAI API error:', errorData)
+    if (!geminiResponse.ok) {
+      const errorData = await geminiResponse.text()
+      console.error('Gemini API error:', errorData)
       return res.status(500).json({ error: 'AI service error' })
     }
 
-    const data = await openaiResponse.json()
-    const content = data.choices?.[0]?.message?.content
+    const data = await geminiResponse.json()
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text
 
     if (!content) {
       return res.status(500).json({ error: 'No response from AI' })
