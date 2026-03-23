@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = 'https://your-app.vercel.app/api'
+const DEFAULT_API_BASE = 'https://lector-ai-two.vercel.app/api'
 
 async function getApiBase(): Promise<string> {
   return new Promise((resolve) => {
