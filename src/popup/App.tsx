@@ -73,14 +73,26 @@ function App() {
 
     setLoading(true)
     setError('')
-    setTranslatedResult('')
 
     try {
-      const result = await apiTranslateText(translateText, targetLang)
-      setTranslatedResult(result)
+      const currentApiBase = apiBase || 'https://lector-ai-two.vercel.app/api'
+      const response = await fetch(`${currentApiBase}/translate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: translateText, targetLang })
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || `Request failed: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      setTranslatedResult(data.translatedText || '')
       incrementUsage()
-    } catch {
-      setError('Failed to translate. Please try again.')
+    } catch (err) {
+      console.error('Translate error:', err)
+      setError(err instanceof Error ? err.message : 'Failed to translate. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -346,7 +358,9 @@ function App() {
 
       {/* Auth Modal */}
       {showAuth && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 backdrop-blur-sm">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 backdrop-blur-sm" onClick={(e) => {
+          if (e.target === e.currentTarget) setShowAuth(false)
+        }}>
           <div className="bg-white m-4 p-5 rounded-3xl shadow-2xl w-[320px]">
             <div className="flex justify-between items-center mb-5">
               <h2 className="text-lg font-bold text-gray-800">
@@ -411,7 +425,9 @@ function App() {
 
       {/* Settings Modal */}
       {showSettings && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 backdrop-blur-sm">
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 backdrop-blur-sm" onClick={(e) => {
+          if (e.target === e.currentTarget) setShowSettings(false)
+        }}>
           <div className="bg-white m-4 p-5 rounded-3xl shadow-2xl w-[320px]">
             <div className="flex justify-between items-center mb-5">
               <h2 className="text-lg font-bold text-gray-800">⚙️ Settings</h2>

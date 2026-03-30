@@ -1,4 +1,4 @@
-const API_BASE = 'https://your-app.vercel.app/api'
+const API_BASE = 'https://lector-ai-two.vercel.app/api'
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Lector AI installed')
@@ -53,17 +53,18 @@ async function handleSummarize(text: string) {
     })
     
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
+      const errorText = await response.text()
+      throw new Error(`HTTP error! status: ${response.status} - ${errorText}`)
     }
     
     return await response.json()
   } catch (error) {
     console.error('Summarize error:', error)
-    return { error: 'Failed to summarize' }
+    return { error: error instanceof Error ? error.message : 'Failed to summarize' }
   }
 }
 
-async function handleTranslate(text: string, targetLang: string = 'en') {
+async function handleTranslate(text: string, targetLang: string = '中文') {
   try {
     const response = await fetch(`${API_BASE}/translate`, {
       method: 'POST',
@@ -72,12 +73,13 @@ async function handleTranslate(text: string, targetLang: string = 'en') {
     })
     
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
+      const errorText = await response.text()
+      throw new Error(`HTTP error! status: ${response.status} - ${errorText}`)
     }
     
     return await response.json()
   } catch (error) {
     console.error('Translate error:', error)
-    return { error: 'Failed to translate' }
+    return { error: error instanceof Error ? error.message : 'Failed to translate' }
   }
 }

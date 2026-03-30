@@ -2,43 +2,81 @@ import { exec, spawn } from 'child_process'
 import { watch } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
+import readline from 'readline'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const rootDir = resolve(__dirname, '..')
 
-console.log('🚀 Starting Lector AI Extension Development...')
+console.log('🚀 Lector AI Extension - Development Mode')
 console.log('')
-console.log('Development mode:')
-console.log('  - Edit source files in src/')
-console.log('  - Changes auto-rebuild on save')
-console.log('  - Press r + Enter in this terminal to reload extension')
+console.log('Commands:')
+console.log('  r + Enter  - Rebuild extension')
+console.log('  p + Enter  - Open Chrome extensions page')
+console.log('  q + Enter  - Quit')
 console.log('')
 
+let buildProcess = null
 let building = false
 
 function build() {
   if (building) return
   building = true
   
-  console.log(`[${new Date().toLocaleTimeString()}] Building...`)
+  const timestamp = new Date().toLocaleTimeString()
+  console.log(`[${timestamp}] 🔄 Building...`)
   
-  const build = spawn('npm', ['run', 'build:extension'], {
+  buildProcess = spawn('npm', ['run', 'build:extension'], {
     cwd: rootDir,
-    shell: true,
-    stdio: 'inherit'
+    shell: true
   })
   
-  build.on('close', () => {
+  buildProcess.stdout.on('data', (data) => {
+    process.stdout.write(data)
+  })
+  
+  buildProcess.stderr.on('data', (data) => {
+    process.stderr.write(data)
+  })
+  
+  buildProcess.on('close', (code) => {
     building = false
-    console.log(`[${new Date().toLocaleTimeString()}] Build complete! Reload extension in Chrome.`)
+    if (code === 0) {
+      console.log('')
+      console.log(`[${new Date().toLocaleTimeString()}] ✅ Build complete!`)
+      console.log('   → Reload the extension in Chrome to see changes')
+      console.log('   → Press r + Enter to rebuild after changes')
+      console.log('')
+    }
   })
 }
 
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+})
+
+rl.on('line', (input) => {
+  const cmd = input.trim().toLowerCase()
+  
+  if (cmd === 'r') {
+    build()
+  } else if (cmd === 'p') {
+    exec('open "https://chrome.google.com/webstore/devconsole"')
+  } else if (cmd === 'q') {
+    console.log('👋 Goodbye!')
+    process.exit(0)
+  }
+})
+
+console.log('👀 Watching for changes...')
 build()
 
-process.stdin.on('data', (data) => {
-  const input = data.toString().trim()
-  if (input === 'r') {
-    build()
+const srcDir = resolve(rootDir, 'src')
+const watchExtensions = ['.ts', '.tsx', '.css', '.json']
+
+watch(srcDir, { recursive: true }, (eventType, filename) => {
+  if (filename && watchExtensions.some(ext => filename.endsWith(ext))) {
+    console.log(`[${new Date().toLocaleTimeString()}] 📝 Changed: ${filename}`)
+    console.log('   Press r + Enter to rebuild')
   }
 })
