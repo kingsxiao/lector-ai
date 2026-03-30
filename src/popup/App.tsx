@@ -451,7 +451,7 @@ function App() {
       )}
 
       <div className="px-6 py-3 flex items-center justify-between text-[10px] text-gray-400">
-        <span>Powered by Gemini</span>
+        <span>Powered by OpenRouter</span>
         <span>v0.1.0</span>
       </div>
     </div>
