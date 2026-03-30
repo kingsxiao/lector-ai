@@ -1,7 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="f56b98bc-f5e9-404d-80dc-5142dab1f4ad" name="Changes" comment="" />
+    <list default="true" id="f56b98bc-f5e9-404d-80dc-5142dab1f4ad" name="Changes" comment="chore(deps): 更新开发依赖包以支持新的构建工具链&#10;&#10;- 添加 @bytecodealliance/preview2-shim 用于 WebAssembly 预览功能&#10;- 集成 @edge-runtime 相关包以支持边缘运行时环境&#10;- 添加 @fastify/busboy 用于处理 multipart/form-data 请求&#10;- 引入 @isaacs 相关包改进文件系统操作和匹配功能&#10;- 集成 @mapbox/node-pre-gyp 用于预编译二进制模块管理&#10;- 添加 @renovatebot/pep440 用于 Python 版本规范解析&#10;- 集成 @rollup/pluginutils 用于 Rollup 插件开发工具&#10;- 添加 @ts-morph/common 用于 TypeScript 抽象语法树操作&#10;- 引入 @types/json-schema 类型定义&#10;- 集成 @vercel 相关构建工具链支持&#10;- 添加 acorn 和相关解析器用于 JavaScript 代码分析&#10;- 集成 async-listen 和 async-sema 用于异步操作管理&#10;- 添加 bindings 模块用于 Node.js 原生插件绑定&#10;- 集成 cjs-module-lexer 用于 CommonJS 模块解析">
+      <change afterPath="$PROJECT_DIR$/api/auth/login.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/api/auth/me.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/api/auth/register.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/api/subscription/create.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/api/webhook/lemonsqueezy.ts" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/assets/popup-CIW8SZPI.css" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/popup.js" beforeDir="false" afterPath="$PROJECT_DIR$/dist/popup.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/popup/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/dist/popup/index.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/popup/App.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/popup/App.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/shared/store.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/shared/store.ts" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -10,9 +21,9 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 6
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 6
+}</component>
   <component name="ProjectId" id="3BARuQpcNE4JTuy3yAon8Qx911p" />
   <component name="ProjectViewState">
     <option name="autoscrollToSource" value="true" />
@@ -24,11 +35,13 @@
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
     "git-widget-placeholder": "main",
     "javascript.preferred.runtime.type.id": "node",
     "last_opened_file_path": "/Users/wangxiao/WebstormProjects/lector-ai",
     "nodejs_package_manager_path": "npm",
+    "settings.editor.selected.configurable": "通义灵码",
     "ts.external.directory.path": "/Users/wangxiao/WebstormProjects/lector-ai/node_modules/typescript/lib",
     "vue.rearranger.settings.migration": "true"
   }
@@ -48,10 +61,37 @@
       <option name="presentableId" value="Default" />
       <updated>1773930110195</updated>
       <workItem from="1773930111517" duration="2643000" />
+      <workItem from="1774109137402" duration="202000" />
+      <workItem from="1774110190755" duration="233000" />
+      <workItem from="1774110443543" duration="329000" />
+      <workItem from="1774269774249" duration="28000" />
+      <workItem from="1774270003720" duration="114000" />
+      <workItem from="1774360007442" duration="571000" />
     </task>
+    <task id="LOCAL-00001" summary="chore(deps): 更新开发依赖包以支持新的构建工具链&#10;&#10;- 添加 @bytecodealliance/preview2-shim 用于 WebAssembly 预览功能&#10;- 集成 @edge-runtime 相关包以支持边缘运行时环境&#10;- 添加 @fastify/busboy 用于处理 multipart/form-data 请求&#10;- 引入 @isaacs 相关包改进文件系统操作和匹配功能&#10;- 集成 @mapbox/node-pre-gyp 用于预编译二进制模块管理&#10;- 添加 @renovatebot/pep440 用于 Python 版本规范解析&#10;- 集成 @rollup/pluginutils 用于 Rollup 插件开发工具&#10;- 添加 @ts-morph/common 用于 TypeScript 抽象语法树操作&#10;- 引入 @types/json-schema 类型定义&#10;- 集成 @vercel 相关构建工具链支持&#10;- 添加 acorn 和相关解析器用于 JavaScript 代码分析&#10;- 集成 async-listen 和 async-sema 用于异步操作管理&#10;- 添加 bindings 模块用于 Node.js 原生插件绑定&#10;- 集成 cjs-module-lexer 用于 CommonJS 模块解析">
+      <option name="closed" value="true" />
+      <created>1774109180175</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1774109180175</updated>
+    </task>
+    <task id="LOCAL-00002" summary="chore(deps): 更新开发依赖包以支持新的构建工具链&#10;&#10;- 添加 @bytecodealliance/preview2-shim 用于 WebAssembly 预览功能&#10;- 集成 @edge-runtime 相关包以支持边缘运行时环境&#10;- 添加 @fastify/busboy 用于处理 multipart/form-data 请求&#10;- 引入 @isaacs 相关包改进文件系统操作和匹配功能&#10;- 集成 @mapbox/node-pre-gyp 用于预编译二进制模块管理&#10;- 添加 @renovatebot/pep440 用于 Python 版本规范解析&#10;- 集成 @rollup/pluginutils 用于 Rollup 插件开发工具&#10;- 添加 @ts-morph/common 用于 TypeScript 抽象语法树操作&#10;- 引入 @types/json-schema 类型定义&#10;- 集成 @vercel 相关构建工具链支持&#10;- 添加 acorn 和相关解析器用于 JavaScript 代码分析&#10;- 集成 async-listen 和 async-sema 用于异步操作管理&#10;- 添加 bindings 模块用于 Node.js 原生插件绑定&#10;- 集成 cjs-module-lexer 用于 CommonJS 模块解析">
+      <option name="closed" value="true" />
+      <created>1774270044560</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1774270044560</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="chore(deps): 更新开发依赖包以支持新的构建工具链&#10;&#10;- 添加 @bytecodealliance/preview2-shim 用于 WebAssembly 预览功能&#10;- 集成 @edge-runtime 相关包以支持边缘运行时环境&#10;- 添加 @fastify/busboy 用于处理 multipart/form-data 请求&#10;- 引入 @isaacs 相关包改进文件系统操作和匹配功能&#10;- 集成 @mapbox/node-pre-gyp 用于预编译二进制模块管理&#10;- 添加 @renovatebot/pep440 用于 Python 版本规范解析&#10;- 集成 @rollup/pluginutils 用于 Rollup 插件开发工具&#10;- 添加 @ts-morph/common 用于 TypeScript 抽象语法树操作&#10;- 引入 @types/json-schema 类型定义&#10;- 集成 @vercel 相关构建工具链支持&#10;- 添加 acorn 和相关解析器用于 JavaScript 代码分析&#10;- 集成 async-listen 和 async-sema 用于异步操作管理&#10;- 添加 bindings 模块用于 Node.js 原生插件绑定&#10;- 集成 cjs-module-lexer 用于 CommonJS 模块解析" />
+    <option name="LAST_COMMIT_MESSAGE" value="chore(deps): 更新开发依赖包以支持新的构建工具链&#10;&#10;- 添加 @bytecodealliance/preview2-shim 用于 WebAssembly 预览功能&#10;- 集成 @edge-runtime 相关包以支持边缘运行时环境&#10;- 添加 @fastify/busboy 用于处理 multipart/form-data 请求&#10;- 引入 @isaacs 相关包改进文件系统操作和匹配功能&#10;- 集成 @mapbox/node-pre-gyp 用于预编译二进制模块管理&#10;- 添加 @renovatebot/pep440 用于 Python 版本规范解析&#10;- 集成 @rollup/pluginutils 用于 Rollup 插件开发工具&#10;- 添加 @ts-morph/common 用于 TypeScript 抽象语法树操作&#10;- 引入 @types/json-schema 类型定义&#10;- 集成 @vercel 相关构建工具链支持&#10;- 添加 acorn 和相关解析器用于 JavaScript 代码分析&#10;- 集成 async-listen 和 async-sema 用于异步操作管理&#10;- 添加 bindings 模块用于 Node.js 原生插件绑定&#10;- 集成 cjs-module-lexer 用于 CommonJS 模块解析" />
   </component>
 </project>
