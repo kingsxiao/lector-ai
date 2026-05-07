@@ -1,8 +1,46 @@
-console.log('🎓 Lector AI Content Script loaded on:', window.location.hostname)
+console.log('Lector AI Content Script loaded on:', window.location.hostname)
 
 let selectionToolbar: HTMLElement | null = null
 let resultPopup: HTMLElement | null = null
 let loadingPopup: HTMLElement | null = null
+
+function injectStyles() {
+  if (document.getElementById('lector-ai-styles')) return
+
+  const style = document.createElement('style')
+  style.id = 'lector-ai-styles'
+  style.textContent = `
+    @keyframes lectorFadeIn {
+      from { opacity: 0; transform: translateY(-5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes lectorSpin {
+      to { transform: rotate(360deg); }
+    }
+    #lector-ai-toolbar button {
+      padding: 6px 12px; border: none; border-radius: 6px;
+      font-size: 12px; font-weight: 600; cursor: pointer;
+      transition: all 0.15s ease; display: flex; align-items: center; gap: 4px;
+    }
+    #lector-ai-toolbar .translate-btn { background: white; color: #667eea; }
+    #lector-ai-toolbar .translate-btn:hover { background: #f8fafc; transform: scale(1.05); }
+    #lector-ai-toolbar .summary-btn { background: rgba(255,255,255,0.2); color: white; }
+    #lector-ai-toolbar .summary-btn:hover { background: rgba(255,255,255,0.3); transform: scale(1.05); }
+    #lector-ai-toolbar .close-btn { background: rgba(255,255,255,0.1); color: white; padding: 6px 8px; }
+    #lector-ai-toolbar .close-btn:hover { background: rgba(255,255,255,0.25); }
+    #lector-ai-result .result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid #e2e8f0; }
+    #lector-ai-result .result-title { font-size: 13px; font-weight: 700; color: #667eea; display: flex; align-items: center; gap: 6px; }
+    #lector-ai-result .result-content { font-size: 13px; line-height: 1.7; color: #334155; white-space: pre-wrap; word-break: break-word; }
+    #lector-ai-result .action-btn { flex: 1; padding: 8px 12px; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s ease; }
+    #lector-ai-result .action-btn.primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+    #lector-ai-result .action-btn.primary:hover { transform: scale(1.02); box-shadow: 0 4px 12px rgba(102,126,234,0.3); }
+    #lector-ai-result .copy-btn { flex: 1; padding: 8px 12px; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; background: #f1f5f9; color: #64748b; cursor: pointer; transition: all 0.15s ease; }
+    #lector-ai-result .copy-btn:hover { background: #e2e8f0; }
+  `
+  document.head.appendChild(style)
+}
+
+injectStyles()
 
 function createToolbar(x: number, y: number, text: string) {
   removeToolbar()
@@ -23,52 +61,7 @@ function createToolbar(x: number, y: number, text: string) {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     animation: lectorFadeIn 0.2s ease-out;
   `
-  
-  const style = document.createElement('style')
-  style.textContent = `
-    @keyframes lectorFadeIn {
-      from { opacity: 0; transform: translateY(-5px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    #lector-ai-toolbar button {
-      padding: 6px 12px;
-      border: none;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-    #lector-ai-toolbar .translate-btn {
-      background: white;
-      color: #667eea;
-    }
-    #lector-ai-toolbar .translate-btn:hover {
-      background: #f8fafc;
-      transform: scale(1.05);
-    }
-    #lector-ai-toolbar .summary-btn {
-      background: rgba(255, 255, 255, 0.2);
-      color: white;
-    }
-    #lector-ai-toolbar .summary-btn:hover {
-      background: rgba(255, 255, 255, 0.3);
-      transform: scale(1.05);
-    }
-    #lector-ai-toolbar .close-btn {
-      background: rgba(255, 255, 255, 0.1);
-      color: white;
-      padding: 6px 8px;
-    }
-    #lector-ai-toolbar .close-btn:hover {
-      background: rgba(255, 255, 255, 0.25);
-    }
-  `
-  document.head.appendChild(style)
-  
+
   const translateBtn = document.createElement('button')
   translateBtn.className = 'translate-btn'
   translateBtn.innerHTML = '🌐 翻译'
@@ -144,15 +137,7 @@ function showLoading(x: number, y: number) {
     border-radius: 50%;
     animation: lectorSpin 0.8s linear infinite;
   `
-  
-  const spinnerStyle = document.createElement('style')
-  spinnerStyle.textContent = `
-    @keyframes lectorSpin {
-      to { transform: rotate(360deg); }
-    }
-  `
-  document.head.appendChild(spinnerStyle)
-  
+
   const text = document.createElement('span')
   text.textContent = 'AI 处理中...'
   
@@ -191,71 +176,6 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     animation: lectorFadeIn 0.25s ease-out;
   `
-  
-  const style = document.createElement('style')
-  style.textContent = `
-    @keyframes lectorFadeIn {
-      from { opacity: 0; transform: translateY(-10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    #lector-ai-result .result-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 12px;
-      padding-bottom: 10px;
-      border-bottom: 1px solid #e2e8f0;
-    }
-    #lector-ai-result .result-title {
-      font-size: 13px;
-      font-weight: 700;
-      color: #667eea;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    #lector-ai-result .result-content {
-      font-size: 13px;
-      line-height: 1.7;
-      color: #334155;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    #lector-ai-result .action-btn {
-      flex: 1;
-      padding: 8px 12px;
-      border: none;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-    #lector-ai-result .action-btn.primary {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-    }
-    #lector-ai-result .action-btn.primary:hover {
-      transform: scale(1.02);
-      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-    }
-    #lector-ai-result .copy-btn {
-      flex: 1;
-      padding: 8px 12px;
-      border: none;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 600;
-      background: #f1f5f9;
-      color: #64748b;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-    #lector-ai-result .copy-btn:hover {
-      background: #e2e8f0;
-    }
-  `
-  document.head.appendChild(style)
   
   const header = document.createElement('div')
   header.className = 'result-header'
@@ -334,31 +254,32 @@ function handleClickOutside(e: MouseEvent) {
 function handleTranslate(text: string) {
   if (typeof chrome === 'undefined' || !chrome.runtime) {
     console.error('Chrome runtime not available')
-    alert('扩展未正确加载，请刷新页面')
     return
   }
-  
+
   const rect = selectionToolbar?.getBoundingClientRect()
   showLoading(rect?.left || 100, rect?.top || 100)
-  
+
   chrome.runtime.sendMessage(
     { action: 'translate', text, targetLang: '中文' },
     (response) => {
       try {
         removeLoading()
-        
+
         if (chrome.runtime.lastError) {
-          console.error('❌ Runtime error:', chrome.runtime.lastError)
-          alert('扩展已更新，请刷新页面重试')
+          console.error('Runtime error:', chrome.runtime.lastError)
+          const errRect = selectionToolbar?.getBoundingClientRect()
+          showResult(errRect?.left || 100, errRect?.top || 100, '扩展已更新，请刷新页面重试', 'translate')
           return
         }
-        
+
         if (response && response.error) {
-          console.error('❌ Translate error:', response.error)
-          alert(`翻译失败: ${response.error}`)
+          console.error('Translate error:', response.error)
+          const errRect = selectionToolbar?.getBoundingClientRect()
+          showResult(errRect?.left || 100, errRect?.top || 100, `翻译失败: ${response.error}`, 'translate')
           return
         }
-        
+
         const resultRect = selectionToolbar?.getBoundingClientRect()
         showResult(
           resultRect?.left || 100,
@@ -367,7 +288,7 @@ function handleTranslate(text: string) {
           'translate'
         )
       } catch (e) {
-        console.error('❌ Error in translate callback:', e)
+        console.error('Error in translate callback:', e)
         removeLoading()
       }
     }
@@ -377,31 +298,32 @@ function handleTranslate(text: string) {
 function handleSummarize(text: string) {
   if (typeof chrome === 'undefined' || !chrome.runtime) {
     console.error('Chrome runtime not available')
-    alert('扩展未正确加载，请刷新页面')
     return
   }
-  
+
   const rect = selectionToolbar?.getBoundingClientRect()
   showLoading(rect?.left || 100, rect?.top || 100)
-  
+
   chrome.runtime.sendMessage(
     { action: 'summarize', text },
     (response) => {
       try {
         removeLoading()
-        
+
         if (chrome.runtime.lastError) {
-          console.error('❌ Runtime error:', chrome.runtime.lastError)
-          alert('扩展已更新，请刷新页面重试')
+          console.error('Runtime error:', chrome.runtime.lastError)
+          const errRect = selectionToolbar?.getBoundingClientRect()
+          showResult(errRect?.left || 100, errRect?.top || 100, '扩展已更新，请刷新页面重试', 'summary')
           return
         }
-        
+
         if (response && response.error) {
-          console.error('❌ Summary error:', response.error)
-          alert(`摘要失败: ${response.error}`)
+          console.error('Summary error:', response.error)
+          const errRect = selectionToolbar?.getBoundingClientRect()
+          showResult(errRect?.left || 100, errRect?.top || 100, `摘要失败: ${response.error}`, 'summary')
           return
         }
-        
+
         const result = response?.summary || '暂无摘要'
         const resultRect = selectionToolbar?.getBoundingClientRect()
         showResult(
@@ -411,7 +333,7 @@ function handleSummarize(text: string) {
           'summary'
         )
       } catch (e) {
-        console.error('❌ Error in summary callback:', e)
+        console.error('Error in summary callback:', e)
         removeLoading()
       }
     }

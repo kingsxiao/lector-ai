@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { DEFAULT_API_BASE } from './config'
 
 interface User {
   id: string
@@ -35,15 +36,6 @@ export const useStore = create<AppState>()(
       
       setUser: (user, accessToken = null) => {
         set({ user, accessToken })
-        // 保存到 chrome storage
-        if (user) {
-          chrome.storage.local.set({ 
-            user: JSON.stringify(user),
-            accessToken 
-          })
-        } else {
-          chrome.storage.local.remove(['user', 'accessToken'])
-        }
       },
       
       setPro: (value: boolean) => set({ isPro: value }),
@@ -59,7 +51,6 @@ export const useStore = create<AppState>()(
       
       logout: () => {
         set({ user: null, accessToken: null, isPro: false, usageCount: 0 })
-        chrome.storage.local.remove(['user', 'accessToken'])
       }
     }),
     {
@@ -80,14 +71,14 @@ export async function initializeStore() {
     chrome.storage.local.get(['user', 'accessToken'], async (result) => {
       if (result.user) {
         try {
-          const user = JSON.parse(result.user)
+          const user = JSON.parse(result.user as string)
           const store = useStore.getState()
-          store.setUser(user, result.accessToken)
+          store.setUser(user, result.accessToken as string | undefined)
           
           // 验证 token 是否有效
           if (result.accessToken) {
             try {
-              const response = await fetch(`${import.meta.env.VITE_API_BASE || 'https://your-app.vercel.app/api'}/auth/me`, {
+              const response = await fetch(`${DEFAULT_API_BASE}/auth/me`, {
                 headers: {
                   'Authorization': `Bearer ${result.accessToken}`
                 }

@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
-import { summarizeUrl, translateText as apiTranslateText } from '../shared/api'
+import { summarizeUrl, translateText } from '../shared/api'
 import { useStore } from '../shared/store'
+import { getApiBase } from '../shared/config'
 
-const API_BASE = 'https://lector-ai-two.vercel.app/api'
 const FREE_LIMIT = 5
 
 function App() {
@@ -18,19 +18,14 @@ function App() {
   const [authPassword, setAuthPassword] = useState('')
   const [authError, setAuthError] = useState('')
   const [authLoading, setAuthLoading] = useState(false)
-  const [apiBase, setApiBase] = useState('https://lector-ai-two.vercel.app/api')
   const [activeTab, setActiveTab] = useState<'summarize' | 'translate'>('summarize')
-  const [translateText, setTranslateText] = useState('')
+  const [translateTextInput, setTranslateTextInput] = useState('')
   const [translatedResult, setTranslatedResult] = useState('')
   const [targetLang, setTargetLang] = useState('English')
   
   const { user, accessToken, isPro, usageCount, incrementUsage, setUser, setPro, logout } = useStore()
 
   useEffect(() => {
-    chrome.storage.local.get(['apiBase'], (result) => {
-      if (result.apiBase) setApiBase(result.apiBase as string)
-    })
-
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0] && tabs[0].url) {
         if (!tabs[0].url.startsWith('chrome://') && !tabs[0].url.startsWith('edge://')) {
@@ -65,7 +60,7 @@ function App() {
   }
 
   const handleTranslate = async () => {
-    if (!translateText.trim()) return
+    if (!translateTextInput.trim()) return
     if (!isPro && usageCount >= FREE_LIMIT) {
       setError('Daily limit reached. Sign in for more free uses, or upgrade to Pro!')
       return
@@ -75,23 +70,10 @@ function App() {
     setError('')
 
     try {
-      const currentApiBase = apiBase || 'https://lector-ai-two.vercel.app/api'
-      const response = await fetch(`${currentApiBase}/translate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: translateText, targetLang })
-      })
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error || `Request failed: ${response.status}`)
-      }
-      
-      const data = await response.json()
-      setTranslatedResult(data.translatedText || '')
+      const result = await translateText(translateTextInput, targetLang)
+      setTranslatedResult(result)
       incrementUsage()
     } catch (err) {
-      console.error('Translate error:', err)
       setError(err instanceof Error ? err.message : 'Failed to translate. Please try again.')
     } finally {
       setLoading(false)
@@ -104,11 +86,10 @@ function App() {
     setAuthLoading(true)
 
     const endpoint = authMode === 'login' ? '/auth/login' : '/auth/register'
-    const payload = authMode === 'login' 
-      ? { email: authEmail, password: authPassword }
-      : { email: authEmail, password: authPassword }
+    const payload = { email: authEmail, password: authPassword }
 
     try {
+      const apiBase = await getApiBase()
       const response = await fetch(`${apiBase}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -142,6 +123,7 @@ function App() {
 
   const checkProStatus = async (token: string) => {
     try {
+      const apiBase = await getApiBase()
       const response = await fetch(`${apiBase}/auth/me`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
@@ -162,6 +144,7 @@ function App() {
     }
 
     try {
+      const apiBase = await getApiBase()
       const response = await fetch(`${apiBase}/subscription/create`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -264,8 +247,8 @@ function App() {
         ) : (
           <div className="space-y-3">
             <textarea
-              value={translateText}
-              onChange={(e) => setTranslateText(e.target.value)}
+              value={translateTextInput}
+              onChange={(e) => setTranslateTextInput(e.target.value)}
               placeholder="Enter text to translate..."
               rows={4}
               className="w-full px-4 py-3 bg-gray-50 border-2 border-transparent rounded-xl text-sm resize-none focus:outline-none focus:border-blue-400 focus:bg-white transition-all"
@@ -279,7 +262,7 @@ function App() {
             </select>
             <button 
               onClick={handleTranslate}
-              disabled={loading || !translateText.trim()}
+              disabled={loading || !translateTextInput.trim()}
               className="w-full py-3.5 px-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl text-sm font-semibold hover:from-blue-600 hover:to-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 flex items-center justify-center gap-2"
             >
               {loading ? (

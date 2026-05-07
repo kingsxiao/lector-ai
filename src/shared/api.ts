@@ -1,12 +1,4 @@
-const DEFAULT_API_BASE = 'https://lector-ai-two.vercel.app/api'
-
-async function getApiBase(): Promise<string> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['apiBase'], (result) => {
-      resolve((result.apiBase as string) || DEFAULT_API_BASE)
-    })
-  })
-}
+import { getApiBase } from './config'
 
 export interface SummarizeResponse {
   summary: string
@@ -17,10 +9,23 @@ export async function summarizeUrl(url: string): Promise<SummarizeResponse> {
   const apiBase = await getApiBase()
   const response = await fetch(`${apiBase}/summarize`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url }),
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to summarize')
+  }
+
+  return response.json()
+}
+
+export async function summarizeText(text: string): Promise<SummarizeResponse> {
+  const apiBase = await getApiBase()
+  const response = await fetch(`${apiBase}/summarize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
   })
 
   if (!response.ok) {
@@ -34,9 +39,7 @@ export async function translateText(text: string, targetLang: string = 'en'): Pr
   const apiBase = await getApiBase()
   const response = await fetch(`${apiBase}/translate`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, targetLang }),
   })
 

@@ -1,4 +1,4 @@
-const API_BASE = 'https://lector-ai-two.vercel.app/api'
+import { getApiBase } from './shared/config'
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Lector AI installed')
@@ -46,7 +46,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function handleSummarize(text: string) {
   try {
-    const response = await fetch(`${API_BASE}/summarize`, {
+    const apiBase = await getApiBase()
+    const response = await fetch(`${apiBase}/summarize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text })
@@ -66,7 +67,8 @@ async function handleSummarize(text: string) {
 
 async function handleTranslate(text: string, targetLang: string = '中文') {
   try {
-    const response = await fetch(`${API_BASE}/translate`, {
+    const apiBase = await getApiBase()
+    const response = await fetch(`${apiBase}/translate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, targetLang })

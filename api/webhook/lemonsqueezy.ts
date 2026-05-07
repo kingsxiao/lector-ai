@@ -1,15 +1,22 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import crypto from 'crypto'
 
 const LEMONSQUEEZY_WEBHOOK_SECRET = process.env.LEMONSQUEEZY_WEBHOOK_SECRET
 
 function verifySignature(payload: string, signature: string): boolean {
   if (!LEMONSQUEEZY_WEBHOOK_SECRET) return false
-  
-  const crypto = require('crypto')
+
   const hmac = crypto.createHmac('sha256', LEMONSQUEEZY_WEBHOOK_SECRET)
   const digest = hmac.update(payload).digest('hex')
-  
-  return digest === signature
+
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(digest, 'hex'),
+      Buffer.from(signature, 'hex')
+    )
+  } catch {
+    return false
+  }
 }
 
 export default async function handler(
