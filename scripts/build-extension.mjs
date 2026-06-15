@@ -42,13 +42,24 @@ if (existsSync(contentCssSrc)) {
   copyFileSync(contentCssSrc, contentCssDest)
 }
 
-// Rename popup/index.html to just index.html in dist
-const popupHtmlSrc = resolve(distDir, 'src/popup/index.html')
-const popupHtmlDest = resolve(distDir, 'popup/index.html')
-if (existsSync(popupHtmlSrc)) {
-  mkdirSync(resolve(distDir, 'popup'), { recursive: true })
-  cpSync(popupHtmlSrc, popupHtmlDest)
-  rmSync(resolve(distDir, 'src'), { recursive: true })
+// Vite emits each HTML entry under src/<entry>/index.html. Relocate them to
+// the dist root so the manifest paths resolve correctly.
+function relocateHtml(entryName) {
+  const src = resolve(distDir, 'src', entryName, 'index.html')
+  const destDir = resolve(distDir, entryName)
+  if (existsSync(src)) {
+    mkdirSync(destDir, { recursive: true })
+    cpSync(src, resolve(destDir, 'index.html'))
+  }
+}
+
+relocateHtml('popup')
+relocateHtml('sidepanel')
+
+// Remove the leftover src/ tree Vite produced.
+const leftoverSrc = resolve(distDir, 'src')
+if (existsSync(leftoverSrc)) {
+  rmSync(leftoverSrc, { recursive: true })
 }
 
 console.log('✅ Extension built successfully!')

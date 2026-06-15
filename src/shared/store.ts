@@ -7,22 +7,44 @@ interface User {
   email: string
 }
 
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ChatSession {
+  id: string
+  title: string
+  url: string
+  createdAt: number
+  messages: ChatMessage[]
+}
+
 interface AppState {
-  // 用户认证
+  // Auth
   user: User | null
   accessToken: string | null
   isPro: boolean
   isLoading: boolean
-  
-  // 用量
+
+  // Usage (UI hint only; server is source of truth)
   usageCount: number
-  
-  // 操作
+
+  // Reading library — chat sessions keyed by id, newest-first.
+  sessions: ChatSession[]
+
+  // Actions
   setUser: (user: User | null, accessToken?: string | null) => void
   setPro: (value: boolean) => void
   setLoading: (value: boolean) => void
   incrementUsage: () => void
   logout: () => void
+
+  addSession: (session: ChatSession) => void
+  updateSession: (id: string, patch: Partial<ChatSession>) => void
+  removeSession: (id: string) => void
+  clearSessions: () => void
 }
 
 export const useStore = create<AppState>()(
@@ -33,25 +55,27 @@ export const useStore = create<AppState>()(
       isPro: false,
       isLoading: false,
       usageCount: 0,
-      
-      setUser: (user, accessToken = null) => {
-        set({ user, accessToken })
-      },
-      
+      sessions: [],
+
+      setUser: (user, accessToken = null) => set({ user, accessToken }),
       setPro: (value: boolean) => set({ isPro: value }),
-      
       setLoading: (value: boolean) => set({ isLoading: value }),
-      
       incrementUsage: () => {
         const state = get()
-        // Pro 用户不限制用量
         if (state.isPro) return
-        set((state) => ({ usageCount: state.usageCount + 1 }))
+        set((s) => ({ usageCount: s.usageCount + 1 }))
       },
-      
-      logout: () => {
-        set({ user: null, accessToken: null, isPro: false, usageCount: 0 })
-      }
+      logout: () => set({ user: null, accessToken: null, isPro: false, usageCount: 0 }),
+
+      addSession: (session) =>
+        set((s) => ({ sessions: [session, ...s.sessions].slice(0, 50) })),
+      updateSession: (id, patch) =>
+        set((s) => ({
+          sessions: s.sessions.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+        })),
+      removeSession: (id) =>
+        set((s) => ({ sessions: s.sessions.filter((x) => x.id !== id) })),
+      clearSessions: () => set({ sessions: [] }),
     }),
     {
       name: 'lector-ai-storage',
@@ -60,12 +84,13 @@ export const useStore = create<AppState>()(
         accessToken: state.accessToken,
         isPro: state.isPro,
         usageCount: state.usageCount,
+        sessions: state.sessions,
       }),
     }
   )
 )
 
-// 初始化时从 chrome storage 恢复状态
+// Initialize from chrome storage on popup load and verify the token.
 export async function initializeStore() {
   return new Promise<void>((resolve) => {
     chrome.storage.local.get(['user', 'accessToken'], async (result) => {
@@ -74,21 +99,16 @@ export async function initializeStore() {
           const user = JSON.parse(result.user as string)
           const store = useStore.getState()
           store.setUser(user, result.accessToken as string | undefined)
-          
-          // 验证 token 是否有效
+
           if (result.accessToken) {
             try {
               const response = await fetch(`${DEFAULT_API_BASE}/auth/me`, {
-                headers: {
-                  'Authorization': `Bearer ${result.accessToken}`
-                }
+                headers: { Authorization: `Bearer ${result.accessToken}` },
               })
-              
               if (response.ok) {
                 const data = await response.json()
                 store.setPro(data.isPro || false)
               } else {
-                // Token 无效，清除登录状态
                 store.logout()
               }
             } catch (e) {
