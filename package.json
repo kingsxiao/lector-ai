@@ -8,7 +8,10 @@
     "dev:extension": "node scripts/dev-extension.mjs",
     "build": "vite build",
     "build:extension": "node scripts/build-extension.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -17,15 +20,18 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.1.38",
+    "@types/jsdom": "^28.0.3",
     "@types/node": "^22.19.15",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vercel/node": "^5.6.18",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
+    "jsdom": "^25.0.1",
     "postcss": "^8.4.40",
     "tailwindcss": "^3.4.7",
     "typescript": "~5.5.3",
-    "vite": "^5.3.5"
+    "vite": "^5.3.5",
+    "vitest": "^2.1.9"
   }
 }
