@@ -2,12 +2,19 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useStore, type ChatMessage, type ChatSession } from '../shared/store'
 import { getApiBase } from '../shared/config'
 import { renderMarkdown } from './markdown'
+import { renderCitations, type PageBlock } from '../shared/citations'
+import { isDue } from '../shared/srs'
+import { toMarkdown } from '../shared/exporters'
+import type { Highlight } from '../shared/highlights'
+import type { VocabEntry } from '../shared/vocabulary'
+import { scheduleSrs, type Grade } from '../shared/srs'
 
 interface PageContext {
   title: string
   url: string
   text: string
   lang: string
+  blocks: PageBlock[]
 }
 
 interface StreamState {
@@ -40,6 +47,11 @@ export default function App() {
     setPro,
     setUser,
   } = useStore()
+  const highlights = useStore((s) => s.highlights)
+  const vocab = useStore((s) => s.vocab)
+  const addHighlight = useStore((s) => s.addHighlight)
+  const removeHighlight = useStore((s) => s.removeHighlight)
+  const updateVocabSrs = useStore((s) => s.updateVocabSrs)
 
   const [page, setPage] = useState<PageContext | null>(null)
   const [input, setInput] = useState('')
@@ -48,6 +60,9 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [showLibrary, setShowLibrary] = useState(false)
+  const [showHighlights, setShowHighlights] = useState(false)
+  const [showVocab, setShowVocab] = useState(false)
+  const [revealed, setRevealed] = useState<string | null>(null)
   const [showAuth, setShowAuth] = useState(false)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [authEmail, setAuthEmail] = useState('')
@@ -57,6 +72,9 @@ export default function App() {
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const assistantBuf = useRef<string>('')
+
+  // Valid citation ids = the current page's block ids. Used to whitelist chips.
+  const validCiteIds = new Set((page?.blocks ?? []).map((b) => b.id))
 
   // Load page context + any seed from the content script.
   useEffect(() => {
@@ -116,6 +134,33 @@ export default function App() {
     })()
   }, [setPro, setUser])
 
+  // Sync knowledge captured by the content→background relay (chrome.storage)
+  // into the zustand store so the Highlights / Vocab drawers stay live.
+  useEffect(() => {
+    const onStorage = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      area: string
+    ) => {
+      if (area !== 'local') return
+      if (changes.lectorHighlights) {
+        const list = (changes.lectorHighlights.newValue as unknown as Highlight[]) || []
+        for (const h of list) addHighlight(h)
+        // Drain the relay queue so we don't re-add on every change.
+        chrome.storage.local.remove('lectorHighlights')
+      }
+      if (changes.lectorVocab) {
+        // Vocab entries arrive with full SRS state from the background relay.
+        const list = (changes.lectorVocab.newValue as unknown as VocabEntry[]) || []
+        // Merge each into the store via addVocab (dedupe + preserve srs).
+        const addVocab = useStore.getState().addVocab
+        for (const v of list) addVocab(v)
+        chrome.storage.local.remove('lectorVocab')
+      }
+    }
+    chrome.storage.onChanged.addListener(onStorage)
+    return () => chrome.storage.onChanged.removeListener(onStorage)
+  }, [addHighlight])
+
   // Autoscroll on new tokens.
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
@@ -152,6 +197,7 @@ export default function App() {
             message: text,
             pageContent: page?.text,
             pageMetadata: { url: page?.url, title: page?.title },
+            pageBlocks: page?.blocks,
             history,
           }),
         })
@@ -255,6 +301,21 @@ export default function App() {
     setShowLibrary(false)
   }
 
+  const downloadMarkdown = (hs: Highlight[]) => {
+    const md = toMarkdown(hs)
+    const blob = new Blob([md], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'lector-highlights.md'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const gradeVocab = (v: VocabEntry, grade: Grade) => {
+    updateVocabSrs(v.id, scheduleSrs(v.srs, grade))
+  }
+
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault()
     setAuthError('')
@@ -330,6 +391,26 @@ export default function App() {
           >
             📚
           </button>
+          <button
+            onClick={() => setShowHighlights(true)}
+            title="Highlights"
+            className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center text-sm relative"
+          >
+            🔖
+            {highlights.length > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400" />
+            )}
+          </button>
+          <button
+            onClick={() => setShowVocab(true)}
+            title="Vocabulary"
+            className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center text-sm relative"
+          >
+            ★
+            {vocab.some((v) => isDue(v.srs)) && (
+              <span className="lector-due-badge absolute -top-0.5 -right-1">!</span>
+            )}
+          </button>
           {user ? (
             <button
               onClick={() => {
@@ -397,7 +478,27 @@ export default function App() {
                 {m.content ? (
                   <div
                     className="lector-prose"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
+                    dangerouslySetInnerHTML={{
+                      __html: renderCitations(renderMarkdown(m.content), validCiteIds),
+                    }}
+                    onClick={(e) => {
+                      const target = e.target as HTMLElement
+                      const cite = target.closest('[data-cite]') as HTMLElement | null
+                      if (!cite) return
+                      const blockId = cite.getAttribute('data-cite') || ''
+                      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                        const tabId = tabs[0]?.id
+                        if (tabId !== undefined) {
+                          chrome.tabs.sendMessage(
+                            tabId,
+                            { action: 'lector-jump-to', blockId },
+                            () => {
+                              void chrome.runtime.lastError
+                            }
+                          )
+                        }
+                      })
+                    }}
                   />
                 ) : (
                   <div className="flex items-center gap-2 text-[12px] text-slate-400">
@@ -522,6 +623,134 @@ export default function App() {
                 Clear all
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Highlights drawer (Feature ②) */}
+      {showHighlights && (
+        <div
+          className="absolute inset-0 bg-black/30 z-40"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowHighlights(false)
+          }}
+        >
+          <div className="absolute right-0 top-0 bottom-0 w-[320px] bg-white shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200">
+              <h3 className="text-[13px] font-semibold text-slate-800">
+                Highlights
+                <span className="text-[10px] font-normal text-slate-400 ml-1">
+                  ({highlights.length})
+                </span>
+              </h3>
+              <button
+                onClick={() => setShowHighlights(false)}
+                className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {highlights.length === 0 ? (
+                <div className="text-center text-[12px] text-slate-400 py-8 px-4">
+                  Select text on any page and click 🔖 to capture highlights.
+                </div>
+              ) : (
+                highlights.map((h) => (
+                  <div key={h.id} className="group px-3 py-2.5 border-b border-slate-100">
+                    <div className="text-[11px] text-slate-400 truncate mb-0.5">{h.title}</div>
+                    <div className="text-[12px] text-slate-700 leading-snug">{h.text}</div>
+                    {h.note && <div className="text-[11px] text-slate-500 mt-0.5">{h.note}</div>}
+                    <button
+                      onClick={() => removeHighlight(h.id)}
+                      className="opacity-0 group-hover:opacity-100 text-[10px] text-slate-400 hover:text-red-500 mt-1"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            {highlights.length > 0 && (
+              <button
+                onClick={() => downloadMarkdown(highlights)}
+                className="px-3 py-2 text-[11px] text-blue-600 hover:text-blue-800 border-t border-slate-200"
+              >
+                Export Markdown
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Vocab drawer (Feature ③) */}
+      {showVocab && (
+        <div
+          className="absolute inset-0 bg-black/30 z-40"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowVocab(false)
+          }}
+        >
+          <div className="absolute right-0 top-0 bottom-0 w-[320px] bg-white shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200">
+              <h3 className="text-[13px] font-semibold text-slate-800">
+                Vocabulary
+                <span className="lector-due-badge">
+                  {vocab.filter((v) => isDue(v.srs)).length}
+                </span>
+              </h3>
+              <button
+                onClick={() => setShowVocab(false)}
+                className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {vocab.length === 0 ? (
+                <div className="text-center text-[12px] text-slate-400 py-8 px-4">
+                  Select a word on any page and click ★ to save it for review.
+                </div>
+              ) : (
+                vocab.slice(0, 200).map((v) => {
+                  const due = isDue(v.srs)
+                  return (
+                    <div key={v.id} className="px-3 py-2.5 border-b border-slate-100">
+                      <div className="flex items-center justify-between">
+                        <div className="text-[13px] font-medium text-slate-800">{v.word}</div>
+                        {due && <span className="text-[9px] text-red-500 font-medium">due</span>}
+                      </div>
+                      <div className="text-[11px] text-slate-500 italic mt-0.5">{v.context}</div>
+                      {revealed === v.id ? (
+                        <div className="text-[12px] text-slate-700 mt-1">
+                          {v.translation || '(no translation yet)'}
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setRevealed(v.id)}
+                          className="text-[10px] text-blue-500 mt-1"
+                        >
+                          Show translation
+                        </button>
+                      )}
+                      {due && revealed === v.id && (
+                        <div className="flex gap-1 mt-2">
+                          {(['again', 'hard', 'good', 'easy'] as const).map((g) => (
+                            <button
+                              key={g}
+                              onClick={() => gradeVocab(v, g)}
+                              className="flex-1 py-1 text-[10px] rounded bg-slate-100 hover:bg-slate-200 text-slate-600"
+                            >
+                              {g}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
           </div>
         </div>
       )}

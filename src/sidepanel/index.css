@@ -59,3 +59,27 @@ body {
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* Citation chips (Feature ①) */
+.lector-cite {
+  color: #6366f1;
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: 1px;
+  user-select: none;
+  font-size: 0.75em;
+  vertical-align: super;
+}
+.lector-cite:hover { text-decoration: underline; }
+
+/* Due badge (Feature ③) */
+.lector-due-badge {
+  display: inline-block;
+  background: #ef4444;
+  color: #fff;
+  font-size: 9px;
+  line-height: 1;
+  border-radius: 9999px;
+  padding: 2px 5px;
+  margin-left: 4px;
+}
