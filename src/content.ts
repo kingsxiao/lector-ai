@@ -72,6 +72,12 @@ function scoreNode(el: Element): number {
   return text.length + commas * 8 - linkDensity * 200
 }
 
+export interface ExtractedPageBlock {
+  id: string
+  text: string
+  domSelector: string
+}
+
 export interface ExtractedPage {
   title: string
   url: string
@@ -79,6 +85,8 @@ export interface ExtractedPage {
   text: string
   /** Best-effort language tag (e.g. "en", "zh") for the bilingual feature. */
   lang: string
+  /** Block-level anchors (Feature ①) for citation grounding + jump-to. */
+  blocks: ExtractedPageBlock[]
 }
 
 function detectLang(text: string): string {
@@ -110,13 +118,24 @@ export function extractPage(): ExtractedPage {
     clone.querySelectorAll(sel).forEach((n) => n.remove())
   })
 
-  // Collect paragraph-ish text preserving some structure.
-  const blocks: string[] = []
-  clone.querySelectorAll('h1,h2,h3,h4,p,li,blockquote,pre').forEach((el) => {
+  // Collect paragraph-ish text preserving some structure, tagging the LIVE DOM
+  // nodes with stable ids so citations (Feature ①) can jump back to them.
+  const pageBlocks: ExtractedPageBlock[] = []
+  const textParts: string[] = []
+  const liveNodes = root.querySelectorAll('h1,h2,h3,h4,p,li,blockquote,pre')
+  liveNodes.forEach((el) => {
     const t = (el.textContent || '').replace(/\s+/g, ' ').trim()
-    if (t.length > 0) blocks.push(t)
+    if (t.length === 0) return
+    const id = `b${pageBlocks.length}`
+    try {
+      ;(el as HTMLElement).setAttribute('data-lector-id', id)
+    } catch {
+      // some nodes reject setAttribute; skip tagging
+    }
+    pageBlocks.push({ id, text: t, domSelector: '' })
+    textParts.push(t)
   })
-  let text = blocks.join('\n\n')
+  let text = textParts.join('\n\n')
   if (text.length < 200) {
     text = (clone.textContent || '').replace(/\s+/g, ' ').trim()
   }
@@ -137,6 +156,7 @@ export function extractPage(): ExtractedPage {
     byline: bylineMeta?.getAttribute('content') || null,
     text,
     lang: detectLang(text),
+    blocks: pageBlocks,
   }
 }
 
@@ -199,6 +219,8 @@ function createToolbar(x: number, y: number, text: string) {
   selectionToolbar.appendChild(mk('t-btn', '💬 解释', () => handleAction('explain', text)))
   selectionToolbar.appendChild(mk('summary-btn', '📄 摘要', () => handleAction('summarize', text)))
   selectionToolbar.appendChild(mk('t-btn', '🤖 提问', () => handleAction('ask', text)))
+  selectionToolbar.appendChild(mk('t-btn', '🔖 高亮', () => handleHighlight(text)))
+  selectionToolbar.appendChild(mk('t-btn', '★ 存词', () => handleSaveWord(text)))
 
   const closeBtn = document.createElement('button')
   closeBtn.className = 'close-btn'
@@ -408,6 +430,71 @@ function handleAction(kind: 'translate' | 'summarize' | 'explain' | 'ask', text:
 }
 
 // ---------------------------------------------------------------------------
+// Highlight capture (Feature ②) and vocabulary save (Feature ③)
+// ---------------------------------------------------------------------------
+function handleHighlight(text: string) {
+  const sel = window.getSelection()
+  if (!sel || sel.isCollapsed) {
+    removeToolbar()
+    return
+  }
+  const range = sel.getRangeAt(0)
+  let blockId: string | undefined
+  let context = text.slice(0, 200)
+  let marked = false
+  try {
+    // Wrap the range in a mark node without disturbing the DOM structure.
+    const mark = document.createElement('mark')
+    mark.className = 'lector-hl'
+    mark.title = 'Lector highlight'
+    range.surroundContents(mark)
+    marked = true
+    const block = mark.closest('[data-lector-id]') as HTMLElement | null
+    blockId = block?.getAttribute('data-lector-id') || undefined
+    context = (mark.parentElement?.textContent || text).slice(0, 200)
+  } catch {
+    // surroundContents fails on multi-node ranges; fall back to text-only.
+  }
+  chrome.runtime
+    .sendMessage({
+      action: 'lector-highlight',
+      highlight: {
+        id: 'h' + Date.now().toString(36),
+        text,
+        note: '',
+        quote: context,
+        url: location.href,
+        title: document.title,
+        blockId,
+        createdAt: Date.now(),
+        color: 'yellow' as const,
+        marked,
+      },
+    })
+    .catch(() => {})
+  removeToolbar()
+}
+
+function handleSaveWord(word: string) {
+  const sel = window.getSelection()
+  const anchor = sel?.anchorNode?.parentElement
+  const block = anchor?.closest('[data-lector-id]') as HTMLElement | null
+  const blockId = block?.getAttribute('data-lector-id') || undefined
+  const context = (anchor?.textContent || word).slice(0, 160)
+  chrome.runtime
+    .sendMessage({
+      action: 'lector-save-word',
+      word,
+      context,
+      url: location.href,
+      title: document.title,
+      blockId,
+    })
+    .catch(() => {})
+  removeToolbar()
+}
+
+// ---------------------------------------------------------------------------
 // Inline bilingual translation (Immersive-Translate style)
 // ---------------------------------------------------------------------------
 const translatedSet = new WeakSet<HTMLElement>()
@@ -518,6 +605,27 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.action === 'lector-toggle-bilingual') {
     toggleBilingual().then(() => sendResponse({ ok: true }))
     return true
+  }
+  if (message?.action === 'lector-jump-to') {
+    const node = document.querySelector<HTMLElement>(`[data-lector-id="${message.blockId}"]`)
+    if (node) {
+      node.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      node.classList.add('lector-pulse')
+      setTimeout(() => node.classList.remove('lector-pulse'), 2000)
+      sendResponse({ ok: true })
+    } else {
+      sendResponse({ ok: false, reason: 'node-unavailable' })
+    }
+    return false
+  }
+  if (message?.action === 'lector-command') {
+    const sel = window.getSelection()
+    const text = sel?.toString().trim() || ''
+    if (text.length > 0) {
+      if (message.command === 'highlight-selection') handleHighlight(text)
+      else if (message.command === 'save-word') handleSaveWord(text)
+    }
+    return false
   }
   return false
 })
