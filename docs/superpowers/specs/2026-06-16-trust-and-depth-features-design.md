@@ -1,7 +1,7 @@
 # Lector AI — Trust & Depth Features Design
 
 **Date:** 2026-06-16
-**Status:** Design approved (pending implementation)
+**Status:** Implemented (build green, type-check clean, 37 tests passing)
 **Manifest target version:** 0.3.0
 
 ## Context
