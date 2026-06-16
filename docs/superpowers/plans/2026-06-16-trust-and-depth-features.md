@@ -1,54 +1,58 @@
-# Trust & Depth Features Implementation Plan
+# 信任与深度功能 实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **给 agentic worker：** 必需子技能：用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现本计划。步骤用复选框（`- [ ]`）语法跟踪。
 
-**Goal:** Ship three competitive features (citation-grounded reading, highlights→export, SM-2 vocabulary builder) into Lector AI, with pure-logic unit tests (vitest) and a green extension build.
+**目标：** 把三个有竞争力的功能（引用溯源阅读、高亮→导出、SM-2 词汇本）落地进 Lector AI，配套纯逻辑单元测试（vitest），并保证扩展构建通过。
 
-**Architecture:** Pure logic (citations, SRS, highlights, vocabulary, exporters) extracted into zero-DOM-dependency modules under `src/shared/` with vitest unit tests. These are consumed by the DOM/UI layer (`content.ts`, `sidepanel/App.tsx`, `store.ts`). Only Feature ① touches the backend, by extending the existing `/chat` system prompt. No new endpoints, no new DB tables.
+**架构：** 纯逻辑（citations、srs、highlights、vocabulary、exporters）抽成 `src/shared/` 下零 DOM 依赖的模块，配 vitest 单元测试。这些被 DOM/UI 层（`content.ts`、`sidepanel/App.tsx`、`store.ts`）消费。仅功能①触及后端，通过扩展现有 `/chat` 系统提示实现。不新增端点、不新增数据库表。
 
-**Tech Stack:** TypeScript, React 18, Zustand, Vite (build), vitest (tests, new), jsdom (integration tests, new).
-
----
-
-## File structure
-
-**New pure-logic modules (zero DOM deps, unit-tested):**
-- `src/shared/citations.ts` — `[bN]` parse / render / system-prompt build (Feature ①)
-- `src/shared/srs.ts` — SM-2 scheduler pure functions (Feature ③)
-- `src/shared/highlights.ts` — Highlight type + serialize/dedupe/group (Feature ②, reused by ③)
-- `src/shared/vocabulary.ts` — VocabEntry type + save/merge/validation (Feature ③)
-- `src/shared/exporters.ts` — Markdown/Obsidian/Notion ExportProvider (Feature ②)
-
-**New tests (vitest + jsdom):**
-- `tests/citations.test.ts`, `tests/srs.test.ts`, `tests/highlights.test.ts`, `tests/vocabulary.test.ts`, `tests/exporters.test.ts`, `tests/content.test.ts`
-
-**Modified:**
-- `src/content.ts` — block anchors, highlight injection, vocab save, message handlers, jump-to
-- `src/shared/store.ts` — add `highlights[]`, `vocab[]` state + actions
-- `src/sidepanel/App.tsx` — Highlights drawer, Vocab drawer, citation chip rendering
-- `src/sidepanel/markdown.ts` — citation chip post-processing
-- `api/chat/index.ts` — `[bN]`-prefixed blocks in system prompt
-- `src/manifest.json` — version 0.3.0, commands
-- `package.json` — add vitest, jsdom, test scripts
-- `src/content.css` — highlight + citation pulse styles
+**技术栈：** TypeScript、React 18、Zustand、Vite（构建）、vitest（测试，新增）、jsdom（集成测试，新增）。
 
 ---
 
-## Task 0: Test harness (vitest + jsdom)
+## 文件结构
 
-**Files:**
-- Modify: `package.json`
-- Create: `vitest.config.ts`
+**新增纯逻辑模块（零 DOM 依赖，配单元测试）：**
+- `src/shared/citations.ts` — `[bN]` 解析 / 渲染 / 系统提示构建（功能①）
+- `src/shared/srs.ts` — SM-2 调度纯函数（功能③）
+- `src/shared/highlights.ts` — 高亮类型 + 序列化/去重/分组（功能②，③复用）
+- `src/shared/vocabulary.ts` — 词条类型 + 存词/合并/校验（功能③）
+- `src/shared/exporters.ts` — Markdown/Obsidian/Notion ExportProvider（功能②）
 
-- [ ] **Step 1: Install dev dependencies**
+**新增测试（vitest + jsdom）：**
+- `tests/citations.test.ts`、`tests/srs.test.ts`、`tests/highlights.test.ts`、`tests/vocabulary.test.ts`、`tests/exporters.test.ts`、`tests/content.test.ts`
 
-Run:
+**修改：**
+- `src/content.ts` — 块锚点、高亮注入、vocab 存词、消息处理、jump-to
+- `src/shared/store.ts` — 新增 `highlights[]`、`vocab[]` 状态与动作
+- `src/sidepanel/App.tsx` — 高亮抽屉、词汇抽屉、引用角标渲染
+- `api/chat/index.ts` — 系统提示嵌入带 `[bN]` 前缀的块
+- `src/manifest.json` — 版本 0.3.0、commands
+- `package.json` — 新增 vitest、jsdom、测试脚本
+- `src/content.css` — 高亮 + 引用脉冲样式
+- `src/sidepanel/index.css` — 角标 + 到期徽标样式
+
+---
+
+## 任务 0：测试脚手架（vitest + jsdom）
+
+**文件：**
+- 修改：`package.json`
+- 新建：`vitest.config.ts`
+
+- [x] **步骤 1：安装开发依赖**
+
+执行：
 ```bash
 npm install -D vitest@^2 jsdom@^25 @types/jsdom
 ```
-Expected: packages added to devDependencies.
+预期：包加入 devDependencies。
 
-- [ ] **Step 2: Create `vitest.config.ts`**
+> ⚠️ 实现注记：本机 shell 环境中 `NODE_ENV=production`，会导致 npm 跳过 devDependencies。
+> 所有安装/测试/构建命令需前置 `NODE_ENV=development`，例如
+> `NODE_ENV=development npm install`、`NODE_ENV=development node_modules/.bin/vitest run`。
+
+- [x] **步骤 2：新建 `vitest.config.ts`**
 
 ```ts
 import { defineConfig } from 'vitest/config'
@@ -62,159 +66,68 @@ export default defineConfig({
 })
 ```
 
-- [ ] **Step 3: Add test scripts to `package.json`**
+- [x] **步骤 3：给 `package.json` 加测试脚本**
 
-Add to `"scripts"`:
+在 `"scripts"` 中加入：
 ```json
 "test": "vitest run",
 "test:watch": "vitest",
 "typecheck": "tsc --noEmit"
 ```
 
-- [ ] **Step 4: Verify harness with a smoke test**
+- [x] **步骤 4：冒烟测试验证脚手架**
 
-Create `tests/smoke.test.ts`:
-```ts
-import { describe, it, expect } from 'vitest'
+执行：`NODE_ENV=development node_modules/.bin/vitest run`
+预期：通过。
 
-describe('harness', () => {
-  it('runs', () => {
-    expect(1 + 1).toBe(2)
-  })
-})
-```
-
-Run: `npm test`
-Expected: 1 passed.
-
-- [ ] **Step 5: Remove smoke test, commit**
+- [x] **步骤 5：提交**
 
 ```bash
-rm tests/smoke.test.ts
-git add package.json package-lock.json vitest.config.ts
 git commit -m "chore(test): add vitest + jsdom test harness"
 ```
 
 ---
 
-## Task 1: Citations module (Feature ① pure logic)
+## 任务 1：citations 模块（功能①纯逻辑）
 
-**Files:**
-- Create: `src/shared/citations.ts`
-- Test: `tests/citations.test.ts`
+**文件：**
+- 新建：`src/shared/citations.ts`
+- 测试：`tests/citations.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **步骤 1：写失败测试**（`tests/citations.test.ts`，含 parseCitations / buildCitedSystemPrompt / renderCitations 三组断言）
 
-`tests/citations.test.ts`:
-```ts
-import { describe, it, expect } from 'vitest'
-import {
-  parseCitations,
-  buildCitedSystemPrompt,
-  renderCitations,
-} from '../src/shared/citations'
-import type { PageBlock } from '../src/shared/citations'
+- [x] **步骤 2：运行确认失败**：`NODE_ENV=development node_modules/.bin/vitest run citations`
 
-describe('parseCitations', () => {
-  const valid = new Set(['b0', 'b1', 'b2'])
-  it('extracts valid bracketed ids', () => {
-    expect(parseCitations('trust matters [0][2].', valid)).toEqual([
-      { raw: 'b0', display: '0' },
-      { raw: 'b2', display: '2' },
-    ])
-  })
-  it('drops ids not in the whitelist', () => {
-    expect(parseCitations('nope [99] and [0].', valid)).toEqual([
-      { raw: 'b0', display: '0' },
-    ])
-  })
-  it('returns empty for text without markers', () => {
-    expect(parseCitations('nothing here', valid)).toEqual([])
-  })
-})
-
-describe('buildCitedSystemPrompt', () => {
-  const blocks: PageBlock[] = [
-    { id: 'b0', text: 'First paragraph.', domSelector: 'p' },
-    { id: 'b1', text: 'Second paragraph.', domSelector: 'p' },
-  ]
-  it('prefixes each block with its id and includes citation instructions', () => {
-    const out = buildCitedSystemPrompt(blocks)
-    expect(out).toContain('[b0] First paragraph.')
-    expect(out).toContain('[b1] Second paragraph.')
-    expect(out).toContain('cite ONLY these ids')
-  })
-  it('is empty-safe', () => {
-    expect(buildCitedSystemPrompt([])).not.toContain('[b0]')
-  })
-})
-
-describe('renderCitations', () => {
-  const valid = new Set(['b0', 'b1'])
-  it('replaces [bN] with a chip and removes the marker text', () => {
-    const html = renderCitations('trust matters [0][1].', valid)
-    expect(html).toContain('data-cite="b0"')
-    expect(html).toContain('data-cite="b1"')
-    expect(html).not.toMatch(/\[0\]/)
-  })
-  it('leaves invalid markers stripped (no chip, no bracket)', () => {
-    const html = renderCitations('bad [99] here.', valid)
-    expect(html).not.toContain('data-cite')
-    expect(html).not.toMatch(/\[99\]/)
-  })
-})
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npm test -- citations`
-Expected: FAIL (module not found).
-
-- [ ] **Step 3: Implement `src/shared/citations.ts`**
+- [x] **步骤 3：实现 `src/shared/citations.ts`**
 
 ```ts
-// Citation grounding for Feature ①. Pure functions, no DOM deps.
-
+// 引用溯源纯函数，无 DOM 依赖。
 export interface PageBlock {
-  /** Stable id like "b0". Mirrored on the DOM node as data-lector-id. */
-  id: string
+  id: string        // "b0"，镜像到 DOM 节点的 data-lector-id
   text: string
-  /** Selector/xpath for jump-back location. */
   domSelector: string
 }
 
 export interface Citation {
-  /** The normalized id, e.g. "b0". */
-  raw: string
-  /** The number shown to the user, e.g. "0". */
-  display: string
+  raw: string       // 规范化 id，如 "b0"
+  display: string   // 展示给用户的数字，如 "0"
 }
 
-/**
- * Parse "[N]" markers out of model text, keeping only ids present in the
- * whitelist. A marker may be written as [0] or [b0]; both map to id "b0".
- * Order is preserved and duplicates within a contiguous run are kept (the
- * model sometimes emits [0][2]).
- */
+// 解析模型文本里的 [N] 标记，只保留白名单内的 id。
+// [0] 与 [b0] 都映射到 id "b0"。保留顺序与连续重复（模型常输出 [0][2]）。
 export function parseCitations(text: string, validIds: Set<string>): Citation[] {
   const out: Citation[] = []
-  // Match [digits] possibly with a leading b.
   const re = /\[(b?\d+)\]/g
   let m: RegExpExecArray | null
   while ((m = re.exec(text)) !== null) {
     const display = m[1].replace(/^b/, '')
     const raw = `b${display}`
-    if (validIds.has(raw)) {
-      out.push({ raw, display })
-    }
+    if (validIds.has(raw)) out.push({ raw, display })
   }
   return out
 }
 
-/**
- * Build the system-prompt PAGE CONTENT section, prefixing each block with its
- * id so the model can cite it.
- */
+// 构建系统提示的 PAGE CONTENT 段，每块前缀 [bN] 以便模型引用。
 export function buildCitedSystemPrompt(blocks: PageBlock[]): string {
   const body = blocks.map((b) => `[${b.id}] ${b.text}`).join('\n')
   return [
@@ -227,13 +140,10 @@ export function buildCitedSystemPrompt(blocks: PageBlock[]): string {
   ].join('\n')
 }
 
-/**
- * Render an HTML fragment, replacing [bN] markers with clickable citation
- * chips. Invalid ids are stripped entirely (no chip, no leftover bracket).
- * Input HTML is assumed already-escaped by the markdown renderer.
- */
+// 把 HTML 片段里的 [bN] 标记替换为可点击角标。
+// 非法 id 被完全剔除（无角标、无残留括号）。输入 HTML 假定已被 markdown 渲染器转义。
 export function renderCitations(html: string, validIds: Set<string>): string {
-  return html.replace(/\[(b?\d+)\]/g, (full, inside: string) => {
+  return html.replace(/\[(b?\d+)\]/g, (_full, inside: string) => {
     const display = inside.replace(/^b/, '')
     const raw = `b${display}`
     if (!validIds.has(raw)) return ''
@@ -242,101 +152,34 @@ export function renderCitations(html: string, validIds: Set<string>): string {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `npm test -- citations`
-Expected: PASS (all assertions).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/shared/citations.ts tests/citations.test.ts
-git commit -m "feat(citations): [bN] parse/render/prompt-build pure module + tests"
-```
+- [x] **步骤 4：运行确认通过**
+- [x] **步骤 5：提交**：`feat(citations): [bN] 解析/渲染/提示构建纯模块 + 测试`
 
 ---
 
-## Task 2: SRS module (Feature ③ pure logic)
+## 任务 2：srs 模块（功能③纯逻辑）
 
-**Files:**
-- Create: `src/shared/srs.ts`
-- Test: `tests/srs.test.ts`
+**文件：**
+- 新建：`src/shared/srs.ts`
+- 测试：`tests/srs.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **步骤 1：写失败测试**（scheduleSrs 全矩阵：again 重置+lapse、good/hard/easy 间隔增长、ease 下限≥1.3、isDue 边界）
 
-`tests/srs.test.ts`:
-```ts
-import { describe, it, expect } from 'vitest'
-import { scheduleSrs, isDue, newSrs, type SrsState } from '../src/shared/srs'
+- [x] **步骤 2：运行确认失败**
 
-const NOW = new Date('2026-06-16T00:00:00Z').getTime()
-
-describe('scheduleSrs', () => {
-  it('again resets to a short interval and counts a lapse', () => {
-    const card: SrsState = { due: NOW, interval: 6, ease: 2.5, reps: 3, lapses: 0 }
-    const next = scheduleSrs(card, 'again', NOW)
-    expect(next.interval).toBeLessThanOrEqual(1)
-    expect(next.lapses).toBe(1)
-    expect(next.reps).toBe(3)
-  })
-  it('good on a first review sets a 1-day interval', () => {
-    const next = scheduleSrs(newSrs(), 'good', NOW)
-    expect(next.interval).toBe(1)
-    expect(next.reps).toBe(1)
-  })
-  it('second good review grows interval beyond 1', () => {
-    const card: SrsState = { due: NOW, interval: 1, ease: 2.5, reps: 1, lapses: 0 }
-    const next = scheduleSrs(card, 'good', NOW)
-    expect(next.interval).toBeGreaterThan(1)
-    expect(next.reps).toBe(2)
-  })
-  it('easy boosts ease, again/hard reduce it, but never below 1.3', () => {
-    let card: SrsState = { due: NOW, interval: 1, ease: 1.31, reps: 1, lapses: 0 }
-    card = scheduleSrs(card, 'hard', NOW)
-    expect(card.ease).toBeGreaterThanOrEqual(1.3)
-    card = scheduleSrs(card, 'again', NOW)
-    expect(card.ease).toBeGreaterThanOrEqual(1.3)
-  })
-  it('easy increases ease', () => {
-    const card: SrsState = { due: NOW, interval: 1, ease: 2.5, reps: 1, lapses: 0 }
-    expect(scheduleSrs(card, 'easy', NOW).ease).toBeGreaterThan(2.5)
-  })
-})
-
-describe('isDue', () => {
-  it('is due when due <= now', () => {
-    expect(isDue({ due: NOW - 1000, interval: 1, ease: 2.5, reps: 1, lapses: 0 }, NOW)).toBe(true)
-  })
-  it('is not due in the future', () => {
-    expect(isDue({ due: NOW + 86400000, interval: 1, ease: 2.5, reps: 1, lapses: 0 }, NOW)).toBe(false)
-  })
-})
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npm test -- srs`
-Expected: FAIL (module not found).
-
-- [ ] **Step 3: Implement `src/shared/srs.ts`**
+- [x] **步骤 3：实现 `src/shared/srs.ts`**
 
 ```ts
-// Simplified SM-2 spaced-repetition scheduler. Pure functions, zero deps.
-// Constants follow Anki's published SM-2 defaults.
+// 简化版 SM-2 间隔重复调度器。纯函数，零依赖。常量参考 Anki 公开 SM-2 默认值。
 
 export type Grade = 'again' | 'hard' | 'good' | 'easy'
 
 export interface SrsState {
-  /** Epoch ms when the card is next due. */
-  due: number
-  /** Interval in days. */
-  interval: number
-  /** Ease factor (multiplier), floored at 1.3. */
-  ease: number
-  /** Successful reviews. */
-  reps: number
-  /** Times forgotten (again). */
-  lapses: number
+  due: number       // 下次到期 epoch 毫秒
+  interval: number  // 间隔（天）
+  ease: number      // 难度系数，下限 1.3
+  reps: number      // 成功复习次数
+  lapses: number    // 遗忘（again）次数
 }
 
 const DAY = 86_400_000
@@ -346,18 +189,14 @@ export function newSrs(now: number = Date.now()): SrsState {
   return { due: now, interval: 0, ease: 2.5, reps: 0, lapses: 0 }
 }
 
-/**
- * Advance a card given a review grade. SM-2 simplified to a 4-button Anki-like
- * scheme. `again` resets to a same-day relearn with a lapse; the others grow
- * the interval by ease (capped) and adjust ease.
- */
+// 根据评分推进卡片。SM-2 简化为 Anki 式 4 按钮。again 重置为短期再学并记一次 lapse；
+// 其余按 ease 增长间隔并调整 ease。
 export function scheduleSrs(card: SrsState, grade: Grade, now: number = Date.now()): SrsState {
   let { ease, interval, reps, lapses } = card
 
   if (grade === 'again') {
     ease = Math.max(EASE_FLOOR, ease - 0.2)
     lapses += 1
-    interval = Math.min(1, Math.round(interval * 0))
     return { due: now + 10 * 60 * 1000, interval: 0, ease, reps, lapses }
   }
 
@@ -367,7 +206,6 @@ export function scheduleSrs(card: SrsState, grade: Grade, now: number = Date.now
   } else if (grade === 'good') {
     interval = reps === 0 ? 1 : Math.round(interval * ease)
   } else {
-    // easy
     ease = ease + 0.15
     interval = reps === 0 ? 4 : Math.round(interval * ease * 1.3)
   }
@@ -382,116 +220,46 @@ export function isDue(card: SrsState, now: number = Date.now()): boolean {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `npm test -- srs`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/shared/srs.ts tests/srs.test.ts
-git commit -m "feat(srs): SM-2 spaced-repetition scheduler pure module + tests"
-```
+- [x] **步骤 4：运行确认通过**
+- [x] **步骤 5：提交**：`feat(srs): SM-2 间隔重复调度纯模块 + 测试`
 
 ---
 
-## Task 3: Highlights module (Feature ② pure logic)
+## 任务 3：highlights 模块（功能②纯逻辑）
 
-**Files:**
-- Create: `src/shared/highlights.ts`
-- Test: `tests/highlights.test.ts`
+**文件：**
+- 新建：`src/shared/highlights.ts`
+- 测试：`tests/highlights.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **步骤 1：写失败测试**（isDuplicateHighlight / groupHighlights / searchHighlights）
 
-`tests/highlights.test.ts`:
-```ts
-import { describe, it, expect } from 'vitest'
-import {
-  isDuplicateHighlight,
-  groupHighlights,
-  type Highlight,
-} from '../src/shared/highlights'
+- [x] **步骤 2：运行确认失败**
 
-const base: Highlight = {
-  id: 'h1',
-  text: 'trust matters',
-  note: '',
-  quote: 'In software, trust matters a lot.',
-  url: 'https://a.com/post',
-  title: 'Post',
-  blockId: 'b0',
-  createdAt: 1000,
-  color: 'yellow',
-}
-
-describe('isDuplicateHighlight', () => {
-  it('flags same text + same url', () => {
-    expect(isDuplicateHighlight(base, { ...base, id: 'h2' })).toBe(true)
-  })
-  it('different url is not a duplicate', () => {
-    expect(isDuplicateHighlight(base, { ...base, id: 'h2', url: 'https://b.com' })).toBe(false)
-  })
-  it('different text is not a duplicate', () => {
-    expect(isDuplicateHighlight(base, { ...base, id: 'h2', text: 'other' })).toBe(false)
-  })
-})
-
-describe('groupHighlights', () => {
-  it('groups by origin (title + url)', () => {
-    const groups = groupHighlights([
-      base,
-      { ...base, id: 'h2', title: 'Other', url: 'https://b.com' },
-    ])
-    expect(groups.size).toBe(2)
-  })
-  it('sorts highlights within a group newest-first', () => {
-    const groups = groupHighlights([base, { ...base, id: 'h2', createdAt: 5000 }])
-    const arr = [...groups.values()][0]
-    expect(arr[0].id).toBe('h2')
-  })
-})
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npm test -- highlights`
-Expected: FAIL.
-
-- [ ] **Step 3: Implement `src/shared/highlights.ts`**
+- [x] **步骤 3：实现 `src/shared/highlights.ts`**
 
 ```ts
-// Highlight domain logic for Feature ② (and reused by ③). Pure functions.
+// 高亮领域逻辑（功能②，③复用）。纯函数。
 
 export type HighlightColor = 'yellow' | 'green' | 'pink' | 'blue'
 
 export interface Highlight {
   id: string
-  /** The highlighted text. */
-  text: string
-  /** User note, if any. */
-  note: string
-  /** Source context ±100 chars around the highlight. */
-  quote: string
+  text: string       // 高亮的文本
+  note: string       // 用户笔记（若有）
+  quote: string      // 高亮前后±100 字的来源上下文
   url: string
   title: string
-  /** The page block id the highlight sits in, if any (links to ①). */
-  blockId?: string
+  blockId?: string   // 所在页面块 id（链接到①），若有
   createdAt: number
   color: HighlightColor
 }
 
-/**
- * Two highlights are duplicates when their text AND url match. Used to prevent
- * double-highlighting the same passage.
- */
+// 两条高亮当 text 与 url 都相同时判为重复。用于防止对同一段落重复高亮。
 export function isDuplicateHighlight(a: Highlight, b: Highlight): boolean {
   return a.text === b.text && a.url === b.url
 }
 
-/**
- * Group highlights by origin (title + url). Within each group, newest-first.
- */
+// 按来源（title + url）分组。组内按最新在前排序。
 export function groupHighlights(hs: Highlight[]): Map<string, Highlight[]> {
   const map = new Map<string, Highlight[]>()
   for (const h of hs) {
@@ -500,15 +268,11 @@ export function groupHighlights(hs: Highlight[]): Map<string, Highlight[]> {
     arr.push(h)
     map.set(key, arr)
   }
-  for (const arr of map.values()) {
-    arr.sort((a, b) => b.createdAt - a.createdAt)
-  }
+  for (const arr of map.values()) arr.sort((a, b) => b.createdAt - a.createdAt)
   return map
 }
 
-/**
- * Search highlights across text/note/title. Case-insensitive substring.
- */
+// 跨 text/note/title 搜索高亮。大小写不敏感的子串匹配。
 export function searchHighlights(hs: Highlight[], q: string): Highlight[] {
   const needle = q.trim().toLowerCase()
   if (!needle) return hs
@@ -521,91 +285,25 @@ export function searchHighlights(hs: Highlight[], q: string): Highlight[] {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `npm test -- highlights`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/shared/highlights.ts tests/highlights.test.ts
-git commit -m "feat(highlights): highlight domain logic (dedupe/group/search) + tests"
-```
+- [x] **步骤 4：运行确认通过**
+- [x] **步骤 5：提交**：`feat(highlights): 高亮领域逻辑（去重/分组/搜索）+ 测试`
 
 ---
 
-## Task 4: Vocabulary module (Feature ③ pure logic)
+## 任务 4：vocabulary 模块（功能③纯逻辑）
 
-**Files:**
-- Create: `src/shared/vocabulary.ts`
-- Test: `tests/vocabulary.test.ts`
+**文件：**
+- 新建：`src/shared/vocabulary.ts`
+- 测试：`tests/vocabulary.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **步骤 1：写失败测试**（mergeVocabEntry / validateWord / makeVocabEntry）
 
-`tests/vocabulary.test.ts`:
-```ts
-import { describe, it, expect } from 'vitest'
-import { mergeVocab, validateWord, newSrs } from '../src/shared/srs'
-import { type VocabEntry, mergeVocabEntry } from '../src/shared/vocabulary'
+- [x] **步骤 2：运行确认失败**
 
-const base: VocabEntry = {
-  id: 'v1',
-  word: 'ephemeral',
-  translation: '短暂的',
-  context: 'Fame is ephemeral.',
-  url: 'https://a.com',
-  title: 'Post',
-  lang: 'en',
-  createdAt: 1000,
-  srs: { due: 1000, interval: 0, ease: 2.5, reps: 0, lapses: 0 },
-}
-
-describe('mergeVocabEntry', () => {
-  it('keeps earliest createdAt, latest context, does NOT reset srs', () => {
-    const existing: VocabEntry = { ...base, createdAt: 1000 }
-    const incoming: VocabEntry = {
-      ...base,
-      createdAt: 5000,
-      context: 'Updated context.',
-      srs: { due: 999999, interval: 10, ease: 2.6, reps: 5, lapses: 1 },
-    }
-    const merged = mergeVocabEntry(existing, incoming)
-    expect(merged.createdAt).toBe(1000)
-    expect(merged.context).toBe('Updated context.')
-    expect(merged.srs.interval).toBe(0) // unchanged from existing
-  })
-})
-
-describe('validateWord', () => {
-  it('accepts a normal word', () => {
-    expect(validateWord('ephemeral').ok).toBe(true)
-  })
-  it('rejects too-long input (looks like a sentence)', () => {
-    const long = 'word '.repeat(20).trim()
-    expect(validateWord(long).ok).toBe(false)
-  })
-  it('rejects empty', () => {
-    expect(validateWord('').ok).toBe(false)
-  })
-})
-```
-
-> Note: the test above references `mergeVocab` and `newSrs` from `srs` only as a fallback import; remove the unused import line before running. Final test should only import from `vocabulary`:
-```ts
-import { describe, it, expect } from 'vitest'
-import { type VocabEntry, mergeVocabEntry, validateWord } from '../src/shared/vocabulary'
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npm test -- vocabulary`
-Expected: FAIL.
-
-- [ ] **Step 3: Implement `src/shared/vocabulary.ts`**
+- [x] **步骤 3：实现 `src/shared/vocabulary.ts`**
 
 ```ts
-// Vocabulary domain logic for Feature ③. Pure functions.
+// 词汇领域逻辑（功能③）。纯函数。
 import type { SrsState } from './srs'
 import { newSrs } from './srs'
 
@@ -613,8 +311,7 @@ export interface VocabEntry {
   id: string
   word: string
   translation: string
-  /** Source sentence ±80 chars. */
-  context: string
+  context: string   // 来源句子±80 字
   url: string
   title: string
   lang: string
@@ -627,24 +324,16 @@ export interface ValidationResult {
   reason?: string
 }
 
-/**
- * Validate a candidate word before saving. Words longer than 60 chars are
- * treated as sentences and rejected (guide the user to Highlight instead).
- */
+// 存词前校验。超过 60 字视为句子，拒绝（引导用户改用高亮）。
 export function validateWord(word: string): ValidationResult {
   const trimmed = word.trim()
   if (trimmed.length === 0) return { ok: false, reason: 'empty' }
-  if (trimmed.length > 60) {
-    return { ok: false, reason: 'too-long-sentence' }
-  }
+  if (trimmed.length > 60) return { ok: false, reason: 'too-long-sentence' }
   return { ok: true }
 }
 
-/**
- * Merge an incoming duplicate entry into an existing one. Keeps the earliest
- * createdAt, the latest context, and DOES NOT reset the SRS state (review
- * progress is preserved).
- */
+// 把新来的重复条目合并进已存在条目。保留最早 createdAt、最新 context，且不重置 SRS 状态
+// （复习进度得以保留）。
 export function mergeVocabEntry(existing: VocabEntry, incoming: VocabEntry): VocabEntry {
   return {
     ...existing,
@@ -657,9 +346,7 @@ export function mergeVocabEntry(existing: VocabEntry, incoming: VocabEntry): Voc
   }
 }
 
-/**
- * Create a fresh vocab entry with default SRS state (due now).
- */
+// 用默认 SRS 状态（due now）创建新词条。
 export function makeVocabEntry(
   partial: Omit<VocabEntry, 'srs' | 'createdAt'> & { createdAt?: number }
 ): VocabEntry {
@@ -671,97 +358,32 @@ export function makeVocabEntry(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `npm test -- vocabulary`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/shared/vocabulary.ts tests/vocabulary.test.ts
-git commit -m "feat(vocabulary): vocab entry merge/validate/make pure module + tests"
-```
+- [x] **步骤 4：运行确认通过**
+- [x] **步骤 5：提交**：`feat(vocabulary): 词条合并/校验/创建纯模块 + 测试`
 
 ---
 
-## Task 5: Exporters module (Feature ② pure logic)
+## 任务 5：exporters 模块（功能②纯逻辑）
 
-**Files:**
-- Create: `src/shared/exporters.ts`
-- Test: `tests/exporters.test.ts`
+**文件：**
+- 新建：`src/shared/exporters.ts`
+- 测试：`tests/exporters.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **步骤 1：写失败测试**（toMarkdown / toObsidian / toNotionProperties）
 
-`tests/exporters.test.ts`:
-```ts
-import { describe, it, expect } from 'vitest'
-import {
-  toMarkdown,
-  toObsidian,
-  toNotionProperties,
-} from '../src/shared/exporters'
-import type { Highlight } from '../src/shared/highlights'
+- [x] **步骤 2：运行确认失败**
 
-const hs: Highlight[] = [
-  {
-    id: 'h1',
-    text: 'Trust matters.',
-    note: 'key idea',
-    quote: 'In software, Trust matters.',
-    url: 'https://a.com/p',
-    title: 'Post',
-    blockId: 'b0',
-    createdAt: 1000,
-    color: 'yellow',
-  },
-]
-
-describe('toMarkdown', () => {
-  it('emits a blockquote of the text, note, and source link', () => {
-    const out = toMarkdown(hs)
-    expect(out).toContain('> Trust matters.')
-    expect(out).toContain('key idea')
-    expect(out).toContain('https://a.com/p')
-  })
-})
-
-describe('toObsidian', () => {
-  it('includes front-matter with source and tags', () => {
-    const out = toObsidian(hs)
-    expect(out).toContain('---')
-    expect(out).toContain('source:')
-    expect(out).toContain('tags:')
-    expect(out).toContain('> Trust matters.')
-  })
-})
-
-describe('toNotionProperties', () => {
-  it('produces a create-page properties payload', () => {
-    const payload = toNotionProperties(hs[0])
-    expect(payload).toHaveProperty('Title')
-    expect(payload).toHaveProperty('Source')
-  })
-})
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `npm test -- exporters`
-Expected: FAIL.
-
-- [ ] **Step 3: Implement `src/shared/exporters.ts`**
+- [x] **步骤 3：实现 `src/shared/exporters.ts`**
 
 ```ts
-// Export providers for Feature ②. Pure functions producing payloads/strings.
+// 功能②的导出 Provider。纯函数，产出 payload/字符串。
 import type { Highlight } from './highlights'
 
 export interface ExportOptions {
-  /** Optional vault root for relative links (Obsidian). */
-  vaultRoot?: string
+  vaultRoot?: string  // Obsidian 相对链接可选的 vault 根
 }
 
-/** Markdown export: one block per highlight with note + source. */
+// Markdown 导出：每条高亮一块，含笔记 + 来源。
 export function toMarkdown(hs: Highlight[], _opts: ExportOptions = {}): string {
   return hs
     .map((h) => {
@@ -782,7 +404,7 @@ export function toMarkdown(hs: Highlight[], _opts: ExportOptions = {}): string {
     .join('\n')
 }
 
-/** Obsidian export: front-matter + wikilink-friendly markdown. */
+// Obsidian 导出：front-matter + callout 友好的 markdown。
 export function toObsidian(hs: Highlight[], opts: ExportOptions = {}): string {
   const bySource = new Map<string, Highlight[]>()
   for (const h of hs) {
@@ -812,952 +434,196 @@ export function toObsidian(hs: Highlight[], opts: ExportOptions = {}): string {
   return `${fm}${body}\n`
 }
 
-/**
- * Notion "create page" properties payload for a single highlight. The caller
- * posts this to the Notion API with the user's database id.
- */
+// 单条高亮的 Notion "create page" 属性 payload。调用方用用户的 database id 投递。
 export function toNotionProperties(h: Highlight): Record<string, unknown> {
   return {
-    Title: {
-      title: [{ text: { content: h.text.slice(0, 2000) } }],
-    },
-    Source: {
-      url: h.url,
-    },
-    Note: {
-      rich_text: [{ text: { content: h.note || '' } }],
-    },
+    Title: { title: [{ text: { content: h.text.slice(0, 2000) } }] },
+    Source: { url: h.url },
+    Note: { rich_text: [{ text: { content: h.note || '' } }] },
   }
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `npm test -- exporters`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/shared/exporters.ts tests/exporters.test.ts
-git commit -m "feat(exporters): markdown/obsidian/notion export providers + tests"
-```
+- [x] **步骤 4：运行确认通过**
+- [x] **步骤 5：提交**：`feat(exporters): markdown/obsidian/notion 导出 Provider + 测试`
 
 ---
 
-## Task 6: Store extension (Features ②③ state)
+## 任务 6：store 扩展（功能②③ 状态）
 
-**Files:**
-- Modify: `src/shared/store.ts`
+**文件：** 修改 `src/shared/store.ts`
 
-- [ ] **Step 1: Add highlight + vocab state and actions**
+- [x] **步骤 1：加入高亮 + vocab 状态与动作**
 
-Add imports at top:
+顶部 import：
 ```ts
 import type { Highlight } from './highlights'
 import type { VocabEntry } from './vocabulary'
 import type { SrsState } from './srs'
 ```
 
-Extend `AppState` interface (add these members):
+`AppState` 接口新增成员：
 ```ts
-  // Knowledge layer — highlights + vocabulary
   highlights: Highlight[]
   vocab: VocabEntry[]
-
   addHighlight: (h: Highlight) => { duplicate: boolean }
   removeHighlight: (id: string) => void
   updateHighlight: (id: string, patch: Partial<Highlight>) => void
-
   addVocab: (v: VocabEntry) => void
   removeVocab: (id: string) => void
   updateVocabSrs: (id: string, srs: SrsState) => void
 ```
 
-Add to the `create(...)` factory (after `clearSessions`):
-```ts
-      highlights: [],
-      vocab: [],
+`create(...)` 工厂中（`clearSessions` 之后）新增初始值与动作：`highlights: []`、`vocab: []`，
+以及 addHighlight（去重返回 `{duplicate}`）、removeHighlight、updateHighlight、addVocab
+（按词大小写不敏感合并，保留最早 createdAt、最新 context、不重置 srs）、removeVocab、
+updateVocabSrs。
 
-      addHighlight: (h) => {
-        let duplicate = false
-        set((s) => {
-          if (s.highlights.some((x) => x.text === h.text && x.url === h.url)) {
-            duplicate = true
-            return s
-          }
-          return { highlights: [h, ...s.highlights].slice(0, 500) }
-        })
-        return { duplicate }
-      },
-      removeHighlight: (id) =>
-        set((s) => ({ highlights: s.highlights.filter((x) => x.id !== id) })),
-      updateHighlight: (id, patch) =>
-        set((s) => ({
-          highlights: s.highlights.map((x) => (x.id === id ? { ...x, ...patch } : x)),
-        })),
+`partialize` 持久化新增 `highlights`、`vocab`。
 
-      addVocab: (v) =>
-        set((s) => {
-          const idx = s.vocab.findIndex(
-            (x) => x.word.toLowerCase() === v.word.toLowerCase()
-          )
-          if (idx === -1) return { vocab: [v, ...s.vocab].slice(0, 2000) }
-          // merge: keep earliest createdAt, latest context, preserve srs
-          const existing = s.vocab[idx]
-          const merged: VocabEntry = {
-            ...existing,
-            context: v.context || existing.context,
-            translation: v.translation || existing.translation,
-            createdAt: Math.min(existing.createdAt, v.createdAt),
-            srs: existing.srs,
-          }
-          const next = [...s.vocab]
-          next[idx] = merged
-          return { vocab: next }
-        }),
-      removeVocab: (id) => set((s) => ({ vocab: s.vocab.filter((x) => x.id !== id) })),
-      updateVocabSrs: (id, srs) =>
-        set((s) => ({
-          vocab: s.vocab.map((x) => (x.id === id ? { ...x, srs } : x)),
-        })),
-```
-
-Update `partialize` to persist the new collections:
-```ts
-      partialize: (state) => ({
-        user: state.user,
-        accessToken: state.accessToken,
-        isPro: state.isPro,
-        usageCount: state.usageCount,
-        sessions: state.sessions,
-        highlights: state.highlights,
-        vocab: state.vocab,
-      }),
-```
-
-- [ ] **Step 2: Type-check**
-
-Run: `npm run typecheck`
-Expected: no errors.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add src/shared/store.ts
-git commit -m "feat(store): add highlights + vocab collections and actions"
-```
+- [x] **步骤 2：类型检查通过**
+- [x] **步骤 3：提交**：`feat(store): 新增 highlights + vocab 集合与动作`
 
 ---
 
-## Task 7: Backend — citation-grounded chat prompt (Feature ①)
+## 任务 7：后端 — 引用溯源 chat 提示（功能①）
 
-**Files:**
-- Modify: `api/chat/index.ts`
+**文件：** 修改 `api/chat/index.ts`
 
-- [ ] **Step 1: Import citations builder and build blocks from pageContent**
+- [x] **步骤 1：import 并构建 blocks**
 
-Add import:
 ```ts
 import { buildCitedSystemPrompt, type PageBlock } from '../../src/shared/citations'
 ```
 
-Add a helper near the top of the handler (after parsing body), to split the trimmed page text into pseudo-blocks when the client only sends `pageContent` (no explicit blocks). For now the client sends `page.blocks`; accept an optional `pageBlocks` field, and fall back to splitting `pageContent` on blank lines:
+`ChatRequestBody` 新增 `pageBlocks?: PageBlock[]`。系统提示构建改为：优先用客户端传入的
+`pageBlocks`；否则把 `trimmedPage` 按空行切成伪块。用 `buildCitedSystemPrompt(blocks)`
+产出引用段，拼进系统提示。
 
-In `ChatRequestBody` add:
-```ts
-  pageBlocks?: PageBlock[]
-```
-
-Replace the system-prompt construction block. Find:
-```ts
-  // Cap page context so a huge page can't blow the context window.
-  const trimmedPage = (pageContent || '').slice(0, 12000)
-```
-and the template literal that builds `systemPrompt`. Replace with:
-```ts
-  // Cap page context so a huge page can't blow the context window.
-  const trimmedPage = (pageContent || '').slice(0, 12000)
-
-  // Build citation-grounded blocks: prefer explicit pageBlocks from the
-  // client; otherwise split the trimmed page text on blank lines.
-  let blocks: PageBlock[]
-  if (Array.isArray(pageBlocks) && pageBlocks.length > 0) {
-    blocks = pageBlocks.slice(0, 200)
-  } else {
-    blocks = trimmedPage
-      .split(/\n{2,}/)
-      .map((t, i) => ({ id: `b${i}`, text: t, domSelector: '' }))
-      .filter((b) => b.text.trim().length > 0)
-      .slice(0, 200)
-  }
-
-  const citedSection = buildCitedSystemPrompt(blocks)
-
-  const systemPrompt = `You are Lector AI, a sharp reading companion embedded in the user's browser.
-
-You answer questions about the article the user is reading, summarize, explain
-concepts, translate, and draft. Be concise and information-dense. Use Markdown.
-When the user asks about "the article", reason only from the provided PAGE
-CONTENT; if it isn't covered there, say so rather than guessing. When you state
-a fact from the article, append [bN] referencing the source block.
-
-${pageMetadata?.title ? `PAGE TITLE: ${pageMetadata.title}` : ''}
-${pageMetadata?.url ? `PAGE URL: ${pageMetadata.url}` : ''}
-
-${citedSection}`
-```
-
-Also update the destructure to read `pageBlocks`:
-```ts
-  const { message, pageContent, pageMetadata, history, pageBlocks } = (req.body || {}) as ChatRequestBody
-```
-
-- [ ] **Step 2: Type-check the api + src**
-
-Run: `npm run typecheck`
-Expected: no errors (tsconfig includes `api` and `src`).
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add api/chat/index.ts
-git commit -m "feat(chat): citation-grounded system prompt with [bN] blocks"
-```
+- [x] **步骤 2：类型检查（tsconfig 包含 api + src）通过**
+- [x] **步骤 3：提交**：`feat(chat): 带 [bN] 块的引用溯源系统提示`
 
 ---
 
-## Task 8: Content script — block anchors, highlight, vocab, jump-to
+## 任务 8：content script — 块锚点、高亮、存词、jump-to
 
-**Files:**
-- Modify: `src/content.ts`
-- Modify: `src/content.css`
-- Create: `tests/content.test.ts`
+**文件：**
+- 修改 `src/content.ts`、`src/content.css`、`src/background.ts`
+- 新建：`tests/content.test.ts`
 
-This is the largest task. It adds: block-id tagging in `extractPage`, a highlight action on the toolbar, vocab-save action, and three message handlers (`lector-jump-to`, `lector-highlight`, `lector-save-word`).
+本任务最大。新增：extractPage 打 block id、工具栏高亮与存词动作、三个消息处理
+（`lector-jump-to`、`lector-highlight`、`lector-save-word`）、background 中继与命令转发。
 
-- [ ] **Step 1: Write integration test for jump-to + highlight injection**
+- [x] **步骤 1：写集成测试**（`tests/content.test.ts`，jsdom 验证 jump-to 定位 + 高亮注入不破坏 DOM；需 stub `scrollIntoView` 因 jsdom 未实现）
 
-`tests/content.test.ts`:
-```ts
-import { describe, it, expect, beforeEach } from 'vitest'
+- [x] **步骤 2：运行确认行为**
 
-// jsdom gives us a DOM but NOT chrome.* APIs or module side effects. We test
-// the pure helpers we export from content.ts by re-implementing the smallest
-// pieces here is undesirable; instead we test the jump-to DOM behavior by
-// simulating what the handler does.
+- [x] **步骤 3：`src/content.css` 追加** 引用脉冲（`lector-pulse`）+ 高亮 mark 样式（含 green/pink/blue 变体）
 
-function jumpTo(blockId: string): HTMLElement | null {
-  const node = document.querySelector<HTMLElement>(`[data-lector-id="${blockId}"]`)
-  if (!node) return null
-  node.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  node.classList.add('lector-pulse')
-  setTimeout(() => node.classList.remove('lector-pulse'), 50)
-  return node
-}
+- [x] **步骤 4：改 `extractPage`**：采集 live DOM 块时打 `data-lector-id="bN"`，输出
+  `blocks: ExtractedPageBlock[]`，并保留 `text` 兼容字段。`ExtractedPage` 接口新增
+  `blocks`。
 
-describe('jump-to', () => {
-  beforeEach(() => {
-    document.body.innerHTML = ''
-  })
-  it('highlights the target block when present', () => {
-    const p = document.createElement('p')
-    p.setAttribute('data-lector-id', 'b2')
-    p.textContent = 'target'
-    document.body.appendChild(p)
-    const hit = jumpTo('b2')
-    expect(hit).toBe(p)
-    expect(p.classList.contains('lector-pulse')).toBe(true)
-  })
-  it('returns null when the block is absent', () => {
-    expect(jumpTo('b99')).toBeNull()
-  })
-})
-```
+- [x] **步骤 5：选择工具栏加高亮动作**：`createToolbar` 内追加 `🔖 高亮` 按钮 →
+  `handleHighlight(text)`。用 `range.surroundContents(mark)` 包裹（失败则回退仅文本），
+  记录最近的 `data-lector-id` 作 blockId，`chrome.runtime.sendMessage` 发
+  `lector-highlight`。
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **步骤 6：选择工具栏加存词动作**：追加 `★ 存词` 按钮 → `handleSaveWord(word)`。
+  抓取锚点父元素的 blockId 与原句上下文，发 `lector-save-word`。
 
-Run: `npm test -- content`
-Expected: FAIL (test references functions; jsdom DOM is empty initially — but the test itself defines `jumpTo`, so it should PASS once DOM is set. To make it fail-first against the real module, we will instead rely on the highlight-injection assertion below after we export helpers. For now run it; if it passes trivially, that's fine — the real coverage is the pure modules.)
+- [x] **步骤 7：消息处理 `lector-jump-to`**：查 `[data-lector-id="..."]` →
+  `scrollIntoView` + 加 `lector-pulse` 类 2 秒后移除；找不到则 `sendResponse({ok:false,
+  reason:'node-unavailable'})`。
 
-- [ ] **Step 3: Add citation-pulse + highlight styles to `src/content.css`**
+- [x] **步骤 8：background 中继**：扩展 `open-side-panel` 监听器，处理 `lector-highlight`
+  （unshift 进 `lectorHighlights` storage，上限 500）与 `lector-save-word`（先 fetch
+  `/translate` 取翻译，再合并入 `lectorVocab` storage，上限 2000，按词大小写不敏感去重保
+  留 srs）。新增 `chrome.commands.onCommand` 转发 `lector-command` 到活动标签页。
 
-Append:
-```css
-/* Citation jump-to pulse */
-[data-lector-id].lector-pulse {
-  animation: lectorPulse 2s ease-out;
-}
-@keyframes lectorPulse {
-  0% { background-color: rgba(250, 204, 21, 0.55); }
-  100% { background-color: transparent; }
-}
-
-/* Inline highlight marks */
-mark.lector-hl {
-  background: linear-gradient(transparent 55%, rgba(250, 213, 86, 0.55) 55%);
-  border-radius: 2px;
-  padding: 0 1px;
-  cursor: pointer;
-}
-mark.lector-hl-green { background: linear-gradient(transparent 55%, rgba(134, 239, 172, 0.6) 55%); }
-mark.lector-hl-pink  { background: linear-gradient(transparent 55%, rgba(244, 114, 182, 0.5) 55%); }
-mark.lector-hl-blue  { background: linear-gradient(transparent 55%, rgba(125, 211, 252, 0.55) 55%); }
-```
-
-- [ ] **Step 4: Modify `extractPage` to tag blocks with `data-lector-id` and emit `blocks`**
-
-In `src/content.ts`, replace the `extractPage` function's body (the part that collects `blocks` into text) so it assigns ids. Concretely, find:
-```ts
-  // Collect paragraph-ish text preserving some structure.
-  const blocks: string[] = []
-  clone.querySelectorAll('h1,h2,h3,h4,p,li,blockquote,pre').forEach((el) => {
-    const t = (el.textContent || '').replace(/\s+/g, ' ').trim()
-    if (t.length > 0) blocks.push(t)
-  })
-  let text = blocks.join('\n\n')
-```
-Replace with:
-```ts
-  // Collect paragraph-ish text preserving some structure, tagging the LIVE DOM
-  // nodes with stable ids so citations can jump back to them.
-  const pageBlocks: ExtractedPageBlock[] = []
-  const textParts: string[] = []
-  const liveNodes = root.querySelectorAll('h1,h2,h3,h4,p,li,blockquote,pre')
-  liveNodes.forEach((el, i) => {
-    const t = (el.textContent || '').replace(/\s+/g, ' ').trim()
-    if (t.length === 0) return
-    const id = `b${pageBlocks.length}`
-    try {
-      ;(el as HTMLElement).setAttribute('data-lector-id', id)
-    } catch {
-      // some nodes reject setAttribute; skip tagging
-    }
-    pageBlocks.push({ id, text: t, domSelector: '' })
-    textParts.push(t)
-    void i
-  })
-  let text = textParts.join('\n\n')
-```
-
-Update the `ExtractedPage` interface to include `blocks`:
-```ts
-export interface ExtractedPageBlock {
-  id: string
-  text: string
-  domSelector: string
-}
-
-export interface ExtractedPage {
-  title: string
-  url: string
-  byline: string | null
-  text: string
-  lang: string
-  blocks: ExtractedPageBlock[]
-}
-```
-
-And in the returned object add `blocks: pageBlocks`.
-
-- [ ] **Step 5: Add highlight action to the selection toolbar**
-
-In `createToolbar`, after the existing `mk(...)` appends and before the close button, add:
-```ts
-  selectionToolbar.appendChild(mk('t-btn', '🔖 高亮', () => handleHighlight(text)))
-```
-
-Add the `handleHighlight` function near `handleAction`:
-```ts
-function handleHighlight(text: string) {
-  const sel = window.getSelection()
-  if (!sel || sel.isCollapsed) return
-  const range = sel.getRangeAt(0)
-  try {
-    // Wrap the range in a mark node without disturbing the DOM structure.
-    const mark = document.createElement('mark')
-    mark.className = 'lector-hl'
-    mark.title = 'Lector highlight'
-    range.surroundContents(mark)
-    // Find the enclosing block id (Feature ① link).
-    const block = (mark.closest('[data-lector-id]') as HTMLElement | null)
-    const blockId = block?.getAttribute('data-lector-id') || undefined
-    const context = (mark.parentElement?.textContent || text).slice(0, 200)
-    chrome.runtime
-      .sendMessage({
-        action: 'lector-highlight',
-        highlight: {
-          id: 'h' + Date.now().toString(36),
-          text,
-          note: '',
-          quote: context,
-          url: location.href,
-          title: document.title,
-          blockId,
-          createdAt: Date.now(),
-          color: 'yellow',
-        },
-      })
-      .catch(() => {})
-  } catch {
-    // surroundContents fails on multi-node ranges; fall back to text-only.
-    chrome.runtime
-      .sendMessage({
-        action: 'lector-highlight',
-        highlight: {
-          id: 'h' + Date.now().toString(36),
-          text,
-          note: '',
-          quote: text.slice(0, 200),
-          url: location.href,
-          title: document.title,
-          createdAt: Date.now(),
-          color: 'yellow',
-        },
-      })
-      .catch(() => {})
-  }
-  removeToolbar()
-}
-```
-
-- [ ] **Step 6: Add vocab-save action to the selection toolbar**
-
-In `createToolbar`, add a save-word button after the highlight button:
-```ts
-  selectionToolbar.appendChild(mk('t-btn', '★ 存词', () => handleSaveWord(text)))
-```
-
-Add `handleSaveWord`:
-```ts
-function handleSaveWord(word: string) {
-  const block = (window.getSelection()?.anchorNode?.parentElement?.closest('[data-lector-id]') as HTMLElement | null)
-  const blockId = block?.getAttribute('data-lector-id') || undefined
-  const sentence = (window.getSelection()?.anchorNode?.parentElement?.textContent || word).slice(0, 160)
-  chrome.runtime
-    .sendMessage({
-      action: 'lector-save-word',
-      word,
-      context: sentence,
-      url: location.href,
-      title: document.title,
-      blockId,
-    })
-    .catch(() => {})
-  removeToolbar()
-}
-```
-
-- [ ] **Step 7: Add message handlers for jump-to**
-
-Extend the existing `chrome.runtime.onMessage.addListener` at the bottom of `content.ts`. Find the existing listener block and add, inside it (before `return false`):
-```ts
-  if (message?.action === 'lector-jump-to') {
-    const node = document.querySelector<HTMLElement>(`[data-lector-id="${message.blockId}"]`)
-    if (node) {
-      node.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      node.classList.add('lector-pulse')
-      setTimeout(() => node.classList.remove('lector-pulse'), 2000)
-      sendResponse({ ok: true })
-    } else {
-      sendResponse({ ok: false, reason: 'node-unavailable' })
-    }
-    return false
-  }
-```
-
-- [ ] **Step 8: Wire content→background→sidepanel for highlight & save-word**
-
-The content script sends messages to the **background**, which forwards to the side panel (side panels don't get tab messages directly). In `src/background.ts`, add a relay. Add inside the existing `chrome.runtime.onMessage.addListener` (the one that handles `open-side-panel`) — extend it to also persist the incoming highlight/word into `chrome.storage.local` so the side panel can read them on its next render tick. Add:
-
-```ts
-  if (message?.action === 'lector-highlight') {
-    // Merge into the persisted highlights list in storage; the side panel
-    // listens to chrome.storage.onChanged to refresh.
-    chrome.storage.local.get(['lectorHighlights'], (r) => {
-      const list = Array.isArray(r.lectorHighlights) ? r.lectorHighlights : []
-      list.unshift(message.highlight)
-      chrome.storage.local.set({ lectorHighlights: list.slice(0, 500) })
-    })
-    return false
-  }
-  if (message?.action === 'lector-save-word') {
-    // Fetch a translation, then store the vocab entry.
-    ;(async () => {
-      const apiBase = await getApiBase()
-      let translation = ''
-      try {
-        const res = await fetch(`${apiBase}/translate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: message.word, targetLang: '中文' }),
-        })
-        if (res.ok) translation = (await res.json()).translatedText || ''
-      } catch {
-        // leave translation empty; flagged at review time
-      }
-      const entry = {
-        id: 'v' + Date.now().toString(36),
-        word: message.word,
-        translation,
-        context: message.context,
-        url: message.url,
-        title: message.title,
-        lang: 'en',
-        createdAt: Date.now(),
-        srs: { due: Date.now(), interval: 0, ease: 2.5, reps: 0, lapses: 0 },
-      }
-      chrome.storage.local.get(['lectorVocab'], (r) => {
-        const list = Array.isArray(r.lectorVocab) ? r.lectorVocab : []
-        // merge duplicates (same word, case-insensitive)
-        const idx = list.findIndex(
-          (x: { word: string }) => x.word.toLowerCase() === entry.word.toLowerCase()
-        )
-        if (idx === -1) {
-          list.unshift(entry)
-        } else {
-          const existing = list[idx]
-          list[idx] = {
-            ...existing,
-            context: entry.context || existing.context,
-            translation: entry.translation || existing.translation,
-            createdAt: Math.min(existing.createdAt, entry.createdAt),
-            srs: existing.srs,
-          }
-        }
-        chrome.storage.local.set({ lectorVocab: list.slice(0, 2000) })
-      })
-    })()
-    return false
-  }
-```
-
-(Add `getApiBase` is already imported at the top of background.ts.)
-
-- [ ] **Step 9: Build and type-check**
-
-Run: `npm run typecheck && npm run build:extension`
-Expected: no type errors; build succeeds; `dist/content.js`, `dist/background.js` emitted.
-
-- [ ] **Step 10: Run all tests**
-
-Run: `npm test`
-Expected: all test files pass.
-
-- [ ] **Step 11: Commit**
-
-```bash
-git add src/content.ts src/content.css src/background.ts tests/content.test.ts
-git commit -m "feat(content): block anchors, highlight + vocab-save toolbar, jump-to"
-```
+- [x] **步骤 9：类型检查 + 构建通过**
+- [x] **步骤 10：全部测试通过**
+- [x] **步骤 11：提交**：`feat(content): 块锚点、高亮+存词工具栏、jump-to、命令中继`
 
 ---
 
-## Task 9: Side panel — Highlights drawer, Vocab drawer, citation chips (Features ①②③ UI)
+## 任务 9：侧栏 — 高亮抽屉、词汇抽屉、引用角标（功能①②③ UI）
 
-**Files:**
-- Modify: `src/sidepanel/markdown.ts`
-- Modify: `src/sidepanel/App.tsx`
-- Modify: `src/sidepanel/index.css`
+**文件：**
+- 修改 `src/sidepanel/markdown.ts`、`src/sidepanel/App.tsx`、`src/sidepanel/index.css`
 
-- [ ] **Step 1: Add citation rendering to the markdown output**
+- [x] **步骤 1：markdown.ts 不改**（引用渲染在调用处用 `renderCitations` 后处理）
 
-In `src/sidepanel/markdown.ts`, `renderMarkdown` returns HTML. The App will post-process with `renderCitations`. No change needed in markdown.ts itself; we apply `renderCitations` at call site. Add export of the helper is unnecessary — App imports it from `shared/citations`.
+- [x] **步骤 2：`src/sidepanel/index.css` 追加** `.lector-cite`（角标）+ `.lector-due-badge`（到期徽标）样式
 
-- [ ] **Step 2: Add CSS for citation chips + drawers**
+- [x] **步骤 3：`App.tsx` 接入 page blocks + 引用渲染**：import `renderCitations`、
+  `PageBlock`、`isDue`、`toMarkdown`、`Highlight`、`VocabEntry`、`scheduleSrs`、`Grade`；
+  `PageContext` 加 `blocks`；`handleSend` 的 fetch body 加 `pageBlocks: page?.blocks`。
 
-Append to `src/sidepanel/index.css`:
-```css
-.lector-cite {
-  color: #6366f1;
-  font-weight: 600;
-  cursor: pointer;
-  margin-left: 1px;
-  user-select: none;
-}
-.lector-cite:hover { text-decoration: underline; }
+- [x] **步骤 4：assistant 消息渲染角标**：`validCiteIds = new Set(page?.blocks ids)`；
+  `dangerouslySetInnerHTML` 的 html 用 `renderCitations(renderMarkdown(m.content),
+  validCiteIds)`；`onClick` 委托捕获 `[data-cite]` → 向活动标签页发 `lector-jump-to`。
 
-.lector-due-badge {
-  background: #ef4444;
-  color: #fff;
-  font-size: 9px;
-  border-radius: 9999px;
-  padding: 0 5px;
-  margin-left: 4px;
-}
-```
+- [x] **步骤 5：高亮抽屉**：状态 `showHighlights`；store 选择器
+  `highlights/addHighlight/removeHighlight`；`chrome.storage.onChanged` 监听同步
+  `lectorHighlights`（drain 队列）；Header 加 🔖 按钮；抽屉列表 + "Export Markdown"。
 
-- [ ] **Step 3: In `App.tsx`, wire page blocks + citation rendering into the chat send path**
+- [x] **步骤 6：词汇抽屉**：状态 `showVocab`、`revealed`；store 选择器
+  `vocab/updateVocabSrs`；Header 加 ★ 按钮（有到期时显示 `!` 徽标）；抽屉按
+  `isDue` 显示复习卡片，翻面看翻译，4 档评分调 `scheduleSrs` 更新。
 
-At top of `App.tsx`, add imports:
-```ts
-import { renderCitations } from '../shared/citations'
-import { isDue } from '../shared/srs'
-import type { PageBlock } from '../shared/citations'
-```
-
-Update the `PageContext` interface to carry blocks:
-```ts
-interface PageContext {
-  title: string
-  url: string
-  text: string
-  lang: string
-  blocks: PageBlock[]
-}
-```
-
-In the `handleSend` body, the `fetch` body currently sends `pageContent: page?.text`. Change to also send blocks:
-```ts
-          body: JSON.stringify({
-            message: text,
-            pageContent: page?.text,
-            pageMetadata: { url: page?.url, title: page?.title },
-            pageBlocks: page?.blocks,
-            history,
-          }),
-```
-
-- [ ] **Step 4: Render citation chips in assistant messages**
-
-Compute a valid-id set from the current page blocks. Add near the component top (after `page` state):
-```ts
-  const validCiteIds = new Set((page?.blocks ?? []).map((b) => b.id))
-```
-
-Replace the assistant message content rendering. Find:
-```tsx
-                {m.content ? (
-                  <div
-                    className="lector-prose"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
-                  />
-```
-Replace with:
-```tsx
-                {m.content ? (
-                  <div
-                    className="lector-prose"
-                    dangerouslySetInnerHTML={{
-                      __html: renderCitations(renderMarkdown(m.content), validCiteIds),
-                    }}
-                    onClick={(e) => {
-                      const target = e.target as HTMLElement
-                      const cite = target.closest('[data-cite]') as HTMLElement | null
-                      if (!cite) return
-                      const blockId = cite.getAttribute('data-cite') || ''
-                      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                        const tabId = tabs[0]?.id
-                        if (tabId !== undefined) {
-                          chrome.tabs.sendMessage(tabId, { action: 'lector-jump-to', blockId }, () => {
-                            void chrome.runtime.lastError
-                          })
-                        }
-                      })
-                    }}
-                  />
-```
-
-- [ ] **Step 5: Add Highlights drawer**
-
-Add state in the component:
-```ts
-  const [showHighlights, setShowHighlights] = useState(false)
-  const highlights = useStore((s) => s.highlights)
-  const addHighlight = useStore((s) => s.addHighlight)
-  const removeHighlight = useStore((s) => s.removeHighlight)
-```
-
-Add a `chrome.storage.onChanged` listener in the existing top `useEffect` so highlights saved via the content→background path appear:
-```ts
-      const onStorage = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => {
-        if (area !== 'local') return
-        if (changes.lectorHighlights) {
-          const list = changes.lectorHighlights.newValue || []
-          // Sync into the store (dedupe by addHighlight).
-          for (const h of list) {
-            addHighlight(h)
-          }
-        }
-      }
-      chrome.storage.onChanged.addListener(onStorage)
-      return () => chrome.storage.onChanged.removeListener(onStorage)
-```
-(Note: return a cleanup from this effect. Since the existing effect is async IIFE, wrap the listener add/remove carefully — add the listener at the top of the effect and remove in a returned cleanup. Adjust the effect to `return () => chrome.storage.onChanged.removeListener(onStorage)`.)
-
-Add a Highlights button in the header (next to the Library 📚 button):
-```tsx
-          <button
-            onClick={() => setShowHighlights(true)}
-            title="Highlights"
-            className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center text-sm"
-          >
-            🔖
-          </button>
-```
-
-Add the Highlights drawer JSX (modeled on the existing Library drawer), before the closing `</div>`:
-```tsx
-      {showHighlights && (
-        <div
-          className="absolute inset-0 bg-black/30 z-40"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowHighlights(false) }}
-        >
-          <div className="absolute right-0 top-0 bottom-0 w-[320px] bg-white shadow-2xl flex flex-col">
-            <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200">
-              <h3 className="text-[13px] font-semibold text-slate-800">Highlights</h3>
-              <button onClick={() => setShowHighlights(false)} className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500">✕</button>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {highlights.length === 0 ? (
-                <div className="text-center text-[12px] text-slate-400 py-8 px-4">
-                  Select text on any page and click 🔖 to capture highlights.
-                </div>
-              ) : (
-                highlights.map((h) => (
-                  <div key={h.id} className="group px-3 py-2.5 border-b border-slate-100">
-                    <div className="text-[11px] text-slate-400 truncate mb-0.5">{h.title}</div>
-                    <div className="text-[12px] text-slate-700 leading-snug">{h.text}</div>
-                    <button
-                      onClick={() => removeHighlight(h.id)}
-                      className="opacity-0 group-hover:opacity-100 text-[10px] text-slate-400 hover:text-red-500 mt-1"
-                    >Remove</button>
-                  </div>
-                ))
-              )}
-            </div>
-            {highlights.length > 0 && (
-              <button
-                onClick={() => downloadMarkdown(highlights)}
-                className="px-3 py-2 text-[11px] text-blue-600 hover:text-blue-800 border-t border-slate-200"
-              >Export Markdown</button>
-            )}
-          </div>
-        </div>
-      )}
-```
-
-Add the export helper inside the component (uses the exporters module):
-```ts
-  const downloadMarkdown = (hs: typeof highlights) => {
-    import('../shared/exporters').then(({ toMarkdown }) => {
-      const md = toMarkdown(hs)
-      const blob = new Blob([md], { type: 'text/markdown' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'lector-highlights.md'
-      a.click()
-      URL.revokeObjectURL(url)
-    })
-  }
-```
-
-- [ ] **Step 6: Add Vocab drawer with review**
-
-Add state + store selectors:
-```ts
-  const [showVocab, setShowVocab] = useState(false)
-  const vocab = useStore((s) => s.vocab)
-  const updateVocabSrs = useStore((s) => s.updateVocabSrs)
-  const [revealed, setRevealed] = useState<string | null>(null)
-```
-
-Add a Vocab button in the header (next to Highlights):
-```tsx
-          <button
-            onClick={() => setShowVocab(true)}
-            title="Vocabulary"
-            className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center text-sm relative"
-          >
-            ★
-            {vocab.some((v) => isDue(v.srs)) && (
-              <span className="lector-due-badge absolute -top-0.5 -right-0.5">!</span>
-            )}
-          </button>
-```
-
-Add the Vocab drawer JSX (before the closing `</div>`):
-```tsx
-      {showVocab && (
-        <div
-          className="absolute inset-0 bg-black/30 z-40"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowVocab(false) }}
-        >
-          <div className="absolute right-0 top-0 bottom-0 w-[320px] bg-white shadow-2xl flex flex-col">
-            <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200">
-              <h3 className="text-[13px] font-semibold text-slate-800">
-                Vocabulary
-                <span className="lector-due-badge ml-1">
-                  {vocab.filter((v) => isDue(v.srs)).length}
-                </span>
-              </h3>
-              <button onClick={() => setShowVocab(false)} className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500">✕</button>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {vocab.length === 0 ? (
-                <div className="text-center text-[12px] text-slate-400 py-8 px-4">
-                  Select a word on any page and click ★ to save it for review.
-                </div>
-              ) : (
-                vocab.slice(0, 200).map((v) => {
-                  const due = isDue(v.srs)
-                  return (
-                    <div key={v.id} className="px-3 py-2.5 border-b border-slate-100">
-                      <div className="flex items-center justify-between">
-                        <div className="text-[13px] font-medium text-slate-800">{v.word}</div>
-                        {due && <span className="text-[9px] text-red-500">due</span>}
-                      </div>
-                      <div className="text-[11px] text-slate-500 italic mt-0.5">{v.context}</div>
-                      {revealed === v.id ? (
-                        <div className="text-[12px] text-slate-700 mt-1">{v.translation || '(no translation)'}</div>
-                      ) : (
-                        <button onClick={() => setRevealed(v.id)} className="text-[10px] text-blue-500 mt-1">Show translation</button>
-                      )}
-                      {due && revealed === v.id && (
-                        <div className="flex gap-1 mt-2">
-                          {(['again', 'hard', 'good', 'easy'] as const).map((g) => (
-                            <button
-                              key={g}
-                              onClick={() => {
-                                import('../shared/srs').then(({ scheduleSrs }) => {
-                                  updateVocabSrs(v.id, scheduleSrs(v.srs, g))
-                                })
-                              }}
-                              className="flex-1 py-1 text-[10px] rounded bg-slate-100 hover:bg-slate-200 text-slate-600"
-                            >{g}</button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-```
-
-- [ ] **Step 7: Type-check + build**
-
-Run: `npm run typecheck && npm run build:extension`
-Expected: no errors; build succeeds.
-
-- [ ] **Step 8: Commit**
-
-```bash
-git add src/sidepanel/App.tsx src/sidepanel/index.css src/sidepanel/markdown.ts
-git commit -m "feat(sidepanel): citation chips, highlights drawer, vocab review drawer"
-```
+- [x] **步骤 7：类型检查 + 构建通过**
+- [x] **步骤 8：提交**：`feat(sidepanel): 引用角标、高亮抽屉、词汇复习抽屉`
 
 ---
 
-## Task 10: Manifest version + commands
+## 任务 10：manifest 版本 + 命令
 
-**Files:**
-- Modify: `src/manifest.json`
+**文件：** 修改 `src/manifest.json`
 
-- [ ] **Step 1: Bump version and add commands**
-
-Change `"version": "0.2.0"` → `"0.3.0"`. Add a `"commands"` key after `"permissions"`:
+- [x] **步骤 1：版本 0.2.0 → 0.3.0，新增 `commands`**：
 ```json
   "commands": {
-    "highlight-selection": {
-      "suggested_key": { "default": "Alt+H" },
-      "description": "Highlight the current selection with Lector AI"
-    },
-    "save-word": {
-      "suggested_key": { "default": "Alt+S" },
-      "description": "Save the current selection as a vocabulary word"
-    }
+    "highlight-selection": { "suggested_key": { "default": "Alt+H" }, "description": "Highlight the current selection with Lector AI" },
+    "save-word": { "suggested_key": { "default": "Alt+S" }, "description": "Save the current selection as a vocabulary word" }
   },
 ```
 
-- [ ] **Step 2: Handle commands in background**
+- [x] **步骤 2：background 命令监听**（任务 8 已加）→ content 处理 `lector-command`（任务 8 已加）
 
-In `src/background.ts`, add a listener (commands carry no selection text in MV3, so we send a message to the active tab's content script to act on its current selection):
-```ts
-chrome.commands?.onCommand.addListener((cmd) => {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    const tabId = tabs[0]?.id
-    if (tabId === undefined) return
-    chrome.tabs.sendMessage(tabId, { action: 'lector-command', command: cmd }, () => {
-      void chrome.runtime.lastError
-    })
-  })
-})
-```
-
-In `src/content.ts`, handle `lector-command` in the message listener — get the current selection and dispatch to highlight/save-word:
-```ts
-  if (message?.action === 'lector-command') {
-    const sel = window.getSelection()
-    const text = sel?.toString().trim() || ''
-    if (text.length > 0) {
-      if (message.command === 'highlight-selection') handleHighlight(text)
-      else if (message.command === 'save-word') handleSaveWord(text)
-    }
-    return false
-  }
-```
-
-- [ ] **Step 3: Build**
-
-Run: `npm run build:extension`
-Expected: succeeds; `dist/manifest.json` shows version 0.3.0.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add src/manifest.json src/background.ts src/content.ts
-git commit -m "feat: keyboard commands (Alt+H highlight, Alt+S save word), v0.3.0"
-```
+- [x] **步骤 3：构建通过；`dist/manifest.json` 显示 0.3.0**
+- [x] **步骤 4：提交**：`feat: 键盘命令（Alt+H 高亮、Alt+S 存词），v0.3.0`
 
 ---
 
-## Task 11: Final verification
+## 任务 11：最终验证
 
-- [ ] **Step 1: Full type-check**
-
-Run: `npm run typecheck`
-Expected: no errors.
-
-- [ ] **Step 2: Full test suite**
-
-Run: `npm test`
-Expected: all test files pass (citations, srs, highlights, vocabulary, exporters, content).
-
-- [ ] **Step 3: Extension build**
-
-Run: `npm run build:extension`
-Expected: build green; `dist/` contains manifest.json (0.3.0), content.js, background.js, sidepanel/, popup/, content.css, icons/.
-
-- [ ] **Step 4: Verify dist layout**
-
-Run: `ls dist && grep '"version"' dist/manifest.json`
-Expected: version 0.3.0; expected files present.
-
-- [ ] **Step 5: Update the design doc status**
-
-Edit `docs/superpowers/specs/2026-06-16-trust-and-depth-features-design.md`: change `**Status:** Design approved (pending implementation)` → `**Status:** Implemented (build green, tests green)`. Commit.
+- [x] **步骤 1：全量类型检查** `NODE_ENV=development node_modules/.bin/tsc --noEmit` → exit 0
+- [x] **步骤 2：全量测试** `NODE_ENV=development node_modules/.bin/vitest run` → 37/37 通过
+- [x] **步骤 3：扩展构建** `NODE_ENV=development npm run build:extension` → 构建成功
+- [x] **步骤 4：校验 dist 布局** → manifest 0.3.0、content.js/background.js/sidepanel.js/popup.js + content.css 齐全
+- [x] **步骤 5：更新设计文档状态** → "已实现"
 
 ---
 
-## Self-review
+## 自检
 
-**1. Spec coverage:**
-- ① block anchors → Task 8 Step 4. ② backend prompt → Task 7. ③ chip render + click → Task 9 Steps 3-4. ④ jump-to → Task 8 Step 7 + Task 9 Step 4. ✓
-- ② highlight capture → Task 8 Step 5. drawer → Task 9 Step 5. exporters → Task 5. export button → Task 9 Step 5. ✓
-- ③ save word → Task 8 Step 6 + background Step 8. SRS → Task 2. drawer/review → Task 9 Step 6. ✓
-- store → Task 6. manifest/commands → Task 10. tests → Tasks 1-5, 8. ✓
+**1. 规格覆盖：**
+- ① 块锚点 → 任务 8 步骤 4；后端提示 → 任务 7；角标渲染+点击 → 任务 9 步骤 3-4；jump-to → 任务 8 步骤 7 + 任务 9 步骤 4 ✓
+- ② 高亮捕获 → 任务 8 步骤 5；抽屉 → 任务 9 步骤 5；exporters → 任务 5；导出按钮 → 任务 9 步骤 5 ✓
+- ③ 存词 → 任务 8 步骤 6 + background 步骤 8；SRS → 任务 2；复习抽屉 → 任务 9 步骤 6 ✓
+- store → 任务 6；manifest/命令 → 任务 10；测试 → 任务 1-5、8 ✓
 
-**2. Placeholder scan:** No "TBD/TODO/handle edge cases" without code; every code step has real code.
+**2. 占位符扫描：** 无"TBD/TODO/处理边界情况"等无代码内容；每个代码步骤都有真实代码。
 
-**3. Type consistency:** `PageBlock`, `Highlight`, `VocabEntry`, `SrsState`, `Grade` names are consistent across modules and tasks. `scheduleSrs(card, grade, now)` signature matches in tests, store, and UI. `renderCitations(html, validIds)` matches in test, citations.ts, and App.
+**3. 类型一致性：** `PageBlock`、`Highlight`、`VocabEntry`、`SrsState`、`Grade` 在各模块与
+任务间命名一致。`scheduleSrs(card, grade, now)` 签名在测试、store、UI 中一致。
+`renderCitations(html, validIds)` 在测试、citations.ts、App 中一致。
 
 ---
 
-## Execution handoff
+## 验证证据（实现后）
 
-Plan complete and saved to `docs/superpowers/plans/2026-06-16-trust-and-depth-features.md`. Proceeding with inline execution (executing-plans) given the session goal requires completing development end-to-end.
+- **类型检查**：`tsc --noEmit` → exit 0
+- **单元测试**：`vitest run` → 37/37 通过（citations 8、srs 9、highlights 7、vocabulary 6、exporters 4、content 3）
+- **构建**：`npm run build:extension` → 成功，`dist/manifest.json` 版本 0.3.0
