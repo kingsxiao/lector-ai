@@ -3,10 +3,11 @@ import { getApiBase } from './shared/config'
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Lector AI installed')
 
-  // Allow "sidePanel" globally so we can open it on demand.
+  // Clicking the action icon opens the side panel; we also allow programmatic
+  // opens via the "open-side-panel" message from content scripts.
   if (chrome.sidePanel) {
     chrome.sidePanel
-      .setPanelBehavior({ openPanelOnActionClick: false })
+      .setPanelBehavior({ openPanelOnActionClick: true })
       .catch(() => {})
   }
 

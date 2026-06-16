@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Lector AI - Smart Reading Assistant",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "AI-powered reading companion: chat with any page, summarize, translate, and learn faster — right from your browser side panel.",
   "permissions": [
     "activeTab",
@@ -11,6 +11,16 @@
     "sidePanel",
     "tabs"
   ],
+  "commands": {
+    "highlight-selection": {
+      "suggested_key": { "default": "Alt+H" },
+      "description": "Highlight the current selection with Lector AI"
+    },
+    "save-word": {
+      "suggested_key": { "default": "Alt+S" },
+      "description": "Save the current selection as a vocabulary word"
+    }
+  },
   "host_permissions": [
     "<all_urls>"
   ],
@@ -21,7 +31,8 @@
     "default_path": "sidepanel/index.html"
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_scripts": [
     {
