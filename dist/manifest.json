@@ -1,24 +1,24 @@
 {
   "manifest_version": 3,
   "name": "Lector AI - Smart Reading Assistant",
-  "version": "0.1.0",
-  "description": "AI-powered reading assistant - summarize any webpage, translate instantly, and enhance your writing anywhere on the web.",
+  "version": "0.2.0",
+  "description": "AI-powered reading companion: chat with any page, summarize, translate, and learn faster — right from your browser side panel.",
   "permissions": [
     "activeTab",
     "storage",
     "scripting",
-    "contextMenus"
+    "contextMenus",
+    "sidePanel",
+    "tabs"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
   "action": {
-    "default_popup": "popup/index.html",
-    "default_icon": {
-      "16": "icons/icon16.png",
-      "48": "icons/icon48.png",
-      "128": "icons/icon128.png"
-    }
+    "default_title": "Open Lector AI"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/index.html"
   },
   "background": {
     "service_worker": "background.js"
