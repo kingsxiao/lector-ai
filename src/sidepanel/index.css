@@ -9,38 +9,44 @@ html, body, #root {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
+  color: var(--ink);
+  background: var(--bg);
 }
 
-/* Prose styling for streamed Markdown assistant replies. */
+/* Prose styling for streamed Markdown assistant replies — 暖色版. */
 .lector-prose {
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.65;
-  color: #1f2937;
+  color: var(--ink);
   word-wrap: break-word;
 }
 .lector-prose p { margin: 0 0 8px; }
 .lector-prose p:last-child { margin-bottom: 0; }
 .lector-prose h1, .lector-prose h2, .lector-prose h3 {
+  font-family: var(--font-serif);
   font-weight: 700;
-  margin: 12px 0 6px;
+  margin: 14px 0 6px;
   line-height: 1.3;
+  color: var(--ink);
 }
 .lector-prose h1 { font-size: 16px; }
 .lector-prose h2 { font-size: 15px; }
 .lector-prose h3 { font-size: 14px; }
 .lector-prose ul, .lector-prose ol { margin: 0 0 8px; padding-left: 20px; }
 .lector-prose li { margin: 2px 0; }
+.lector-prose li::marker { color: var(--accent); }
 .lector-prose code {
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
-  background: #f1f5f9;
+  background: var(--surface-muted);
+  color: var(--accent-hover);
   padding: 1px 5px;
   border-radius: 4px;
 }
 .lector-prose pre {
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--ink);
+  color: #F2E6D2;
   padding: 10px 12px;
   border-radius: 8px;
   overflow-x: auto;
@@ -48,18 +54,18 @@ body {
 }
 .lector-prose pre code { background: transparent; color: inherit; padding: 0; }
 .lector-prose blockquote {
-  border-left: 3px solid #c7d2fe;
+  border-left: 3px solid var(--accent);
   padding-left: 10px;
-  color: #475569;
+  color: var(--ink-soft);
   margin: 0 0 8px;
 }
-.lector-prose a { color: #4f46e5; text-decoration: underline; }
+.lector-prose a { color: var(--accent); text-decoration: underline; }
 .lector-prose strong { font-weight: 700; }
 
 /* Scrollbar polish */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
 
 /* Citation chips (Feature ①) */
 .lector-cite {
@@ -83,4 +89,30 @@ body {
   border-radius: 9999px;
   padding: 2px 5px;
   margin-left: 4px;
+}
+
+/* Focus ring — 补足可访问性 */
+.lector-focus:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* 抽屉 / 弹窗入场（克制的位移+淡入） */
+@keyframes lectorSlideIn {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.lector-anim-slide {
+  animation: lectorSlideIn 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes lectorFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.lector-anim-fade {
+  animation: lectorFadeIn 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lector-anim-slide, .lector-anim-fade { animation: none; }
 }
