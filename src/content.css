@@ -8,38 +8,32 @@
   width: 6px;
 }
 
-.lector-ai-popup::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 3px;
-}
+.lector-ai-popup::-webkit-scrollbar-track { background: #F5EFE3; border-radius: 3px; }
 
-.lector-ai-popup::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 3px;
-}
+.lector-ai-popup::-webkit-scrollbar-thumb { background: #D9CBB0; border-radius: 3px; }
 
 /* Citation jump-to pulse (Feature ①) */
 [data-lector-id].lector-pulse {
   animation: lectorPulse 2s ease-out;
 }
 @keyframes lectorPulse {
-  0% { background-color: rgba(250, 204, 21, 0.55); }
+  0% { background-color: rgba(217, 180, 125, 0.55); }
   100% { background-color: transparent; }
 }
 
 /* Inline highlight marks (Feature ②) */
 mark.lector-hl {
-  background: linear-gradient(transparent 55%, rgba(250, 213, 86, 0.55) 55%);
+  background: linear-gradient(transparent 55%, rgba(217, 180, 125, 0.5) 55%);
   border-radius: 2px;
   padding: 0 1px;
   cursor: pointer;
 }
 mark.lector-hl-green {
-  background: linear-gradient(transparent 55%, rgba(134, 239, 172, 0.6) 55%);
+  background: linear-gradient(transparent 55%, rgba(156, 175, 108, 0.5) 55%);
 }
 mark.lector-hl-pink {
-  background: linear-gradient(transparent 55%, rgba(244, 114, 182, 0.5) 55%);
+  background: linear-gradient(transparent 55%, rgba(200, 132, 132, 0.45) 55%);
 }
 mark.lector-hl-blue {
-  background: linear-gradient(transparent 55%, rgba(125, 211, 252, 0.55) 55%);
+  background: linear-gradient(transparent 55%, rgba(124, 152, 170, 0.5) 55%);
 }
