@@ -63,6 +63,7 @@ export default function App() {
   const [showHighlights, setShowHighlights] = useState(false)
   const [showVocab, setShowVocab] = useState(false)
   const [revealed, setRevealed] = useState<string | null>(null)
+  const [bilingualBusy, setBilingualBusy] = useState(false)
   const [showAuth, setShowAuth] = useState(false)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [authEmail, setAuthEmail] = useState('')
@@ -316,6 +317,25 @@ export default function App() {
     updateVocabSrs(v.id, scheduleSrs(v.srs, grade))
   }
 
+  // Inline bilingual translation (Immersive-Translate style). Asks the active
+  // tab's content script to inject paragraph-level translations; needs a page
+  // and a reachable backend. The content script remembers which blocks it has
+  // already translated, so repeated toggles translate new paragraphs only.
+  const toggleBilingual = async () => {
+    if (bilingualBusy) return
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (!tab?.id) return
+      setBilingualBusy(true)
+      chrome.tabs.sendMessage(tab.id, { action: 'lector-toggle-bilingual' }, () => {
+        void chrome.runtime.lastError
+        setBilingualBusy(false)
+      })
+    } catch {
+      setBilingualBusy(false)
+    }
+  }
+
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault()
     setAuthError('')
@@ -409,6 +429,18 @@ export default function App() {
             ★
             {vocab.some((v) => isDue(v.srs)) && (
               <span className="lector-due-badge absolute -top-0.5 -right-1">!</span>
+            )}
+          </button>
+          <button
+            onClick={toggleBilingual}
+            disabled={!page || bilingualBusy}
+            title={page ? 'Translate page paragraphs (bilingual)' : 'Open a page first'}
+            className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center text-sm disabled:opacity-40"
+          >
+            {bilingualBusy ? (
+              <span className="block w-3 h-3 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
+            ) : (
+              '译'
             )}
           </button>
           {user ? (

@@ -11,6 +11,10 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:browser": "node tests/browser/run-browser-e2e.mjs && node tests/browser/run-sidepanel-e2e.mjs && node tests/browser/run-background-e2e.mjs",
+    "test:browser:content": "node tests/browser/run-browser-e2e.mjs",
+    "test:browser:sidepanel": "node tests/browser/run-sidepanel-e2e.mjs",
+    "test:browser:background": "node tests/browser/run-background-e2e.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -28,6 +32,7 @@
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
     "jsdom": "^25.0.1",
+    "playwright": "^1.61.0",
     "postcss": "^8.4.40",
     "tailwindcss": "^3.4.7",
     "typescript": "~5.5.3",

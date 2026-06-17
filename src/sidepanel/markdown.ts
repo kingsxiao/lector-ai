@@ -25,12 +25,8 @@ function renderInline(s: string): string {
   // italic
   out = out.replace(/\*([^*]+)\*/g, '<em>$1</em>')
   out = out.replace(/(^|[^_])_([^_]+)_/g, '$1<em>$2</em>')
-  // links [text](url) — only http/https
-  out = out.replace(
-    /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'.replace('$1', '$1')
-  )
-  // Rewrite link template properly (the chained replace above is awkward):
+  // links [text](url) — only http/https. Group 1 = text, group 2 = url, so the
+  // href gets the url (not the text).
   out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_m, text, url) => {
     return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`
   })
