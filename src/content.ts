@@ -216,11 +216,11 @@ function createToolbar(x: number, y: number, text: string) {
   }
 
   selectionToolbar.appendChild(mk('t-btn', '翻译', () => handleAction('translate', text)))
-  selectionToolbar.appendChild(mk('t-btn', '💬 解释', () => handleAction('explain', text)))
-  selectionToolbar.appendChild(mk('summary-btn', '📄 摘要', () => handleAction('summarize', text)))
-  selectionToolbar.appendChild(mk('t-btn', '🤖 提问', () => handleAction('ask', text)))
-  selectionToolbar.appendChild(mk('t-btn', '🔖 高亮', () => handleHighlight(text)))
-  selectionToolbar.appendChild(mk('t-btn', '★ 存词', () => handleSaveWord(text)))
+  selectionToolbar.appendChild(mk('t-btn', '解释', () => handleAction('explain', text)))
+  selectionToolbar.appendChild(mk('summary-btn', '摘要', () => handleAction('summarize', text)))
+  selectionToolbar.appendChild(mk('t-btn', '提问', () => handleAction('ask', text)))
+  selectionToolbar.appendChild(mk('t-btn', '高亮', () => handleHighlight(text)))
+  selectionToolbar.appendChild(mk('t-btn', '存词', () => handleSaveWord(text)))
 
   const closeBtn = document.createElement('button')
   closeBtn.className = 'close-btn'
@@ -331,16 +331,16 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
 
   const copyBtn = document.createElement('button')
   copyBtn.className = 'action-btn copy-btn'
-  copyBtn.textContent = '📋 复制'
+  copyBtn.textContent = '复制'
   copyBtn.onclick = () => {
     navigator.clipboard.writeText(result)
-    copyBtn.textContent = '✅ 已复制'
-    setTimeout(() => (copyBtn.textContent = '📋 复制'), 1500)
+    copyBtn.textContent = '已复制'
+    setTimeout(() => (copyBtn.textContent = '复制'), 1500)
   }
 
   const chatBtn = document.createElement('button')
   chatBtn.className = 'action-btn primary'
-  chatBtn.textContent = '🤖 在侧栏继续'
+  chatBtn.textContent = '在侧栏继续'
   chatBtn.onclick = () => {
     chrome.runtime.sendMessage({ action: 'open-side-panel', seed: { kind: type, text: result } }).catch(() => {})
     removeResult()
