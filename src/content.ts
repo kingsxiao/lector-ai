@@ -25,26 +25,26 @@ function injectStyles() {
   style.textContent = `
     @keyframes lectorFadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes lectorSpin { to { transform: rotate(360deg); } }
-    @keyframes lectorFabPulse { 0%,100%{ box-shadow: 0 6px 20px rgba(102,126,234,.35);} 50%{ box-shadow: 0 6px 28px rgba(118,75,162,.55);} }
-    #lector-ai-fab { position: fixed; right: 20px; bottom: 24px; width: 48px; height: 48px; border-radius: 50%; background: linear-gradient(135deg,#667eea 0%,#764ba2 100%); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; cursor: pointer; z-index: 2147483646; box-shadow: 0 6px 20px rgba(102,126,234,.35); animation: lectorFabPulse 3s ease-in-out infinite; transition: transform .15s ease; user-select: none; }
+    @keyframes lectorFabPulse { 0%,100%{ box-shadow: 0 6px 20px rgba(156,107,60,.35);} 50%{ box-shadow: 0 6px 28px rgba(135,90,47,.55);} }
+    #lector-ai-fab { position: fixed; right: 20px; bottom: 24px; width: 48px; height: 48px; border-radius: 50%; background: #9C6B3C; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; cursor: pointer; z-index: 2147483646; box-shadow: 0 6px 20px rgba(156,107,60,.35); animation: lectorFabPulse 3s ease-in-out infinite; transition: transform .15s ease; user-select: none; }
     #lector-ai-fab:hover { transform: scale(1.08); }
     #lector-ai-toolbar button { padding: 6px 12px; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s ease; display: flex; align-items: center; gap: 4px; }
-    #lector-ai-toolbar .t-btn { background: #fff; color: #667eea; }
-    #lector-ai-toolbar .t-btn:hover { background: #f8fafc; transform: scale(1.05); }
+    #lector-ai-toolbar .t-btn { background: #fff; color: #9C6B3C; }
+    #lector-ai-toolbar .t-btn:hover { background: #F5EFE3; }
     #lector-ai-toolbar .summary-btn { background: rgba(255,255,255,.2); color: #fff; }
-    #lector-ai-toolbar .summary-btn:hover { background: rgba(255,255,255,.3); transform: scale(1.05); }
+    #lector-ai-toolbar .summary-btn:hover { background: rgba(255,255,255,.3); }
     #lector-ai-toolbar .close-btn { background: rgba(255,255,255,.1); color: #fff; padding: 6px 8px; }
     #lector-ai-toolbar .close-btn:hover { background: rgba(255,255,255,.25); }
-    #lector-ai-result .result-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #e2e8f0; }
-    #lector-ai-result .result-title { font-size:13px; font-weight:700; color:#667eea; display:flex; align-items:center; gap:6px; }
-    #lector-ai-result .result-content { font-size:13px; line-height:1.7; color:#334155; white-space:pre-wrap; word-break:break-word; }
+    #lector-ai-result .result-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #E8DECC; }
+    #lector-ai-result .result-title { font-size:13px; font-weight:700; color:#9C6B3C; display:flex; align-items:center; gap:6px; }
+    #lector-ai-result .result-content { font-size:13px; line-height:1.7; color:#2B2620; white-space:pre-wrap; word-break:break-word; }
     #lector-ai-result .result-content p { margin: 0 0 8px; }
     #lector-ai-result .action-btn { flex:1; padding:8px 12px; border:none; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; transition:all .15s ease; }
-    #lector-ai-result .action-btn.primary { background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); color:#fff; }
-    #lector-ai-result .action-btn.primary:hover { transform:scale(1.02); box-shadow:0 4px 12px rgba(102,126,234,.3); }
-    #lector-ai-result .copy-btn { flex:1; padding:8px 12px; border:none; border-radius:8px; font-size:12px; font-weight:600; background:#f1f5f9; color:#64748b; cursor:pointer; transition:all .15s ease; }
-    #lector-ai-result .copy-btn:hover { background:#e2e8f0; }
-    .lector-bilingual { font-size:.9em; color:#475569; border-left:3px solid #c7d2fe; padding:2px 0 2px 10px; margin:6px 0 6px 4px; }
+    #lector-ai-result .action-btn.primary { background:#9C6B3C; color:#fff; }
+    #lector-ai-result .action-btn.primary:hover { box-shadow:0 4px 12px rgba(156,107,60,.3); }
+    #lector-ai-result .copy-btn { flex:1; padding:8px 12px; border:none; border-radius:8px; font-size:12px; font-weight:600; background:#F5EFE3; color:#6B6155; cursor:pointer; transition:all .15s ease; }
+    #lector-ai-result .copy-btn:hover { background:#E8DECC; }
+    .lector-bilingual { font-size:.9em; color:#6B6155; border-left:3px solid #9C6B3C; padding:2px 0 2px 10px; margin:6px 0 6px 4px; }
   `
   document.head.appendChild(style)
 }
@@ -192,7 +192,7 @@ function createToolbar(x: number, y: number, text: string) {
     display: flex;
     gap: 6px;
     padding: 6px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #9C6B3C;
     border-radius: 10px;
     box-shadow: 0 4px 20px rgba(0,0,0,.25);
     z-index: 2147483647;
@@ -215,7 +215,7 @@ function createToolbar(x: number, y: number, text: string) {
     return b
   }
 
-  selectionToolbar.appendChild(mk('t-btn', '🌐 翻译', () => handleAction('translate', text)))
+  selectionToolbar.appendChild(mk('t-btn', '翻译', () => handleAction('translate', text)))
   selectionToolbar.appendChild(mk('t-btn', '💬 解释', () => handleAction('explain', text)))
   selectionToolbar.appendChild(mk('summary-btn', '📄 摘要', () => handleAction('summarize', text)))
   selectionToolbar.appendChild(mk('t-btn', '🤖 提问', () => handleAction('ask', text)))
@@ -261,12 +261,12 @@ function showLoading(x: number, y: number) {
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: #667eea;
+    color: #9C6B3C;
   `
 
   const spinner = document.createElement('div')
   spinner.style.cssText = `
-    width:16px;height:16px;border:2px solid #e2e8f0;border-top-color:#667eea;border-radius:50%;animation:lectorSpin .8s linear infinite;
+    width:16px;height:16px;border:2px solid #E8DECC;border-top-color:#9C6B3C;border-radius:50%;animation:lectorSpin .8s linear infinite;
   `
   const t = document.createElement('span')
   t.textContent = 'AI 处理中...'
@@ -311,11 +311,11 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
 
   const title = document.createElement('div')
   title.className = 'result-title'
-  const titleMap = { translate: '🌐 翻译结果', summary: '📄 摘要结果', explain: '💡 解释' }
+  const titleMap = { translate: '翻译结果', summary: '摘要结果', explain: '解释' }
   title.innerHTML = titleMap[type]
 
   const closeBtn = document.createElement('button')
-  closeBtn.style.cssText = 'padding:4px 8px;border:none;background:#f1f5f9;border-radius:4px;cursor:pointer;font-size:11px;color:#94a3b8;'
+  closeBtn.style.cssText = 'padding:4px 8px;border:none;background:#F5EFE3;border-radius:4px;cursor:pointer;font-size:11px;color:#9A8E7A;'
   closeBtn.textContent = '关闭'
   closeBtn.onclick = () => removeResult()
 
@@ -327,7 +327,7 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
   content.textContent = result
 
   const footer = document.createElement('div')
-  footer.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid #e2e8f0;display:flex;gap:8px;'
+  footer.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid #E8DECC;display:flex;gap:8px;'
 
   const copyBtn = document.createElement('button')
   copyBtn.className = 'action-btn copy-btn'
