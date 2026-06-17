@@ -689,7 +689,7 @@ export default function App() {
             <div className="flex-1 overflow-y-auto">
               {highlights.length === 0 ? (
                 <div className="text-center text-xs text-ink-faint py-8 px-4">
-                  Select text on any page and click 🔖 to capture highlights.
+                  Select text on any page and tap the bookmark button to capture highlights.
                 </div>
               ) : (
                 highlights.map((h) => (
@@ -745,7 +745,7 @@ export default function App() {
             <div className="flex-1 overflow-y-auto">
               {vocab.length === 0 ? (
                 <div className="text-center text-xs text-ink-faint py-8 px-4">
-                  Select a word on any page and click ★ to save it for review.
+                  Select a word on any page and tap the vocabulary button to save it for review.
                 </div>
               ) : (
                 vocab.slice(0, 200).map((v) => {
