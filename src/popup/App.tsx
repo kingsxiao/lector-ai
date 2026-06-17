@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react'
 import { summarizeUrl, translateText } from '../shared/api'
 import { useStore } from '../shared/store'
 import { getApiBase } from '../shared/config'
+import {
+  SettingsIcon, FileTextIcon, LanguagesIcon, SparklesIcon, ListIcon, XIcon,
+} from '../shared/icons'
 
 const FREE_LIMIT = 5
 
@@ -176,40 +179,40 @@ function App() {
   }
 
   return (
-    <div className="w-[360px] bg-gradient-to-br from-slate-100 to-blue-50 min-h-[400px] overflow-hidden rounded-2xl" style={{ borderRadius: '16px' }}>
-      <div className="bg-white m-2 p-4 rounded-2xl shadow-sm">
+    <div className="w-[360px] bg-bg min-h-[400px] overflow-hidden rounded-lg">
+      <div className="bg-surface m-2 p-4 rounded-lg shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold shadow-lg" style={{ borderRadius: '12px' }}>L</div>
+            <div className="w-10 h-10 rounded-lg bg-accent flex items-center justify-center text-accent-on font-bold shadow-sm">L</div>
             <div>
-              <h1 className="text-lg font-bold text-gray-800">Lector AI</h1>
-              <p className="text-[10px] text-gray-400">Smart Reading Assistant</p>
+              <h1 className="text-lg font-bold text-ink">Lector AI</h1>
+              <p className="text-[10px] text-ink-faint">Smart Reading Assistant</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             {isPro ? (
-              <span className="px-3 py-1 text-[10px] font-medium rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-md">Pro</span>
+              <span className="px-3 py-1 text-[10px] font-medium rounded-full bg-accent text-accent-on shadow-sm">Pro</span>
             ) : (
-              <span className="px-3 py-1 text-[10px] font-medium rounded-full bg-gray-100 text-gray-500">{getRemainingUses()}/{FREE_LIMIT} free</span>
+              <span className="px-3 py-1 text-[10px] font-medium rounded-full bg-surface-muted text-ink-soft">{getRemainingUses()}/{FREE_LIMIT} free</span>
             )}
             {user ? (
-              <button onClick={() => setShowSettings(true)} className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 transition-all hover:scale-105">
-                ⚙️
+              <button onClick={() => setShowSettings(true)} className="w-9 h-9 rounded-lg bg-surface-muted hover:bg-line flex items-center justify-center text-ink-soft transition-all">
+                <SettingsIcon size={16} />
               </button>
             ) : (
-              <button onClick={() => setShowAuth(true)} className="px-3 py-1.5 text-[10px] font-medium rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-all">
+              <button onClick={() => setShowAuth(true)} className="px-3 py-1.5 text-[10px] font-medium rounded-full bg-accent text-accent-on hover:bg-accent-hover transition-all">
                 Sign In
               </button>
             )}
           </div>
         </div>
 
-        <div className="flex bg-gray-100 p-1 rounded-xl mb-4">
-          <button onClick={() => setActiveTab('summarize')} className={`flex-1 py-2.5 text-xs font-semibold rounded-lg transition-all ${activeTab === 'summarize' ? 'bg-white text-blue-600 shadow-md' : 'text-gray-500 hover:text-gray-700'}`}>
-            📄 Summarize
+        <div className="flex bg-surface-muted p-1 rounded-lg mb-4">
+          <button onClick={() => setActiveTab('summarize')} className={`flex-1 py-2.5 text-xs font-semibold rounded-lg transition-all ${activeTab === 'summarize' ? 'bg-surface text-accent shadow-sm' : 'text-ink-soft hover:text-ink'}`}>
+            <FileTextIcon size={14} /> Summarize
           </button>
-          <button onClick={() => setActiveTab('translate')} className={`flex-1 py-2.5 text-xs font-semibold rounded-lg transition-all ${activeTab === 'translate' ? 'bg-white text-blue-600 shadow-md' : 'text-gray-500 hover:text-gray-700'}`}>
-            🌐 Translate
+          <button onClick={() => setActiveTab('translate')} className={`flex-1 py-2.5 text-xs font-semibold rounded-lg transition-all ${activeTab === 'translate' ? 'bg-surface text-accent shadow-sm' : 'text-ink-soft hover:text-ink'}`}>
+            <LanguagesIcon size={14} /> Translate
           </button>
         </div>
 
@@ -222,25 +225,25 @@ function App() {
                 onChange={(e) => setUrl(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Paste article URL here..."
-                className="w-full px-4 py-3.5 pr-10 bg-gray-50 border-2 border-transparent rounded-xl text-sm focus:outline-none focus:border-blue-400 focus:bg-white transition-all"
+                className="w-full px-4 py-3.5 pr-10 bg-surface-muted border border-line rounded-lg text-sm focus:outline-none focus:border-accent focus:bg-surface transition-all"
               />
               {url && (
-                <button onClick={() => setUrl('')} className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-300 hover:text-gray-700 transition-colors">✕</button>
+                <button onClick={() => setUrl('')} className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-line flex items-center justify-center text-ink-soft hover:bg-line-strong hover:text-ink transition-colors"><XIcon size={14} /></button>
               )}
             </div>
 
             <button
               onClick={handleSummarize}
               disabled={loading || !url}
-              className="w-full py-3.5 px-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl text-sm font-semibold hover:from-blue-600 hover:to-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 flex items-center justify-center gap-2"
+              className="w-full py-3.5 px-4 bg-accent text-accent-on rounded-lg text-sm font-semibold hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></div>
+                  <div className="w-4 h-4 border-2 border-accent-on/40 border-t-accent-on rounded-full animate-spin"></div>
                   Analyzing...
                 </>
               ) : (
-                <>✨ Summarize Article</>
+                <><SparklesIcon size={15} /> Summarize Article</>
               )}
             </button>
           </div>
@@ -251,52 +254,52 @@ function App() {
               onChange={(e) => setTranslateTextInput(e.target.value)}
               placeholder="Enter text to translate..."
               rows={4}
-              className="w-full px-4 py-3 bg-gray-50 border-2 border-transparent rounded-xl text-sm resize-none focus:outline-none focus:border-blue-400 focus:bg-white transition-all"
+              className="w-full px-4 py-3 bg-surface-muted border border-line rounded-lg text-sm resize-none focus:outline-none focus:border-accent focus:bg-surface transition-all"
             />
             <select
               value={targetLang}
               onChange={(e) => setTargetLang(e.target.value)}
-              className="w-full px-4 py-3 bg-gray-50 border-2 border-transparent rounded-xl text-sm focus:outline-none focus:border-blue-400 focus:bg-white transition-all cursor-pointer"
+              className="w-full px-4 py-3 bg-surface-muted border border-line rounded-lg text-sm focus:outline-none focus:border-accent focus:bg-surface transition-all cursor-pointer"
             >
               {languages.map(lang => <option key={lang} value={lang}>{lang}</option>)}
             </select>
-            <button 
+            <button
               onClick={handleTranslate}
               disabled={loading || !translateTextInput.trim()}
-              className="w-full py-3.5 px-4 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl text-sm font-semibold hover:from-blue-600 hover:to-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 flex items-center justify-center gap-2"
+              className="w-full py-3.5 px-4 bg-accent text-accent-on rounded-lg text-sm font-semibold hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></div>
+                  <div className="w-4 h-4 border-2 border-accent-on/40 border-t-accent-on rounded-full animate-spin"></div>
                   Translating...
                 </>
               ) : (
-                <>🌐 Translate Text</>
+                <><LanguagesIcon size={15} /> Translate Text</>
               )}
             </button>
           </div>
         )}
 
         {error && (
-          <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-xl">
-            <p className="text-xs text-red-600 text-center">{error}</p>
+          <div className="mt-4 p-3 bg-danger/10 border border-danger/30 rounded-lg">
+            <p className="text-xs text-danger text-center">{error}</p>
           </div>
         )}
 
         {activeTab === 'summarize' && summary && (
-          <div className="mt-4 p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-xl border border-blue-100">
-            <h3 className="text-sm font-bold text-gray-800 mb-2 flex items-center gap-2">
-              <span className="w-6 h-6 rounded-lg bg-blue-500 text-white text-xs flex items-center justify-center">📋</span> Summary
+          <div className="mt-4 p-4 bg-surface-muted rounded-lg border border-accent/30">
+            <h3 className="text-sm font-bold text-ink mb-2 flex items-center gap-2">
+              <span className="w-6 h-6 rounded-lg bg-accent text-accent-on flex items-center justify-center"><ListIcon size={13} /></span> Summary
             </h3>
-            <p className="text-xs text-gray-600 leading-relaxed">{summary}</p>
+            <p className="text-xs text-ink-soft leading-relaxed">{summary}</p>
 
             {keyPoints.length > 0 && (
-              <div className="mt-3 pt-3 border-t border-blue-200/50">
-                <h4 className="text-xs font-semibold text-gray-500 mb-2">Key Points:</h4>
+              <div className="mt-3 pt-3 border-t border-line">
+                <h4 className="text-xs font-semibold text-ink-faint mb-2">Key Points:</h4>
                 <ul className="space-y-1.5">
                   {keyPoints.map((point, i) => (
-                    <li key={i} className="text-xs text-gray-600 flex items-start gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5 flex-shrink-0"></span>
+                    <li key={i} className="text-xs text-ink-soft flex items-start gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-accent mt-1.5 flex-shrink-0"></span>
                       {point}
                     </li>
                   ))}
@@ -307,31 +310,31 @@ function App() {
         )}
 
         {activeTab === 'translate' && translatedResult && (
-          <div className="mt-4 p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-xl border border-blue-100">
+          <div className="mt-4 p-4 bg-surface-muted rounded-lg border border-accent/30">
             <div className="flex justify-between items-center mb-2">
-              <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
-                <span className="w-6 h-6 rounded-lg bg-purple-500 text-white text-xs flex items-center justify-center">A文</span> Translation
+              <h3 className="text-sm font-bold text-ink flex items-center gap-2">
+                <span className="w-6 h-6 rounded-lg bg-accent text-accent-on flex items-center justify-center"><LanguagesIcon size={13} /></span> Translation
               </h3>
-              <button 
+              <button
                 onClick={() => navigator.clipboard.writeText(translatedResult)}
-                className="text-xs text-blue-500 hover:text-blue-700 font-medium"
+                className="text-xs text-accent hover:text-accent-hover font-medium"
               >
                 Copy
               </button>
             </div>
-            <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap">{translatedResult}</p>
+            <p className="text-xs text-ink-soft leading-relaxed whitespace-pre-wrap">{translatedResult}</p>
           </div>
         )}
 
         {!isPro && usageCount >= FREE_LIMIT && (
-          <div className="mt-4 p-4 bg-gradient-to-r from-purple-100 to-pink-100 rounded-xl border border-purple-200">
+          <div className="mt-4 p-4 bg-accent-soft rounded-lg border border-accent/40">
             <div className="text-center">
-              <p className="text-sm font-bold text-purple-700 mb-1">Daily limit reached</p>
-              <p className="text-xs text-purple-500 mb-3">Sign in for 5 more free uses, or upgrade to Pro!</p>
-              <button onClick={() => setShowAuth(true)} className="w-full py-2 mb-2 bg-white text-purple-600 rounded-xl text-xs font-semibold hover:bg-purple-50 transition-all border border-purple-200">
+              <p className="text-sm font-bold text-accent mb-1">Daily limit reached</p>
+              <p className="text-xs text-ink-soft mb-3">Sign in for 5 more free uses, or upgrade to Pro!</p>
+              <button onClick={() => setShowAuth(true)} className="w-full py-2 mb-2 bg-surface text-accent rounded-lg text-xs font-semibold hover:bg-surface-muted transition-all border border-accent/40">
                 Sign In for Free Uses
               </button>
-              <button onClick={handleUpgrade} className="w-full py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl text-xs font-semibold hover:from-purple-600 hover:to-pink-600 transition-all shadow-lg shadow-purple-500/30">
+              <button onClick={handleUpgrade} className="w-full py-2.5 bg-accent text-accent-on rounded-lg text-xs font-semibold hover:bg-accent-hover transition-all shadow-sm">
                 Upgrade to Pro - $9/month
               </button>
             </div>
@@ -344,29 +347,29 @@ function App() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 backdrop-blur-sm" onClick={(e) => {
           if (e.target === e.currentTarget) setShowAuth(false)
         }}>
-          <div className="bg-white m-4 p-5 rounded-3xl shadow-2xl w-[320px]">
+          <div className="bg-surface m-4 p-5 rounded-lg shadow-lg w-[320px]">
             <div className="flex justify-between items-center mb-5">
-              <h2 className="text-lg font-bold text-gray-800">
+              <h2 className="text-lg font-bold text-ink">
                 {authMode === 'login' ? 'Welcome Back' : 'Create Account'}
               </h2>
-              <button onClick={() => setShowAuth(false)} className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 transition-all hover:scale-105">✕</button>
+              <button onClick={() => setShowAuth(false)} className="w-9 h-9 rounded-lg bg-surface-muted hover:bg-line flex items-center justify-center text-ink-soft transition-all"><XIcon size={16} /></button>
             </div>
 
             <form onSubmit={handleAuth} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-2">Email</label>
+                <label className="block text-xs font-semibold text-ink-soft mb-2">Email</label>
                 <input
                   type="email"
                   value={authEmail}
                   onChange={(e) => setAuthEmail(e.target.value)}
                   placeholder="you@example.com"
                   required
-                  className="w-full px-4 py-3 bg-gray-50 border-2 border-transparent rounded-xl text-sm focus:outline-none focus:border-blue-400 focus:bg-white transition-all"
+                  className="w-full px-4 py-3 bg-surface-muted border border-line rounded-lg text-sm focus:outline-none focus:border-accent focus:bg-surface transition-all"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-2">Password</label>
+                <label className="block text-xs font-semibold text-ink-soft mb-2">Password</label>
                 <input
                   type="password"
                   value={authPassword}
@@ -374,18 +377,18 @@ function App() {
                   placeholder="••••••••"
                   required
                   minLength={6}
-                  className="w-full px-4 py-3 bg-gray-50 border-2 border-transparent rounded-xl text-sm focus:outline-none focus:border-blue-400 focus:bg-white transition-all"
+                  className="w-full px-4 py-3 bg-surface-muted border border-line rounded-lg text-sm focus:outline-none focus:border-accent focus:bg-surface transition-all"
                 />
               </div>
 
               {authError && (
-                <p className="text-xs text-red-500 text-center">{authError}</p>
+                <p className="text-xs text-danger text-center">{authError}</p>
               )}
 
               <button
                 type="submit"
                 disabled={authLoading}
-                className="w-full py-3.5 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl text-sm font-semibold hover:from-blue-600 hover:to-purple-700 disabled:opacity-50 transition-all shadow-lg shadow-blue-500/30"
+                className="w-full py-3.5 bg-accent text-accent-on rounded-lg text-sm font-semibold hover:bg-accent-hover disabled:opacity-50 transition-all shadow-sm"
               >
                 {authLoading ? 'Please wait...' : authMode === 'login' ? 'Sign In' : 'Create Account'}
               </button>
@@ -397,7 +400,7 @@ function App() {
                   setAuthMode(authMode === 'login' ? 'register' : 'login')
                   setAuthError('')
                 }}
-                className="text-xs text-blue-500 hover:text-blue-700"
+                className="text-xs text-accent hover:text-accent-hover"
               >
                 {authMode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
               </button>
@@ -411,25 +414,25 @@ function App() {
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 backdrop-blur-sm" onClick={(e) => {
           if (e.target === e.currentTarget) setShowSettings(false)
         }}>
-          <div className="bg-white m-4 p-5 rounded-3xl shadow-2xl w-[320px]">
+          <div className="bg-surface m-4 p-5 rounded-lg shadow-lg w-[320px]">
             <div className="flex justify-between items-center mb-5">
-              <h2 className="text-lg font-bold text-gray-800">⚙️ Settings</h2>
-              <button onClick={() => setShowSettings(false)} className="w-9 h-9 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 transition-all hover:scale-105">✕</button>
+              <h2 className="text-lg font-bold text-ink flex items-center gap-2"><SettingsIcon size={18} /> Settings</h2>
+              <button onClick={() => setShowSettings(false)} className="w-9 h-9 rounded-lg bg-surface-muted hover:bg-line flex items-center justify-center text-ink-soft transition-all"><XIcon size={16} /></button>
             </div>
 
             <div className="space-y-4">
-              <div className="p-3 bg-gray-50 rounded-xl">
-                <p className="text-xs text-gray-500 mb-1">Account</p>
-                <p className="text-sm font-medium text-gray-800 truncate">{user?.email}</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  Status: {isPro ? <span className="text-purple-500 font-medium">Pro</span> : 'Free'}
+              <div className="p-3 bg-surface-muted rounded-lg">
+                <p className="text-xs text-ink-faint mb-1">Account</p>
+                <p className="text-sm font-medium text-ink truncate">{user?.email}</p>
+                <p className="text-xs text-ink-faint mt-1">
+                  Status: {isPro ? <span className="text-accent font-medium">Pro</span> : 'Free'}
                 </p>
               </div>
 
               {!isPro && (
                 <button
                   onClick={handleUpgrade}
-                  className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl text-sm font-semibold hover:from-purple-600 hover:to-pink-600 transition-all shadow-lg shadow-purple-500/30"
+                  className="w-full py-3 bg-accent text-accent-on rounded-lg text-sm font-semibold hover:bg-accent-hover transition-all shadow-sm"
                 >
                   Upgrade to Pro
                 </button>
@@ -440,7 +443,7 @@ function App() {
                   logout()
                   setShowSettings(false)
                 }}
-                className="w-full py-3 bg-red-50 text-red-600 rounded-xl text-sm font-medium hover:bg-red-100 transition-all"
+                className="w-full py-3 bg-danger/10 text-danger rounded-lg text-sm font-medium hover:bg-danger/20 transition-all"
               >
                 Sign Out
               </button>
@@ -449,9 +452,9 @@ function App() {
         </div>
       )}
 
-      <div className="px-6 py-3 flex items-center justify-between text-[10px] text-gray-400">
+      <div className="px-6 py-3 flex items-center justify-between text-[10px] text-ink-faint">
         <span>Powered by OpenRouter</span>
-        <span>v0.1.0</span>
+        <span>v0.3.0</span>
       </div>
     </div>
   )
