@@ -21,14 +21,28 @@ provider directly. Your key never leaves your browser.
 
 1. Open the side panel (click the toolbar icon, or the floating **L** button).
 2. Click ⚙️ **Settings**.
-3. Pick a provider, paste your key, choose a model.
-4. Click **Test connection** to verify, then **Done**.
+3. Pick a provider, paste your key.
+4. Click **⬇ 拉取模型列表** to fetch the live model catalog from the provider,
+   then pick a model (or type a custom id).
+5. Click **Test connection** to verify, then **Done**.
 
-Get a key:
+### Supported providers (19 presets + any custom host)
+
+**海外:** OpenAI · Anthropic · OpenRouter · Groq · Together · Mistral · xAI (Grok) · Perplexity · Fireworks
+
+**国内:** DeepSeek · 通义千问 (阿里云百炼) · 文心一言 (百度千帆) · 豆包 (字节火山引擎) · 智谱 GLM · Moonshot (Kimi) · 硅基流动 · MiniMax · 零一万物 (Yi) · 阶跃星辰 (Step)
+
+**自定义:** 任何 OpenAI 兼容入口 (Ollama / vLLM / LM Studio / LocalAI / 自建网关 …) —— 填 base URL 即可，同样支持一键拉取模型。
+
+Get a key (examples):
 - **OpenAI:** https://platform.openai.com/api-keys
 - **Anthropic:** https://console.anthropic.com/settings/keys
 - **OpenRouter** (one key, all models — recommended): https://openrouter.ai/keys
-- **Custom:** any OpenAI-compatible base URL (e.g. `https://api.deepseek.com/v1`)
+- **DeepSeek:** https://platform.deepseek.com/api_keys
+- **通义千问:** https://bailian.console.aliyun.com/?apiKey=1
+- **智谱:** https://open.bigmodel.cn/usercenter/apikeys
+
+> **一键拉取模型:** 几乎所有 OpenAI 兼容厂商都提供 `GET /models` 接口。点「拉取模型列表」即可实时获取该账号下可用的全部模型，无需手动查找模型 id。
 
 Your key is stored in `chrome.storage.local` on your machine and is sent only to
 the provider you choose — never to us. If you share a machine, clear storage or

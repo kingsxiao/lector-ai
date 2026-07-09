@@ -8,7 +8,7 @@
 //  - openai    : /chat/completions with stream:true (OpenAI, OpenRouter, custom)
 //  - anthropic : /v1/messages with stream:true
 
-import { getProvider, type ByokSettings, type ProviderDef } from './providers'
+import { getProvider, resolveBaseUrl, type ByokSettings, type ProviderDef } from './providers'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -52,14 +52,6 @@ function settingsWithDefaults(): ByokSettings {
 }
 
 // --- core request builders --------------------------------------------------
-
-function resolveBaseUrl(s: ByokSettings, def: ProviderDef): string {
-  if (s.provider === 'custom') {
-    // Trim trailing slash so paths join cleanly.
-    return (s.baseUrl || '').replace(/\/+$/, '')
-  }
-  return def.baseUrl
-}
 
 function buildHeaders(s: ByokSettings, def: ProviderDef): Record<string, string> {
   const h: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -228,6 +220,68 @@ export async function completeOnce(
   return out.trim()
 }
 
+// --- fetch live model list (one-click) --------------------------------------
+
+export interface FetchedModel {
+  id: string
+  /** Optional human label, e.g. "owned_by" or a cleaned id. */
+  label?: string
+}
+
+/**
+ * Fetch the provider's model catalog via `GET {baseUrl}{modelsPath}`.
+ *
+ * Almost every OpenAI-compatible host (OpenAI, DeepSeek, Groq, Together,
+ * Mistral, xAI, Moonshot, Zhipu, SiliconFlow, Qwen, …) returns
+ * `{ data: [{ id, ... }] }`. Anthropic's `/v1/models` returns the same shape.
+ * We normalize to a plain string-id list and de-duplicate.
+ *
+ * Returns an empty array (not throwing) when the endpoint is unavailable so
+ * the UI can fall back to the preset list.
+ */
+export async function fetchModels(settings: ByokSettings): Promise<FetchedModel[]> {
+  assertConfigured(settings)
+  const def = getProvider(settings.provider)
+  const base = resolveBaseUrl(settings, def)
+  if (!base) return []
+
+  const url = `${base}${def.modelsPath}`
+  const res = await fetch(url, { method: 'GET', headers: buildHeaders(settings, def) })
+
+  if (!res.ok) {
+    // Surface the error so the UI can tell the user why the fetch failed
+    // (e.g. 401 wrong key, 404 no /models endpoint).
+    throw await toError(res)
+  }
+
+  const json = await res.json()
+  const rows: Array<Record<string, unknown>> = Array.isArray(json)
+    ? json
+    : Array.isArray(json?.data)
+      ? json.data
+      : Array.isArray(json?.models)
+        ? json.models
+        : []
+
+  const seen = new Set<string>()
+  const out: FetchedModel[] = []
+  for (const row of rows) {
+    const id = typeof row?.id === 'string' ? row.id : undefined
+    if (!id || seen.has(id)) continue
+    // Skip obvious non-chat entries some hosts return (e.g. embedding/
+    // audio/tts models) to keep the dropdown relevant. Conservative: only
+    // filter when the id explicitly names a non-text modality.
+    if (/embedding|tts|whisper|transcrib|moderation|realtime/i.test(id)) continue
+    seen.add(id)
+    const ownedBy = typeof row?.owned_by === 'string' ? row.owned_by : undefined
+    out.push({ id, label: ownedBy ? `${id} · ${ownedBy}` : id })
+  }
+
+  // Sort alphabetically for a predictable dropdown.
+  out.sort((a, b) => a.id.localeCompare(b.id))
+  return out
+}
+
 // --- connection test --------------------------------------------------------
 
 export interface TestResult {
@@ -256,7 +310,7 @@ function assertConfigured(s: ByokSettings) {
   if (!s.apiKey) {
     throw new Error('No API key set. Open Settings to add your provider key.')
   }
-  if (s.provider === 'custom' && !s.baseUrl) {
+  if ((s.provider === 'custom' || s.provider === 'openrouter-custom') && !s.baseUrl) {
     throw new Error('Custom provider needs a base URL.')
   }
 }

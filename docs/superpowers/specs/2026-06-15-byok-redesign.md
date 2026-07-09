@@ -88,14 +88,43 @@ No backend. No database. No accounts.
   panel can call arbitrary provider hosts and inject on any page. This is the
   one trade-off of client-side BYOK; it's disclosed in the store description.
 
+## Provider catalog & one-click model fetch
+
+`src/shared/providers.ts` ships **19 named presets** covering overseas and
+domestic (国内) model vendors, plus a fully generic "Custom (OpenAI-compatible)"
+entry:
+
+- **Overseas:** OpenAI, Anthropic, OpenRouter, Groq, Together, Mistral, xAI
+  (Grok), Perplexity, Fireworks
+- **国内:** DeepSeek, 通义千问/阿里云百炼, 文心一言/百度千帆, 豆包/字节火山引擎,
+  智谱 GLM, Moonshot (Kimi), 硅基流动, MiniMax, 零一万物 (Yi), 阶跃星辰 (Step)
+- **Custom:** any OpenAI-compatible host (Ollama, vLLM, LM Studio, LocalAI,
+  self-hosted gateway) — user supplies the base URL.
+
+Each preset carries a `modelsPath` (almost universally `/models`; Anthropic
+uses `/v1/models`). `src/shared/byok.ts` exposes `fetchModels(settings)`,
+which hits `GET {baseUrl}{modelsPath}`, parses the `{ data: [{ id }] }` shape
+(OpenAI/Anthropic/most aggregators), filters out non-chat modalities
+(embedding/tts/whisper/...), de-duplicates, and sorts. The Settings drawer has
+a **「⬇ 拉取模型列表」** button that calls it and repopulates the model
+dropdown live; presets remain as a fallback if the endpoint is unavailable or
+returns nothing. A free-text model id input is always available for hosts
+(like 豆包/火山方舟) where the usable id is an endpoint id (`ep-...`) rather
+than a friendly name.
+
+Verified endpoint base URLs (via official docs): Baidu Qianfan
+`https://qianfan.baidubce.com/v2`, Volcengine Ark
+`https://ark.cn-beijing.volces.com/api/v3`, Anthropic `GET /v1/models`.
+
 ## Launch readiness
 
 - [x] `tsc --noEmit` clean
 - [x] `npm run build:extension` green; dist layout matches manifest
 - [x] No backend dependencies remain (`api/`, `vercel.json`, `@vercel/node`
       all removed)
-- [x] Settings UI: provider + key + model + test connection
+- [x] Settings UI: provider + key + **one-click model fetch** + model + test connection
+- [x] 19 provider presets (overseas + 国内) + custom OpenAI-compatible host
 - [x] Chat / translate / summarize / explain all go through BYOK client
-- [x] README documents the BYOK flow
+- [x] README documents the BYOK flow + provider list
 - [ ] Operator steps before public release: write Chrome Web Store listing
       (emphasize BYOK + privacy), capture screenshots, publish.

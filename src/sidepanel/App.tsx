@@ -7,7 +7,7 @@ import {
   type ProviderId,
   type ByokSettings,
 } from '../shared/providers'
-import { streamChat, getSettings, saveSettings, testConnection, type ChatMessage as WireMessage } from '../shared/byok'
+import { streamChat, getSettings, saveSettings, testConnection, fetchModels, type ChatMessage as WireMessage, type FetchedModel } from '../shared/byok'
 
 interface PageContext {
   title: string
@@ -422,20 +422,24 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
   const [customModel, setCustomModel] = useState('')
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
-
-  if (!open) return null
+  const [fetchedModels, setFetchedModels] = useState<FetchedModel[] | null>(null)
+  const [fetching, setFetching] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
 
   const def = getProvider(byok.provider)
 
   const handleProviderChange = (id: ProviderId) => {
     const next = getProvider(id)
+    const isCustom = id === 'custom' || id === 'openrouter-custom'
     onChange({
       provider: id,
       // Reset to the provider's default model/baseUrl; keep the key.
       model: next.defaultModel,
-      baseUrl: id === 'custom' ? byok.baseUrl : '',
+      baseUrl: isCustom ? byok.baseUrl : '',
     })
     setTestResult(null)
+    setFetchedModels(null)
+    setFetchError(null)
   }
 
   const runTest = async () => {
@@ -446,6 +450,30 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
     setTestResult(result)
     setTesting(false)
   }
+
+  const runFetch = async () => {
+    setFetching(true)
+    setFetchError(null)
+    try {
+      const models = await fetchModels({ ...byok })
+      setFetchedModels(models)
+      if (models.length > 0) {
+        // If the current model isn't in the fetched list, snap to the first.
+        if (!models.some((m) => m.id === byok.model)) {
+          onChange({ model: models[0].id })
+        }
+      } else {
+        setFetchError('该接口未返回模型列表，请手动填写模型 id。')
+      }
+    } catch (e) {
+      setFetchedModels(null)
+      setFetchError(e instanceof Error ? e.message : '拉取失败')
+    } finally {
+      setFetching(false)
+    }
+  }
+
+  if (!open) return null
 
   return (
     <div
@@ -490,7 +518,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
           </div>
 
           {/* Custom base URL */}
-          {byok.provider === 'custom' && (
+          {(byok.provider === 'custom' || byok.provider === 'openrouter-custom') && (
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">
                 Base URL <span className="text-slate-400 font-normal">(OpenAI-compatible)</span>
@@ -542,31 +570,61 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
 
           {/* Model picker */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">Model</label>
-            {def.models.length > 0 ? (
-              <select
-                value={def.models.some((m) => m.id === byok.model) ? byok.model : '__custom__'}
-                onChange={(e) => {
-                  if (e.target.value === '__custom__') {
-                    setCustomModel(byok.model)
-                    onChange({ model: customModel || def.defaultModel })
-                  } else {
-                    onChange({ model: e.target.value })
-                  }
-                }}
-                className="w-full px-3 py-2 text-[12px] bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-400 focus:bg-white"
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-[11px] font-semibold text-slate-600">Model</label>
+              <button
+                onClick={runFetch}
+                disabled={fetching || !byok.apiKey || ((byok.provider === 'custom' || byok.provider === 'openrouter-custom') && !byok.baseUrl)}
+                title="一键从厂商接口拉取可用模型列表"
+                className="text-[10px] text-blue-500 hover:text-blue-700 disabled:opacity-40"
               >
-                {def.models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-                <option value="__custom__">Custom model id…</option>
-              </select>
-            ) : null}
-            {/* Show a free-text input when custom selected OR provider has no presets */}
-            {(byok.provider === 'custom' ||
-              !def.models.some((m) => m.id === byok.model)) && (
+                {fetching ? '拉取中…' : fetchedModels ? '↻ 重新拉取' : '⬇ 拉取模型列表'}
+              </button>
+            </div>
+
+            {/* Dropdown: prefer fetched models, fall back to presets. */}
+            {(() => {
+              const list = fetchedModels && fetchedModels.length > 0
+                ? fetchedModels.map((m) => ({ id: m.id, label: m.label || m.id }))
+                : def.models.map((m) => ({ id: m.id, label: m.label || m.id }))
+              const currentInList = list.some((m) => m.id === byok.model)
+              if (list.length > 0) {
+                return (
+                  <select
+                    value={currentInList ? byok.model : '__custom__'}
+                    onChange={(e) => {
+                      if (e.target.value === '__custom__') {
+                        setCustomModel(byok.model)
+                        onChange({ model: customModel || def.defaultModel })
+                      } else {
+                        onChange({ model: e.target.value })
+                      }
+                    }}
+                    className="w-full px-3 py-2 text-[12px] bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-400 focus:bg-white"
+                  >
+                    {list.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                    <option value="__custom__">自定义模型 id…</option>
+                  </select>
+                )
+              }
+              return null
+            })()}
+
+            {fetchError && (
+              <div className="mt-1 text-[10px] text-amber-600">{fetchError}</div>
+            )}
+            {fetchedModels && fetchedModels.length > 0 && (
+              <div className="mt-1 text-[10px] text-slate-400">已拉取 {fetchedModels.length} 个模型</div>
+            )}
+
+            {/* Free-text input: when custom selected, or no list matches. */}
+            {!(
+              (fetchedModels && fetchedModels.length > 0 ? fetchedModels : def.models).some((m) => m.id === byok.model)
+            ) && (
               <input
                 type="text"
                 value={byok.model}
@@ -581,7 +639,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
           <div className="pt-1">
             <button
               onClick={runTest}
-              disabled={testing || !byok.apiKey || (byok.provider === 'custom' && !byok.baseUrl)}
+              disabled={testing || !byok.apiKey || ((byok.provider === 'custom' || byok.provider === 'openrouter-custom') && !byok.baseUrl)}
               className="w-full py-2 text-[12px] font-medium rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
             >
               {testing ? 'Testing…' : 'Test connection'}
