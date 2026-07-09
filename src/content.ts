@@ -147,7 +147,7 @@ function ensureFab() {
   if (fab) return
   fab = document.createElement('div')
   fab.id = 'lector-ai-fab'
-  fab.title = 'Open Lector AI'
+  fab.title = t('fab.title', 'auto')
   fab.textContent = 'L'
   fab.onclick = () => {
     chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
@@ -187,7 +187,7 @@ function createToolbar(x: number, y: number, text: string) {
     b.onclick = (e) => {
       e.stopPropagation()
       if (typeof chrome === 'undefined' || !chrome.runtime) {
-        alert('扩展未正确加载，请刷新页面')
+        alert(tr('err.extensionNotLoaded'))
         return
       }
       fn()
@@ -195,10 +195,10 @@ function createToolbar(x: number, y: number, text: string) {
     return b
   }
 
-  selectionToolbar.appendChild(mk('t-btn', '🌐 翻译', () => handleAction('translate', text)))
-  selectionToolbar.appendChild(mk('t-btn', '💬 解释', () => handleAction('explain', text)))
-  selectionToolbar.appendChild(mk('summary-btn', '📄 摘要', () => handleAction('summarize', text)))
-  selectionToolbar.appendChild(mk('t-btn', '🤖 提问', () => handleAction('ask', text)))
+  selectionToolbar.appendChild(mk('t-btn', tr('toolbar.translate'), () => handleAction('translate', text)))
+  selectionToolbar.appendChild(mk('t-btn', tr('toolbar.explain'), () => handleAction('explain', text)))
+  selectionToolbar.appendChild(mk('summary-btn', tr('toolbar.summarize'), () => handleAction('summarize', text)))
+  selectionToolbar.appendChild(mk('t-btn', tr('toolbar.ask'), () => handleAction('ask', text)))
 
   const closeBtn = document.createElement('button')
   closeBtn.className = 'close-btn'
@@ -246,10 +246,10 @@ function showLoading(x: number, y: number) {
   spinner.style.cssText = `
     width:16px;height:16px;border:2px solid #e2e8f0;border-top-color:#667eea;border-radius:50%;animation:lectorSpin .8s linear infinite;
   `
-  const t = document.createElement('span')
-  t.textContent = 'AI 处理中...'
+  const label = document.createElement('span')
+  label.textContent = tr('popup.loading')
   loadingPopup.appendChild(spinner)
-  loadingPopup.appendChild(t)
+  loadingPopup.appendChild(label)
   document.body.appendChild(loadingPopup)
 }
 
@@ -289,12 +289,16 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
 
   const title = document.createElement('div')
   title.className = 'result-title'
-  const titleMap = { translate: '🌐 翻译结果', summary: '📄 摘要结果', explain: '💡 解释' }
+  const titleMap = {
+    translate: tr('popup.result.translate'),
+    summary: tr('popup.result.summary'),
+    explain: tr('popup.result.explain'),
+  }
   title.innerHTML = titleMap[type]
 
   const closeBtn = document.createElement('button')
   closeBtn.style.cssText = 'padding:4px 8px;border:none;background:#f1f5f9;border-radius:4px;cursor:pointer;font-size:11px;color:#94a3b8;'
-  closeBtn.textContent = '关闭'
+  closeBtn.textContent = tr('popup.close')
   closeBtn.onclick = () => removeResult()
 
   header.appendChild(title)
@@ -309,16 +313,16 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
 
   const copyBtn = document.createElement('button')
   copyBtn.className = 'action-btn copy-btn'
-  copyBtn.textContent = '📋 复制'
+  copyBtn.textContent = tr('popup.copy')
   copyBtn.onclick = () => {
     navigator.clipboard.writeText(result)
-    copyBtn.textContent = '✅ 已复制'
-    setTimeout(() => (copyBtn.textContent = '📋 复制'), 1500)
+    copyBtn.textContent = tr('popup.copied')
+    setTimeout(() => (copyBtn.textContent = tr('popup.copy')), 1500)
   }
 
   const chatBtn = document.createElement('button')
   chatBtn.className = 'action-btn primary'
-  chatBtn.textContent = '🤖 在侧栏继续'
+  chatBtn.textContent = tr('popup.continueInPanel')
   chatBtn.onclick = () => {
     chrome.runtime.sendMessage({ action: 'open-side-panel', seed: { kind: type, text: result } }).catch(() => {})
     removeResult()
@@ -358,6 +362,21 @@ function handleClickOutside(e: MouseEvent) {
 // ---------------------------------------------------------------------------
 // The content script can import shared modules; vite bundles them in.
 import { getSettings, completeOnce } from './shared/byok'
+import { t, type LocalePref, type StringKey } from './shared/i18n'
+
+// --- i18n: content script reads the locale pref from storage once per action ---
+let cachedPref: LocalePref = 'auto'
+
+async function loadPref(): Promise<LocalePref> {
+  try {
+    const settings = await getSettings()
+    cachedPref = settings.locale ?? 'auto'
+  } catch {
+    cachedPref = 'auto'
+  }
+  return cachedPref
+}
+const tr = (key: StringKey) => t(key, cachedPref)
 
 // ---------------------------------------------------------------------------
 // Actions — call the provider directly (BYOK), no backend
@@ -381,11 +400,12 @@ function handleAction(kind: 'translate' | 'summarize' | 'explain' | 'ask', text:
 
 async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: string) {
   const settings = await getSettings()
+  cachedPref = settings.locale ?? 'auto'
   const r = () => selectionToolbar?.getBoundingClientRect()
 
   if (!settings.apiKey) {
     removeLoading()
-    showResult(r()?.left || 100, r()?.top || 100, '请在侧栏设置中添加 API Key 后使用。', 'translate')
+    showResult(r()?.left || 100, r()?.top || 100, tr('err.addKey'), 'translate')
     chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
     return
   }
@@ -413,13 +433,13 @@ async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: 
     showResult(
       r()?.left || 100,
       r()?.top || 100,
-      out || '(空响应)',
+      out || tr('err.emptyResponse'),
       kind === 'summarize' ? 'summary' : kind === 'translate' ? 'translate' : 'explain'
     )
   } catch (e) {
     removeLoading()
-    const msg = e instanceof Error ? e.message : '请求失败'
-    showResult(r()?.left || 100, r()?.top || 100, `失败: ${msg}`, 'translate')
+    const msg = e instanceof Error ? e.message : tr('err.requestFailed')
+    showResult(r()?.left || 100, r()?.top || 100, tr('err.failedPrefix').replace('{msg}', msg), 'translate')
   }
 }
 
@@ -494,7 +514,7 @@ document.addEventListener('mouseup', (e) => {
     const rect = range.getBoundingClientRect()
     const x = Math.max(10, Math.min(rect.left, window.innerWidth - 280))
     const y = rect.bottom + window.scrollY
-    createToolbar(x, y, text)
+    loadPref().then(() => createToolbar(x, y, text))
   }, 100)
 })
 
