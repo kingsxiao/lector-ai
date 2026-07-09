@@ -48,6 +48,7 @@ function settingsWithDefaults(): ByokSettings {
     apiKey: '',
     model: getProvider('openrouter').defaultModel,
     baseUrl: '',
+    locale: 'auto',
   }
 }
 

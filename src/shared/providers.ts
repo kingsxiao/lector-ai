@@ -5,6 +5,9 @@
 // endpoint via the "Refresh" button — the preset models below are just
 // convenient fallbacks for when the fetch fails or hasn't run yet.
 
+import type { Locale, LocalePref } from './i18n'
+export type { Locale, LocalePref }
+
 export type ProviderId =
   // OpenAI-compatible hosts (overseas)
   | 'openai'
@@ -398,6 +401,8 @@ export interface ByokSettings {
   model: string
   /** Only used by the custom provider. */
   baseUrl: string
+  /** UI language: 'auto' follows the browser locale. */
+  locale: LocalePref
 }
 
 export const DEFAULT_BYOK_SETTINGS: ByokSettings = {
@@ -405,6 +410,7 @@ export const DEFAULT_BYOK_SETTINGS: ByokSettings = {
   apiKey: '',
   model: PROVIDERS.openrouter.defaultModel,
   baseUrl: '',
+  locale: 'auto',
 }
 
 export function getProvider(id: ProviderId): ProviderDef {
