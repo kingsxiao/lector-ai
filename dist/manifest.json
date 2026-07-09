@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Lector AI - Smart Reading Assistant",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "AI-powered reading companion: chat with any page, summarize, translate, and learn faster — right from your browser side panel.",
   "permissions": [
     "activeTab",

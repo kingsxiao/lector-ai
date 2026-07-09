@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useStore, type ChatMessage, type ChatSession } from '../shared/store'
-import { getApiBase } from '../shared/config'
 import { renderMarkdown } from './markdown'
+import {
+  PROVIDERS,
+  getProvider,
+  type ProviderId,
+  type ByokSettings,
+} from '../shared/providers'
+import { streamChat, getSettings, saveSettings, testConnection, type ChatMessage as WireMessage } from '../shared/byok'
 
 interface PageContext {
   title: string
   url: string
   text: string
   lang: string
-}
-
-interface StreamState {
-  remaining: number | null
-  error: string | null
 }
 
 const SUGGESTIONS = [
@@ -27,63 +28,29 @@ function newId(): string {
 }
 
 export default function App() {
-  const {
-    user,
-    accessToken,
-    isPro,
-    sessions,
-    addSession,
-    updateSession,
-    removeSession,
-    clearSessions,
-    logout,
-    setPro,
-    setUser,
-  } = useStore()
+  const { byok, setByok, sessions, addSession, updateSession, removeSession, clearSessions } =
+    useStore()
 
   const [page, setPage] = useState<PageContext | null>(null)
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
-  const [stream, setStream] = useState<StreamState>({ remaining: null, error: null })
+  const [error, setError] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
   const [showLibrary, setShowLibrary] = useState(false)
-  const [showAuth, setShowAuth] = useState(false)
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
-  const [authEmail, setAuthEmail] = useState('')
-  const [authPassword, setAuthPassword] = useState('')
-  const [authError, setAuthError] = useState('')
-  const [authLoading, setAuthLoading] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const assistantBuf = useRef<string>('')
 
-  // Load page context + any seed from the content script.
+  // Pull the page from the active tab's content script + read any seed.
   useEffect(() => {
     ;(async () => {
-      // Restore auth from chrome.storage (popup path already does this; side
-      // panel shares the same storage).
-      try {
-        const stored = await chrome.storage.local.get(['user', 'accessToken'])
-        if (stored.user) {
-          const u = JSON.parse(stored.user as string)
-          setUser(u, stored.accessToken as string | undefined)
-          if (stored.accessToken) {
-            const apiBase = await getApiBase()
-            const r = await fetch(`${apiBase}/auth/me`, {
-              headers: { Authorization: `Bearer ${stored.accessToken}` },
-            })
-            if (r.ok) {
-              const d = await r.json()
-              setPro(d.isPro || false)
-            }
-          }
-        }
-      } catch {
-        // ignore
-      }
+      // Settings are persisted by zustand, but the background/content scripts
+      // also read them from chrome.storage; sync once on load.
+      const stored = await getSettings()
+      setByok(stored)
 
-      // Pull the page from the active tab's content script.
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
         if (tab?.id) {
@@ -96,7 +63,6 @@ export default function App() {
         // ignore
       }
 
-      // Read any seed the background script stashed.
       const seed = (await chrome.storage.local.get('lectorSeed')) as {
         lectorSeed?: { kind: string; text: string }
       }
@@ -114,9 +80,8 @@ export default function App() {
         setInput(`${seedPrompt}${s.text}`.slice(0, 4000))
       }
     })()
-  }, [setPro, setUser])
+  }, [setByok])
 
-  // Autoscroll on new tokens.
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, streaming])
@@ -126,90 +91,61 @@ export default function App() {
       const text = (overrideInput ?? input).trim()
       if (!text || streaming) return
 
+      if (!byok.apiKey) {
+        setError('Add your API key in Settings to start chatting.')
+        setShowSettings(true)
+        return
+      }
+
       const userMsg: ChatMessage = { id: newId(), role: 'user', content: text }
       const assistantMsg: ChatMessage = { id: newId(), role: 'assistant', content: '' }
       const next = [...messages, userMsg]
       setMessages([...next, assistantMsg])
       setInput('')
       setStreaming(true)
-      setStream({ remaining: null, error: null })
+      setError(null)
       assistantBuf.current = ''
 
       try {
-        const apiBase = await getApiBase()
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-        if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+        const systemPrompt = `You are Lector AI, a sharp reading companion embedded in the user's browser.
 
-        const history = next
+You answer questions about the article the user is reading, summarize, explain
+concepts, translate, and draft. Be concise and information-dense. Use Markdown.
+When the user asks about "the article", reason only from the provided PAGE
+CONTENT; if it isn't covered there, say so rather than guessing.
+
+${page?.title ? `PAGE TITLE: ${page.title}` : ''}
+${page?.url ? `PAGE URL: ${page.url}` : ''}
+
+PAGE CONTENT (cleaned):
+"""
+${(page?.text || '').slice(0, 12000)}
+"""`
+
+        const history: WireMessage[] = next
           .filter((m) => m.content.trim().length > 0)
           .slice(-10)
           .map((m) => ({ role: m.role, content: m.content }))
 
-        const res = await fetch(`${apiBase}/chat`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            message: text,
-            pageContent: page?.text,
-            pageMetadata: { url: page?.url, title: page?.title },
-            history,
-          }),
-        })
+        const wire: WireMessage[] = [
+          { role: 'system', content: systemPrompt },
+          ...history,
+          { role: 'user', content: text },
+        ]
 
-        if (res.status === 429) {
-          const data = await res.json().catch(() => ({}))
-          setStream({ remaining: 0, error: data.message || 'Daily free limit reached.' })
-          setStreaming(false)
-          setMessages((cur) =>
-            cur.map((m) =>
-              m.id === assistantMsg.id
-                ? { ...m, content: `⏸️ ${data.message || 'Daily free limit reached.'}\n\nSign in or upgrade to Pro for more.` }
-                : m
+        await streamChat(
+          byok,
+          wire,
+          { maxTokens: 1200, temperature: 0.4 },
+          (delta) => {
+            assistantBuf.current += delta
+            const snapshot = assistantBuf.current
+            setMessages((cur) =>
+              cur.map((m) => (m.id === assistantMsg.id ? { ...m, content: snapshot } : m))
             )
-          )
-          return
-        }
-        if (!res.ok || !res.body) {
-          setStream({ remaining: null, error: 'Service unavailable.' })
-          setStreaming(false)
-          return
-        }
-
-        const reader = res.body.getReader()
-        const decoder = new TextDecoder()
-        let buf = ''
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buf += decoder.decode(value, { stream: true })
-          const lines = buf.split('\n')
-          buf = lines.pop() || ''
-          for (const line of lines) {
-            const t = line.trim()
-            if (!t.startsWith('data:')) continue
-            const payload = t.slice(5).trim()
-            if (!payload || payload === '[DONE]') continue
-            try {
-              const evt = JSON.parse(payload)
-              if (evt.type === 'token' && typeof evt.delta === 'string') {
-                assistantBuf.current += evt.delta
-                const snapshot = assistantBuf.current
-                setMessages((cur) =>
-                  cur.map((m) => (m.id === assistantMsg.id ? { ...m, content: snapshot } : m))
-                )
-              } else if (evt.type === 'meta' && typeof evt.remaining === 'number') {
-                setStream((s) => ({ ...s, remaining: evt.remaining }))
-              } else if (evt.type === 'error') {
-                setStream((s) => ({ ...s, error: evt.error }))
-              }
-            } catch {
-              // partial JSON, ignore
-            }
           }
-        }
+        )
 
-        // Persist the conversation to the library.
         const finalMessages = next.concat({
           ...assistantMsg,
           content: assistantBuf.current || '(no response)',
@@ -228,25 +164,24 @@ export default function App() {
           setActiveSessionId(session.id)
         }
       } catch (e) {
-        setStream({ remaining: null, error: 'Network error.' })
+        const msg = e instanceof Error ? e.message : 'Request failed.'
+        setError(msg)
         setMessages((cur) =>
           cur.map((m) =>
-            m.id === assistantMsg.id
-              ? { ...m, content: '⚠️ Network error. Please retry.' }
-              : m
+            m.id === assistantMsg.id ? { ...m, content: `⚠️ ${msg}` } : m
           )
         )
       } finally {
         setStreaming(false)
       }
     },
-    [input, streaming, messages, accessToken, page, activeSessionId, addSession, updateSession]
+    [input, streaming, messages, byok, page, activeSessionId, addSession, updateSession]
   )
 
   const startNewChat = () => {
     setMessages([])
     setActiveSessionId(null)
-    setStream({ remaining: null, error: null })
+    setError(null)
   }
 
   const openSession = (s: ChatSession) => {
@@ -255,48 +190,7 @@ export default function App() {
     setShowLibrary(false)
   }
 
-  const handleAuth = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setAuthError('')
-    setAuthLoading(true)
-    const endpoint = authMode === 'login' ? '/auth/login' : '/auth/register'
-    try {
-      const apiBase = await getApiBase()
-      const response = await fetch(`${apiBase}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: authEmail, password: authPassword }),
-      })
-      const data = await response.json()
-      if (!response.ok) {
-        setAuthError(data.error || 'Authentication failed')
-        return
-      }
-      if (authMode === 'login') {
-        setUser({ id: data.user.id, email: data.user.email }, data.accessToken)
-        const me = await fetch(`${apiBase}/auth/me`, {
-          headers: { Authorization: `Bearer ${data.accessToken}` },
-        })
-        if (me.ok) {
-          const d = await me.json()
-          setPro(d.isPro || false)
-        }
-        setShowAuth(false)
-      } else {
-        setAuthError('Account created! Please log in.')
-        setAuthMode('login')
-      }
-    } catch {
-      setAuthError('Network error. Please try again.')
-    } finally {
-      setAuthLoading(false)
-    }
-  }
-
-  const remainingLabel =
-    isPro || stream.remaining === null
-      ? ''
-      : `${stream.remaining} free left today`
+  const providerConfigured = Boolean(byok.apiKey)
 
   return (
     <div className="flex flex-col h-screen bg-slate-50">
@@ -310,19 +204,14 @@ export default function App() {
             <div className="text-[13px] font-semibold text-slate-800 truncate">
               {page?.title || 'Lector AI'}
             </div>
-            {page?.url && (
-              <div className="text-[10px] text-slate-400 truncate max-w-[220px]">
-                {page.url}
-              </div>
-            )}
+            <div className="text-[10px] text-slate-400 truncate max-w-[200px]">
+              {providerConfigured
+                ? `${getProvider(byok.provider).label} · ${byok.model || 'model'}`
+                : 'No API key — tap settings'}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
-          {isPro && (
-            <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white">
-              Pro
-            </span>
-          )}
           <button
             onClick={() => setShowLibrary(true)}
             title="Library"
@@ -330,30 +219,29 @@ export default function App() {
           >
             📚
           </button>
-          {user ? (
-            <button
-              onClick={() => {
-                logout()
-                startNewChat()
-              }}
-              title="Sign out"
-              className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center text-sm"
-            >
-              ⎋
-            </button>
-          ) : (
-            <button
-              onClick={() => setShowAuth(true)}
-              className="px-2.5 py-1 text-[11px] font-medium rounded-lg bg-blue-500 text-white hover:bg-blue-600"
-            >
-              Sign In
-            </button>
-          )}
+          <button
+            onClick={() => setShowSettings(true)}
+            title="Settings"
+            className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center text-sm"
+          >
+            ⚙️
+          </button>
         </div>
       </header>
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-4">
+        {!providerConfigured && (
+          <div className="mx-1 p-3 rounded-xl bg-blue-50 border border-blue-100 text-[12px] text-blue-700">
+            <div className="font-semibold mb-1">Bring your own key 🔑</div>
+            Lector is free and private — you pay your AI provider directly. Open{' '}
+            <button onClick={() => setShowSettings(true)} className="underline font-medium">
+              Settings
+            </button>{' '}
+            to add a key (OpenAI, Anthropic, OpenRouter, or any OpenAI-compatible endpoint).
+          </div>
+        )}
+
         {messages.length === 0 && (
           <div className="text-center py-8">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 text-white font-bold flex items-center justify-center text-xl mx-auto mb-3">
@@ -368,7 +256,7 @@ export default function App() {
                 <button
                   key={s.label}
                   onClick={() => handleSend(s.prompt)}
-                  disabled={!page}
+                  disabled={!page || !providerConfigured}
                   className="px-3 py-2.5 text-left text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:border-blue-300 hover:bg-blue-50 transition-colors disabled:opacity-50"
                 >
                   {s.label}
@@ -384,10 +272,7 @@ export default function App() {
         )}
 
         {messages.map((m) => (
-          <div
-            key={m.id}
-            className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
+          <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             {m.role === 'user' ? (
               <div className="max-w-[85%] px-3 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-[13px] rounded-2xl rounded-br-md whitespace-pre-wrap break-words">
                 {m.content}
@@ -395,10 +280,7 @@ export default function App() {
             ) : (
               <div className="max-w-[92%] px-3.5 py-2.5 bg-white border border-slate-200 rounded-2xl rounded-bl-md shadow-sm">
                 {m.content ? (
-                  <div
-                    className="lector-prose"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
-                  />
+                  <div className="lector-prose" dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }} />
                 ) : (
                   <div className="flex items-center gap-2 text-[12px] text-slate-400">
                     <div className="w-3 h-3 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
@@ -413,9 +295,7 @@ export default function App() {
 
       {/* Composer */}
       <div className="px-3 py-2.5 bg-white border-t border-slate-200">
-        {stream.error && (
-          <div className="text-[11px] text-red-500 mb-1.5 px-1">{stream.error}</div>
-        )}
+        {error && <div className="text-[11px] text-red-500 mb-1.5 px-1">{error}</div>}
         <div className="flex items-end gap-2">
           <textarea
             value={input}
@@ -426,13 +306,13 @@ export default function App() {
                 handleSend()
               }
             }}
-            placeholder="Ask about this page…"
+            placeholder={providerConfigured ? 'Ask about this page…' : 'Add an API key in settings to begin…'}
             rows={1}
             className="flex-1 max-h-32 resize-none px-3 py-2 text-[13px] bg-slate-50 border border-transparent rounded-xl focus:outline-none focus:border-blue-400 focus:bg-white"
           />
           <button
             onClick={() => handleSend()}
-            disabled={streaming || !input.trim()}
+            disabled={streaming || !input.trim() || !providerConfigured}
             className="w-9 h-9 flex-shrink-0 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center disabled:opacity-40"
           >
             {streaming ? (
@@ -443,19 +323,24 @@ export default function App() {
           </button>
         </div>
         <div className="flex items-center justify-between mt-1.5 px-1">
-          <span className="text-[10px] text-slate-400">
-            {remainingLabel || 'Enter to send · Shift+Enter for newline'}
-          </span>
+          <span className="text-[10px] text-slate-400">Enter to send · Shift+Enter for newline</span>
           {messages.length > 0 && (
-            <button
-              onClick={startNewChat}
-              className="text-[10px] text-slate-400 hover:text-slate-600"
-            >
+            <button onClick={startNewChat} className="text-[10px] text-slate-400 hover:text-slate-600">
               + New chat
             </button>
           )}
         </div>
       </div>
+
+      <SettingsDrawer
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+        byok={byok}
+        onChange={async (next) => {
+          setByok(next)
+          await saveSettings({ ...byok, ...next })
+        }}
+      />
 
       {/* Library drawer */}
       {showLibrary && (
@@ -468,10 +353,7 @@ export default function App() {
           <div className="absolute right-0 top-0 bottom-0 w-[300px] bg-white shadow-2xl flex flex-col">
             <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200">
               <h3 className="text-[13px] font-semibold text-slate-800">Library</h3>
-              <button
-                onClick={() => setShowLibrary(false)}
-                className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500"
-              >
+              <button onClick={() => setShowLibrary(false)} className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500">
                 ✕
               </button>
             </div>
@@ -489,12 +371,8 @@ export default function App() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <div className="text-[12px] font-medium text-slate-700 truncate">
-                          {s.title}
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          {new Date(s.createdAt).toLocaleString()}
-                        </div>
+                        <div className="text-[12px] font-medium text-slate-700 truncate">{s.title}</div>
+                        <div className="text-[10px] text-slate-400">{new Date(s.createdAt).toLocaleString()}</div>
                       </div>
                       <button
                         onClick={(e) => {
@@ -525,66 +403,211 @@ export default function App() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
 
-      {/* Auth modal */}
-      {showAuth && (
-        <div
-          className="absolute inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowAuth(false)
-          }}
-        >
-          <div className="bg-white w-full max-w-[300px] p-4 rounded-2xl shadow-2xl">
-            <div className="flex justify-between items-center mb-3">
-              <h2 className="text-sm font-bold text-slate-800">
-                {authMode === 'login' ? 'Welcome back' : 'Create account'}
-              </h2>
+// ---------------------------------------------------------------------------
+// BYOK Settings drawer
+// ---------------------------------------------------------------------------
+interface SettingsDrawerProps {
+  open: boolean
+  onClose: () => void
+  byok: ByokSettings
+  onChange: (patch: Partial<ByokSettings>) => void
+}
+
+function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) {
+  const [showKey, setShowKey] = useState(false)
+  const [customModel, setCustomModel] = useState('')
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  if (!open) return null
+
+  const def = getProvider(byok.provider)
+
+  const handleProviderChange = (id: ProviderId) => {
+    const next = getProvider(id)
+    onChange({
+      provider: id,
+      // Reset to the provider's default model/baseUrl; keep the key.
+      model: next.defaultModel,
+      baseUrl: id === 'custom' ? byok.baseUrl : '',
+    })
+    setTestResult(null)
+  }
+
+  const runTest = async () => {
+    setTesting(true)
+    setTestResult(null)
+    // The store persists async; test against the latest local view.
+    const result = await testConnection({ ...byok })
+    setTestResult(result)
+    setTesting(false)
+  }
+
+  return (
+    <div
+      className="absolute inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div className="bg-white w-full max-w-[340px] rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+          <h2 className="text-sm font-bold text-slate-800">🔑 Bring Your Own Key</h2>
+          <button onClick={onClose} className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500">
+            ✕
+          </button>
+        </div>
+
+        <div className="overflow-y-auto px-4 py-3 space-y-3">
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            Lector is free and private. Your key is stored only in this browser and sent directly
+            to your chosen provider — never to us.
+          </p>
+
+          {/* Provider picker */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">Provider</label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {Object.values(PROVIDERS).map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => handleProviderChange(p.id)}
+                  className={`px-2 py-2 text-[11px] font-medium rounded-lg border transition-colors ${
+                    byok.provider === p.id
+                      ? 'border-blue-400 bg-blue-50 text-blue-700'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1.5">{def.description}</p>
+          </div>
+
+          {/* Custom base URL */}
+          {byok.provider === 'custom' && (
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">
+                Base URL <span className="text-slate-400 font-normal">(OpenAI-compatible)</span>
+              </label>
+              <input
+                type="url"
+                value={byok.baseUrl}
+                onChange={(e) => onChange({ baseUrl: e.target.value })}
+                placeholder="https://api.deepseek.com/v1"
+                className="w-full px-3 py-2 text-[12px] bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-400 focus:bg-white"
+              />
+            </div>
+          )}
+
+          {/* API key */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">API Key</label>
+            <div className="relative">
+              <input
+                type={showKey ? 'text' : 'password'}
+                value={byok.apiKey}
+                onChange={(e) => {
+                  onChange({ apiKey: e.target.value })
+                  setTestResult(null)
+                }}
+                placeholder="sk-…"
+                autoComplete="off"
+                spellCheck={false}
+                className="w-full px-3 py-2 pr-16 text-[12px] bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-400 focus:bg-white font-mono"
+              />
               <button
-                onClick={() => setShowAuth(false)}
-                className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500"
+                onClick={() => setShowKey((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 hover:text-slate-600 px-1.5 py-0.5"
               >
-                ✕
+                {showKey ? 'hide' : 'show'}
               </button>
             </div>
-            <form onSubmit={handleAuth} className="space-y-3">
-              <input
-                type="email"
-                value={authEmail}
-                onChange={(e) => setAuthEmail(e.target.value)}
-                placeholder="you@example.com"
-                required
-                className="w-full px-3 py-2 text-[13px] bg-slate-50 border border-transparent rounded-lg focus:outline-none focus:border-blue-400 focus:bg-white"
-              />
-              <input
-                type="password"
-                value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                minLength={6}
-                className="w-full px-3 py-2 text-[13px] bg-slate-50 border border-transparent rounded-lg focus:outline-none focus:border-blue-400 focus:bg-white"
-              />
-              {authError && <p className="text-[11px] text-red-500 text-center">{authError}</p>}
-              <button
-                type="submit"
-                disabled={authLoading}
-                className="w-full py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg text-[13px] font-semibold disabled:opacity-50"
+            {def.keyUrl && (
+              <a
+                href={def.keyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block mt-1 text-[10px] text-blue-500 hover:underline"
               >
-                {authLoading ? 'Please wait…' : authMode === 'login' ? 'Sign In' : 'Create Account'}
-              </button>
-            </form>
+                Get a key from {def.label} →
+              </a>
+            )}
+          </div>
+
+          {/* Model picker */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">Model</label>
+            {def.models.length > 0 ? (
+              <select
+                value={def.models.some((m) => m.id === byok.model) ? byok.model : '__custom__'}
+                onChange={(e) => {
+                  if (e.target.value === '__custom__') {
+                    setCustomModel(byok.model)
+                    onChange({ model: customModel || def.defaultModel })
+                  } else {
+                    onChange({ model: e.target.value })
+                  }
+                }}
+                className="w-full px-3 py-2 text-[12px] bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-400 focus:bg-white"
+              >
+                {def.models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+                <option value="__custom__">Custom model id…</option>
+              </select>
+            ) : null}
+            {/* Show a free-text input when custom selected OR provider has no presets */}
+            {(byok.provider === 'custom' ||
+              !def.models.some((m) => m.id === byok.model)) && (
+              <input
+                type="text"
+                value={byok.model}
+                onChange={(e) => onChange({ model: e.target.value })}
+                placeholder={def.defaultModel || 'model id, e.g. gpt-4o-mini'}
+                className="w-full mt-1.5 px-3 py-2 text-[12px] bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-400 focus:bg-white font-mono"
+              />
+            )}
+          </div>
+
+          {/* Test connection */}
+          <div className="pt-1">
             <button
-              onClick={() => {
-                setAuthMode(authMode === 'login' ? 'register' : 'login')
-                setAuthError('')
-              }}
-              className="block mx-auto mt-3 text-[11px] text-blue-500 hover:text-blue-700"
+              onClick={runTest}
+              disabled={testing || !byok.apiKey || (byok.provider === 'custom' && !byok.baseUrl)}
+              className="w-full py-2 text-[12px] font-medium rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
             >
-              {authMode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
+              {testing ? 'Testing…' : 'Test connection'}
             </button>
+            {testResult && (
+              <div
+                className={`mt-1.5 text-[11px] px-2 py-1.5 rounded-lg ${
+                  testResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'
+                }`}
+              >
+                {testResult.ok ? '✓ ' : '✕ '}
+                {testResult.message}
+              </div>
+            )}
           </div>
         </div>
-      )}
+
+        <div className="px-4 py-3 border-t border-slate-200">
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg text-[13px] font-semibold"
+          >
+            Done
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

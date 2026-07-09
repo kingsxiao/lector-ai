@@ -354,11 +354,15 @@ function handleClickOutside(e: MouseEvent) {
 }
 
 // ---------------------------------------------------------------------------
-// Actions dispatched to the background worker
+// BYOK helpers (run in the content-script context)
+// ---------------------------------------------------------------------------
+// The content script can import shared modules; vite bundles them in.
+import { getSettings, completeOnce } from './shared/byok'
+
+// ---------------------------------------------------------------------------
+// Actions — call the provider directly (BYOK), no backend
 // ---------------------------------------------------------------------------
 function handleAction(kind: 'translate' | 'summarize' | 'explain' | 'ask', text: string) {
-  if (typeof chrome === 'undefined' || !chrome.runtime) return
-
   const rect = selectionToolbar?.getBoundingClientRect()
   showLoading(rect?.left || 100, rect?.top || 100)
 
@@ -372,51 +376,68 @@ function handleAction(kind: 'translate' | 'summarize' | 'explain' | 'ask', text:
     return
   }
 
-  const message =
-    kind === 'translate'
-      ? { action: 'translate', text }
-      : kind === 'summarize'
-        ? { action: 'summarize', text }
-        : { action: 'explain', text }
+  void runByokAction(kind, text)
+}
 
-  chrome.runtime.sendMessage(message, (response) => {
-    try {
-      removeLoading()
-      if (chrome.runtime.lastError) {
-        const r = selectionToolbar?.getBoundingClientRect()
-        showResult(r?.left || 100, r?.top || 100, '扩展已更新，请刷新页面重试', 'translate')
-        return
-      }
-      if (response && response.error) {
-        const r = selectionToolbar?.getBoundingClientRect()
-        showResult(r?.left || 100, r?.top || 100, `失败: ${response.error}`, 'translate')
-        return
-      }
-      const r = selectionToolbar?.getBoundingClientRect()
-      const out =
-        kind === 'translate'
-          ? response?.translatedText || '翻译结果'
-          : kind === 'summarize'
-            ? response?.summary || '暂无摘要'
-            : response?.explanation || '暂无解释'
-      showResult(r?.left || 100, r?.top || 100, out, kind === 'summarize' ? 'summary' : kind === 'translate' ? 'translate' : 'explain')
-    } catch (e) {
-      console.error('Lector callback error:', e)
-      removeLoading()
-    }
-  })
+async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: string) {
+  const settings = await getSettings()
+  const r = () => selectionToolbar?.getBoundingClientRect()
+
+  if (!settings.apiKey) {
+    removeLoading()
+    showResult(r()?.left || 100, r()?.top || 100, '请在侧栏设置中添加 API Key 后使用。', 'translate')
+    chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
+    return
+  }
+
+  let systemPrompt = ''
+  let maxTokens = 1000
+  if (kind === 'translate') {
+    const target = /[\u4e00-\u9fff]/.test(text) ? 'English' : '中文'
+    systemPrompt = `You are a professional translator. Translate the user text to ${target}. Preserve meaning, tone, and formatting. Output ONLY the translation.`
+    maxTokens = Math.min(3000, Math.max(500, text.length * 2))
+  } else if (kind === 'summarize') {
+    systemPrompt = `You are Lector AI. Summarize the user content in 3-5 short bullets plus a one-line takeaway. Clean Markdown, no leading heading.`
+    maxTokens = 900
+  } else {
+    systemPrompt = `You are Lector AI. Explain the user content clearly in a few sentences, then give one concrete example. Clean Markdown.`
+    maxTokens = 900
+  }
+
+  try {
+    const out = await completeOnce(settings, systemPrompt, text.slice(0, 8000), {
+      maxTokens,
+      temperature: kind === 'translate' ? 0.2 : 0.5,
+    })
+    removeLoading()
+    showResult(
+      r()?.left || 100,
+      r()?.top || 100,
+      out || '(空响应)',
+      kind === 'summarize' ? 'summary' : kind === 'translate' ? 'translate' : 'explain'
+    )
+  } catch (e) {
+    removeLoading()
+    const msg = e instanceof Error ? e.message : '请求失败'
+    showResult(r()?.left || 100, r()?.top || 100, `失败: ${msg}`, 'translate')
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Inline bilingual translation (Immersive-Translate style)
+// Inline bilingual translation (Immersive-Translate style) — BYOK direct
 // ---------------------------------------------------------------------------
 const translatedSet = new WeakSet<HTMLElement>()
 
 async function toggleBilingual() {
+  const settings = await getSettings()
+  if (!settings.apiKey) {
+    chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
+    return
+  }
+
   const page = extractPage()
   const targetLang = page.lang === 'zh' ? 'English' : '中文'
 
-  // Collect paragraph blocks we haven't translated yet.
   const blocks = Array.from(document.querySelectorAll('p, li, blockquote'))
     .filter((el) => {
       const t = (el.textContent || '').trim()
@@ -426,18 +447,16 @@ async function toggleBilingual() {
 
   if (blocks.length === 0) return
 
-  const apiBase = await getApiBaseLocal()
+  const systemPrompt = `You are a professional translator. Translate the user text to ${targetLang}. Preserve meaning, tone, and formatting. Output ONLY the translation.`
+
   for (const block of blocks) {
     const original = (block.textContent || '').trim()
     try {
-      const res = await fetch(`${apiBase}/translate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: original, targetLang, bilingual: true }),
+      const translated = await completeOnce(settings, systemPrompt, original, {
+        maxTokens: Math.min(1000, Math.max(200, original.length * 2)),
+        temperature: 0.2,
       })
-      if (!res.ok) continue
-      const data = await res.json()
-      const translated = data.translatedText as string
+      if (!translated) continue
       const span = document.createElement('div')
       span.className = 'lector-bilingual'
       span.textContent = translated
@@ -447,16 +466,6 @@ async function toggleBilingual() {
       // best-effort; skip on error
     }
   }
-}
-
-async function getApiBaseLocal(): Promise<string> {
-  return new Promise((resolve) => {
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.get(['apiBase'], (r) => resolve((r.apiBase as string) || 'https://lector-ai-two.vercel.app/api'))
-    } else {
-      resolve('https://lector-ai-two.vercel.app/api')
-    }
-  })
 }
 
 // ---------------------------------------------------------------------------

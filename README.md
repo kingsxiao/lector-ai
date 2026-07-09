@@ -1,115 +1,100 @@
-# Lector AI - Smart Reading Assistant
+# Lector AI — Bring-Your-Own-Key Reading Companion
 
-AI-powered Chrome extension for summarizing webpages, translating content, and enhancing your reading experience.
+A Chrome side-panel AI assistant that **reads the page with you**: chat, summarize,
+translate, explain, and learn — right next to any article.
 
-## 🚀 Features
+**Free forever. No signup. No subscription.** You bring your own AI provider key
+(OpenAI, Anthropic, OpenRouter, or any OpenAI-compatible endpoint) and pay your
+provider directly. Your key never leaves your browser.
 
-- **Smart Summarization** - One-click article summaries using GPT-4o
-- **Instant Translation** - Translate any text on the web
-- **Writing Enhancement** - AI-powered writing assistance anywhere
-- **Cross-platform** - Works on all Chrome-based browsers
+## ✨ Features
+
+- **Side panel chat** — a persistent surface that stays open while you read
+- **Chat with this page** — the assistant reasons over the cleaned article text
+- **Streamed Markdown replies** — fast, formatted answers
+- **Selection toolbar** — translate / explain / summarize / ask on any text
+- **Inline bilingual translation** — paragraph-level, Immersive-Translate style
+- **Reading library** — saved conversations, stored locally
+- **BYOK** — OpenAI · Anthropic · OpenRouter · Custom (DeepSeek, Groq, Together, Ollama, …)
+
+## 🔑 Bring Your Own Key
+
+1. Open the side panel (click the toolbar icon, or the floating **L** button).
+2. Click ⚙️ **Settings**.
+3. Pick a provider, paste your key, choose a model.
+4. Click **Test connection** to verify, then **Done**.
+
+Get a key:
+- **OpenAI:** https://platform.openai.com/api-keys
+- **Anthropic:** https://console.anthropic.com/settings/keys
+- **OpenRouter** (one key, all models — recommended): https://openrouter.ai/keys
+- **Custom:** any OpenAI-compatible base URL (e.g. `https://api.deepseek.com/v1`)
+
+Your key is stored in `chrome.storage.local` on your machine and is sent only to
+the provider you choose — never to us. If you share a machine, clear storage or
+use a separate browser profile.
 
 ## 🛠️ Tech Stack
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | React 18 + TypeScript |
-| Styling | TailwindCSS |
-| State | Zustand |
-| Backend | Vercel Serverless Functions |
-| AI | OpenAI GPT-4o / Claude |
-| Database | Supabase |
-| Payments | LemonSqueezy |
+| UI | React 18 + TypeScript + TailwindCSS |
+| State | Zustand (persisted) |
+| AI | Your provider — OpenAI / Anthropic / OpenRouter / OpenAI-compatible |
+| Build | Vite |
+
+No backend. No database. No accounts.
 
 ## 📁 Project Structure
 
 ```
 lector-ai/
 ├── src/
-│   ├── manifest.json      # Chrome extension manifest
-│   ├── background.ts     # Service worker
-│   ├── content.ts        # Content script
-│   ├── content.css       # Content styles
-│   ├── popup/            # Popup UI (React)
-│   │   ├── App.tsx
+│   ├── manifest.json         # MV3 manifest (side panel + content script)
+│   ├── background.ts         # Service worker — opens panel, context menus
+│   ├── content.ts            # Page extraction, selection toolbar, bilingual
+│   ├── content.css
+│   ├── sidepanel/            # Side panel UI (React)
+│   │   ├── App.tsx           # Chat + settings drawer + library
 │   │   ├── main.tsx
-│   │   └── index.css
-│   └── shared/            # Shared utilities
-│       ├── api.ts
-│       └── store.ts
-├── api/                  # Vercel serverless functions
-│   ├── summarize/
-│   └── translate/
-└── public/               # Static assets
+│   │   ├── index.html
+│   │   ├── index.css
+│   │   └── markdown.ts       # Dependency-free Markdown renderer
+│   └── shared/
+│       ├── providers.ts      # Provider definitions + model lists
+│       ├── byok.ts           # Key storage + streaming client + test connection
+│       └── store.ts          # Zustand store (BYOK settings + library)
+├── scripts/
+│   ├── build-extension.mjs
+│   └── dev-extension.mjs
+└── public/icons/
 ```
 
 ## 🚀 Getting Started
 
-### Prerequisites
-
-- Node.js 18+
-- npm or yarn
-- OpenAI API key (or Anthropic API key)
-- Vercel account
-
-### Installation
-
 ```bash
-# Clone the repository
-git clone <your-repo-url>
-cd lector-ai
-
-# Install dependencies
 npm install
-
-# Create environment variables
-cp .env.example .env.local
+npm run build:extension
 ```
 
-### Configuration
+Then load it:
 
-Create a `.env.local` file with your API keys:
-
-```env
-OPENAI_API_KEY=sk-...
-# or
-ANTHROPIC_API_KEY=sk-ant-...
-```
+1. Open `chrome://extensions/`
+2. Enable **Developer mode**
+3. Click **Load unpacked** and select the `dist` folder
 
 ### Development
 
 ```bash
-# Start the development server
-npm run dev
-
-# Build for production
-npm run build
+npm run dev:extension   # watch + rebuild on demand (press r + Enter to rebuild)
 ```
 
-### Deploy to Vercel
+## 🔒 Privacy
 
-```bash
-# Install Vercel CLI
-npm i -g vercel
-
-# Deploy
-vercel
-```
-
-## 🔧 Loading the Extension
-
-1. Open Chrome and go to `chrome://extensions/`
-2. Enable "Developer mode"
-3. Click "Load unpacked"
-4. Select the `dist` folder after building
-
-## 📈 Roadmap
-
-- [ ] User authentication (Supabase)
-- [ ] Payment integration (LemonSqueezy)
-- [ ] Chrome Web Store publication
-- [ ] Multi-language support
-- [ ] Team collaboration features
+- Your API key is stored only in your browser's local storage.
+- Requests go directly from your browser to your chosen AI provider.
+- There is no Lector server in the path — nothing is proxied or logged by us.
+- Conversation history (the reading library) is also stored locally.
 
 ## 📄 License
 

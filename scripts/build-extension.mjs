@@ -53,7 +53,6 @@ function relocateHtml(entryName) {
   }
 }
 
-relocateHtml('popup')
 relocateHtml('sidepanel')
 
 // Remove the leftover src/ tree Vite produced.

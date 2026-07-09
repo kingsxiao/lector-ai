@@ -1,11 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { DEFAULT_API_BASE } from './config'
-
-interface User {
-  id: string
-  email: string
-}
+import { DEFAULT_BYOK_SETTINGS, type ByokSettings } from './providers'
 
 export interface ChatMessage {
   id: string
@@ -22,24 +17,15 @@ export interface ChatSession {
 }
 
 interface AppState {
-  // Auth
-  user: User | null
-  accessToken: string | null
-  isPro: boolean
-  isLoading: boolean
+  // BYOK settings (key stored locally; never sent anywhere except the provider)
+  byok: ByokSettings
 
-  // Usage (UI hint only; server is source of truth)
-  usageCount: number
-
-  // Reading library — chat sessions keyed by id, newest-first.
+  // Reading library — chat sessions, newest-first.
   sessions: ChatSession[]
 
   // Actions
-  setUser: (user: User | null, accessToken?: string | null) => void
-  setPro: (value: boolean) => void
-  setLoading: (value: boolean) => void
-  incrementUsage: () => void
-  logout: () => void
+  setByok: (patch: Partial<ByokSettings>) => void
+  setByokAll: (s: ByokSettings) => void
 
   addSession: (session: ChatSession) => void
   updateSession: (id: string, patch: Partial<ChatSession>) => void
@@ -49,23 +35,12 @@ interface AppState {
 
 export const useStore = create<AppState>()(
   persist(
-    (set, get) => ({
-      user: null,
-      accessToken: null,
-      isPro: false,
-      isLoading: false,
-      usageCount: 0,
+    (set) => ({
+      byok: DEFAULT_BYOK_SETTINGS,
       sessions: [],
 
-      setUser: (user, accessToken = null) => set({ user, accessToken }),
-      setPro: (value: boolean) => set({ isPro: value }),
-      setLoading: (value: boolean) => set({ isLoading: value }),
-      incrementUsage: () => {
-        const state = get()
-        if (state.isPro) return
-        set((s) => ({ usageCount: s.usageCount + 1 }))
-      },
-      logout: () => set({ user: null, accessToken: null, isPro: false, usageCount: 0 }),
+      setByok: (patch) => set((s) => ({ byok: { ...s.byok, ...patch } })),
+      setByokAll: (next) => set({ byok: next }),
 
       addSession: (session) =>
         set((s) => ({ sessions: [session, ...s.sessions].slice(0, 50) })),
@@ -79,47 +54,11 @@ export const useStore = create<AppState>()(
     }),
     {
       name: 'lector-ai-storage',
-      partialize: (state) => ({
-        user: state.user,
-        accessToken: state.accessToken,
-        isPro: state.isPro,
-        usageCount: state.usageCount,
-        sessions: state.sessions,
-      }),
+      // NOTE: the API key is part of `byok` and is persisted to
+      // chrome.storage.local by zustand/persist. That is intentional for BYOK —
+      // it stays in the browser, never touches a server. Users who share a
+      // machine should clear storage or use a separate browser profile.
+      partialize: (state) => ({ byok: state.byok, sessions: state.sessions }),
     }
   )
 )
-
-// Initialize from chrome storage on popup load and verify the token.
-export async function initializeStore() {
-  return new Promise<void>((resolve) => {
-    chrome.storage.local.get(['user', 'accessToken'], async (result) => {
-      if (result.user) {
-        try {
-          const user = JSON.parse(result.user as string)
-          const store = useStore.getState()
-          store.setUser(user, result.accessToken as string | undefined)
-
-          if (result.accessToken) {
-            try {
-              const response = await fetch(`${DEFAULT_API_BASE}/auth/me`, {
-                headers: { Authorization: `Bearer ${result.accessToken}` },
-              })
-              if (response.ok) {
-                const data = await response.json()
-                store.setPro(data.isPro || false)
-              } else {
-                store.logout()
-              }
-            } catch (e) {
-              console.error('Failed to verify token:', e)
-            }
-          }
-        } catch (e) {
-          console.error('Failed to parse user:', e)
-        }
-      }
-      resolve()
-    })
-  })
-}
