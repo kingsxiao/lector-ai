@@ -8,6 +8,7 @@ import {
   type ByokSettings,
 } from '../shared/providers'
 import { streamChat, getSettings, saveSettings, testConnection, fetchModels, type ChatMessage as WireMessage, type FetchedModel } from '../shared/byok'
+import { t, type StringKey } from '../shared/i18n'
 
 interface PageContext {
   title: string
@@ -16,11 +17,11 @@ interface PageContext {
   lang: string
 }
 
-const SUGGESTIONS = [
-  { label: '总结全文', prompt: 'Summarize this page in 3-5 bullets and a one-line takeaway.' },
-  { label: '关键观点', prompt: 'What are the 3 most important points the author is making?' },
-  { label: '解释难点', prompt: 'Explain the most difficult concept on this page simply, with an example.' },
-  { label: '继续追问', prompt: 'What questions should I ask myself to test my understanding of this page?' },
+const SUGGESTIONS: { label: StringKey; prompt: string }[] = [
+  { label: 'side.suggest.summarize', prompt: 'Summarize this page in 3-5 bullets and a one-line takeaway.' },
+  { label: 'side.suggest.keyPoints', prompt: 'What are the 3 most important points the author is making?' },
+  { label: 'side.suggest.explain', prompt: 'Explain the most difficult concept on this page simply, with an example.' },
+  { label: 'side.suggest.followup', prompt: 'What questions should I ask myself to test my understanding of this page?' },
 ]
 
 function newId(): string {
@@ -30,6 +31,8 @@ function newId(): string {
 export default function App() {
   const { byok, setByok, sessions, addSession, updateSession, removeSession, clearSessions } =
     useStore()
+
+  const tr = (key: StringKey) => t(key, byok.locale)
 
   const [page, setPage] = useState<PageContext | null>(null)
   const [input, setInput] = useState('')
@@ -92,7 +95,7 @@ export default function App() {
       if (!text || streaming) return
 
       if (!byok.apiKey) {
-        setError('Add your API key in Settings to start chatting.')
+        setError(t('side.error.addKey', byok.locale))
         setShowSettings(true)
         return
       }
@@ -202,26 +205,26 @@ ${(page?.text || '').slice(0, 12000)}
           </div>
           <div className="min-w-0">
             <div className="text-[13px] font-semibold text-slate-800 truncate">
-              {page?.title || 'Lector AI'}
+              {page?.title || tr('side.header.defaultTitle')}
             </div>
             <div className="text-[10px] text-slate-400 truncate max-w-[200px]">
               {providerConfigured
                 ? `${getProvider(byok.provider).label} · ${byok.model || 'model'}`
-                : 'No API key — tap settings'}
+                : tr('side.header.noKey')}
             </div>
           </div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           <button
             onClick={() => setShowLibrary(true)}
-            title="Library"
+            title={tr('side.library.title')}
             className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center text-sm"
           >
             📚
           </button>
           <button
             onClick={() => setShowSettings(true)}
-            title="Settings"
+            title={tr('settings.title')}
             className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center text-sm"
           >
             ⚙️
@@ -233,12 +236,20 @@ ${(page?.text || '').slice(0, 12000)}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-4">
         {!providerConfigured && (
           <div className="mx-1 p-3 rounded-xl bg-blue-50 border border-blue-100 text-[12px] text-blue-700">
-            <div className="font-semibold mb-1">Bring your own key 🔑</div>
-            Lector is free and private — you pay your AI provider directly. Open{' '}
-            <button onClick={() => setShowSettings(true)} className="underline font-medium">
-              Settings
-            </button>{' '}
-            to add a key (OpenAI, Anthropic, OpenRouter, or any OpenAI-compatible endpoint).
+            <div className="font-semibold mb-1">{tr('side.onboard.title')}</div>
+            {(() => {
+              const body = tr('side.onboard.body')
+              const [before, after] = body.split('{settings}')
+              return (
+                <>
+                  {before}
+                  <button onClick={() => setShowSettings(true)} className="underline font-medium">
+                    {tr('side.onboard.settingsLink')}
+                  </button>
+                  {after}
+                </>
+              )
+            })()}
           </div>
         )}
 
@@ -247,9 +258,9 @@ ${(page?.text || '').slice(0, 12000)}
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 text-white font-bold flex items-center justify-center text-xl mx-auto mb-3">
               L
             </div>
-            <h2 className="text-sm font-semibold text-slate-700 mb-1">Chat with this page</h2>
+            <h2 className="text-sm font-semibold text-slate-700 mb-1">{tr('side.empty.title')}</h2>
             <p className="text-xs text-slate-400 mb-5 px-6">
-              Ask anything about the article you're reading. Lector reads the page with you.
+              {tr('side.empty.subtitle')}
             </p>
             <div className="grid grid-cols-2 gap-2 px-2">
               {SUGGESTIONS.map((s) => (
@@ -259,13 +270,13 @@ ${(page?.text || '').slice(0, 12000)}
                   disabled={!page || !providerConfigured}
                   className="px-3 py-2.5 text-left text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:border-blue-300 hover:bg-blue-50 transition-colors disabled:opacity-50"
                 >
-                  {s.label}
+                  {tr(s.label)}
                 </button>
               ))}
             </div>
             {!page && (
               <p className="text-[11px] text-amber-600 mt-4 px-6">
-                Open a web article, then Lector can read along.
+                {tr('side.empty.noPage')}
               </p>
             )}
           </div>
@@ -284,7 +295,7 @@ ${(page?.text || '').slice(0, 12000)}
                 ) : (
                   <div className="flex items-center gap-2 text-[12px] text-slate-400">
                     <div className="w-3 h-3 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
-                    thinking…
+                    {tr('side.thinking')}
                   </div>
                 )}
               </div>
@@ -306,7 +317,7 @@ ${(page?.text || '').slice(0, 12000)}
                 handleSend()
               }
             }}
-            placeholder={providerConfigured ? 'Ask about this page…' : 'Add an API key in settings to begin…'}
+            placeholder={providerConfigured ? tr('side.composer.placeholder.ready') : tr('side.composer.placeholder.noKey')}
             rows={1}
             className="flex-1 max-h-32 resize-none px-3 py-2 text-[13px] bg-slate-50 border border-transparent rounded-xl focus:outline-none focus:border-blue-400 focus:bg-white"
           />
@@ -323,10 +334,10 @@ ${(page?.text || '').slice(0, 12000)}
           </button>
         </div>
         <div className="flex items-center justify-between mt-1.5 px-1">
-          <span className="text-[10px] text-slate-400">Enter to send · Shift+Enter for newline</span>
+          <span className="text-[10px] text-slate-400">{tr('side.composer.hint')}</span>
           {messages.length > 0 && (
             <button onClick={startNewChat} className="text-[10px] text-slate-400 hover:text-slate-600">
-              + New chat
+              {tr('side.composer.newChat')}
             </button>
           )}
         </div>
@@ -352,7 +363,7 @@ ${(page?.text || '').slice(0, 12000)}
         >
           <div className="absolute right-0 top-0 bottom-0 w-[300px] bg-white shadow-2xl flex flex-col">
             <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200">
-              <h3 className="text-[13px] font-semibold text-slate-800">Library</h3>
+              <h3 className="text-[13px] font-semibold text-slate-800">{tr('side.library.title')}</h3>
               <button onClick={() => setShowLibrary(false)} className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500">
                 ✕
               </button>
@@ -360,7 +371,7 @@ ${(page?.text || '').slice(0, 12000)}
             <div className="flex-1 overflow-y-auto">
               {sessions.length === 0 ? (
                 <div className="text-center text-[12px] text-slate-400 py-8 px-4">
-                  Saved conversations will appear here.
+                  {tr('side.library.empty')}
                 </div>
               ) : (
                 sessions.map((s) => (
@@ -397,7 +408,7 @@ ${(page?.text || '').slice(0, 12000)}
                 }}
                 className="px-3 py-2 text-[11px] text-slate-400 hover:text-red-500 border-t border-slate-200"
               >
-                Clear all
+                {tr('side.library.clearAll')}
               </button>
             )}
           </div>
