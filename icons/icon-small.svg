@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Simplified variant for 16px: drop the sparkles, keep just the gradient + bold L.
+       No thin accents. The L stroke is widened so it stays readable at 16px. -->
+  <defs>
+    <linearGradient id="bg" x1="8" y1="8" x2="120" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0d9488"/>
+      <stop offset="0.55" stop-color="#0f766e"/>
+      <stop offset="1" stop-color="#115e59"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="40" cy="34" r="92" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.30"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="6" y="6" width="116" height="116" rx="28" ry="28" fill="url(#bg)"/>
+  <rect x="6" y="6" width="116" height="116" rx="28" ry="28" fill="url(#glow)"/>
+
+  <!-- Wider, simpler L optimized for 16px legibility -->
+  <path d="
+    M 42 30
+    L 62 30
+    L 62 74
+    L 92 74
+    L 92 94
+    L 42 94
+    Z" fill="#ffffff"/>
+</svg>

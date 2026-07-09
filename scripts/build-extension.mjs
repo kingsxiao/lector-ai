@@ -17,6 +17,17 @@ mkdirSync(distDir, { recursive: true })
 console.log('Building with Vite...')
 execSync('npm run build', { cwd: rootDir, stdio: 'inherit' })
 
+// Rebuild the content script as a single self-contained IIFE bundle.
+// MV3 content scripts cannot be ES modules (content_scripts has no `type:
+// "module"` option), so the default ES build above — which emits an `import`
+// of a shared chunk — fails at runtime. This standalone config inlines all
+// shared deps (byok, i18n) into one content.js with no chunk imports.
+console.log('Rebuilding content script as IIFE bundle...')
+execSync('npx vite build --config vite.content.config.ts', {
+  cwd: rootDir,
+  stdio: 'inherit',
+})
+
 // Copy manifest.json to dist
 console.log('Copying manifest.json...')
 copyFileSync(

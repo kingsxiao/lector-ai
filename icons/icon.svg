@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <!-- Brand gradient: teal, matching the app's #0d9488 → #0f766e (teal-600 → teal-700) -->
+    <linearGradient id="bg" x1="8" y1="8" x2="120" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0d9488"/>
+      <stop offset="0.55" stop-color="#0f766e"/>
+      <stop offset="1" stop-color="#115e59"/>
+    </linearGradient>
+
+    <!-- Soft top-left highlight for depth -->
+    <radialGradient id="glow" cx="40" cy="34" r="92" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.30"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Subtle bottom-right shadow -->
+    <radialGradient id="shade" cx="104" cy="108" r="80" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#134e4a" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#134e4a" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- L mark fill: white → faint mint for a lit-from-above feel -->
+    <linearGradient id="lfill" x1="0" y1="30" x2="0" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#ccfbf1"/>
+    </linearGradient>
+
+    <!-- Sparkle fill -->
+    <radialGradient id="spark" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.6"/>
+    </radialGradient>
+
+    <!-- 4-point star (sparkle) -->
+    <symbol id="sparkle" viewBox="-10 -10 20 20">
+      <path d="M0,-10 C1.4,-3 3,-1.4 10,0 C3,1.4 1.4,3 0,10 C-1.4,3 -3,1.4 -10,0 C-3,-1.4 -1.4,-3 0,-10 Z" fill="url(#spark)"/>
+    </symbol>
+  </defs>
+
+  <!-- Rounded squircle background -->
+  <rect x="6" y="6" width="116" height="116" rx="28" ry="28" fill="url(#bg)"/>
+  <rect x="6" y="6" width="116" height="116" rx="28" ry="28" fill="url(#glow)"/>
+  <rect x="6" y="6" width="116" height="116" rx="28" ry="28" fill="url(#shade)"/>
+
+  <!-- Custom geometric "L": a vertical stroke with a flaring foot -->
+  <path d="
+    M 44 32
+    L 60 32
+    L 60 76
+    L 90 76
+    L 90 92
+    L 44 92
+    Z" fill="url(#lfill)"/>
+
+  <!-- Crisp 1px inner accent along the inner corner for definition -->
+  <path d="M 60 74 L 60 76 L 62 76" fill="none" stroke="#5eead4" stroke-width="0.8" stroke-opacity="0.7"/>
+
+  <!-- AI sparkle: a hint of magic near the top of the stroke -->
+  <use href="#sparkle" x="70" y="34" width="22" height="22"/>
+  <!-- tiny secondary sparkle for rhythm -->
+  <use href="#sparkle" x="92" y="58" width="11" height="11" opacity="0.85"/>
+</svg>
