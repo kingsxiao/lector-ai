@@ -8,7 +8,7 @@ import {
   type ByokSettings,
 } from '../shared/providers'
 import { streamChat, getSettings, saveSettings, testConnection, fetchModels, type ChatMessage as WireMessage, type FetchedModel } from '../shared/byok'
-import { t, type StringKey } from '../shared/i18n'
+import { t, type StringKey, type LocalePref } from '../shared/i18n'
 
 interface PageContext {
   title: string
@@ -474,11 +474,11 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
           onChange({ model: models[0].id })
         }
       } else {
-        setFetchError('该接口未返回模型列表，请手动填写模型 id。')
+        setFetchError(t('settings.model.fetchEmpty', byok.locale))
       }
     } catch (e) {
       setFetchedModels(null)
-      setFetchError(e instanceof Error ? e.message : '拉取失败')
+      setFetchError(e instanceof Error ? e.message : t('settings.model.fetchFail', byok.locale))
     } finally {
       setFetching(false)
     }
@@ -495,7 +495,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
     >
       <div className="bg-white w-full max-w-[340px] rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-          <h2 className="text-sm font-bold text-slate-800">🔑 Bring Your Own Key</h2>
+          <h2 className="text-sm font-bold text-slate-800">{t('settings.title', byok.locale)}</h2>
           <button onClick={onClose} className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500">
             ✕
           </button>
@@ -503,13 +503,38 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
 
         <div className="overflow-y-auto px-4 py-3 space-y-3">
           <p className="text-[11px] text-slate-500 leading-relaxed">
-            Lector is free and private. Your key is stored only in this browser and sent directly
-            to your chosen provider — never to us.
+            {t('settings.privacyNote', byok.locale)}
           </p>
+
+          {/* Language */}
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">
+              {t('settings.language', byok.locale)}
+            </label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {(['auto', 'en', 'zh'] as LocalePref[]).map((opt) => (
+                <button
+                  key={opt}
+                  onClick={() => onChange({ locale: opt })}
+                  className={`px-2 py-2 text-[11px] font-medium rounded-lg border transition-colors ${
+                    byok.locale === opt
+                      ? 'border-blue-400 bg-blue-50 text-blue-700'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {opt === 'auto'
+                    ? t('settings.language.auto', byok.locale)
+                    : opt === 'en'
+                      ? t('settings.language.en', byok.locale)
+                      : t('settings.language.zh', byok.locale)}
+                </button>
+              ))}
+            </div>
+          </div>
 
           {/* Provider picker */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">Provider</label>
+            <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">{t('settings.provider', byok.locale)}</label>
             <div className="grid grid-cols-2 gap-1.5">
               {Object.values(PROVIDERS).map((p) => (
                 <button
@@ -532,7 +557,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
           {(byok.provider === 'custom' || byok.provider === 'openrouter-custom') && (
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">
-                Base URL <span className="text-slate-400 font-normal">(OpenAI-compatible)</span>
+                {t('settings.baseUrl', byok.locale)} <span className="text-slate-400 font-normal">{t('settings.baseUrl.hint', byok.locale)}</span>
               </label>
               <input
                 type="url"
@@ -546,7 +571,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
 
           {/* API key */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">API Key</label>
+            <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">{t('settings.apiKey', byok.locale)}</label>
             <div className="relative">
               <input
                 type={showKey ? 'text' : 'password'}
@@ -555,7 +580,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
                   onChange({ apiKey: e.target.value })
                   setTestResult(null)
                 }}
-                placeholder="sk-…"
+                placeholder={t('settings.apiKey.placeholder', byok.locale)}
                 autoComplete="off"
                 spellCheck={false}
                 className="w-full px-3 py-2 pr-16 text-[12px] bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-400 focus:bg-white font-mono"
@@ -564,7 +589,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
                 onClick={() => setShowKey((v) => !v)}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 hover:text-slate-600 px-1.5 py-0.5"
               >
-                {showKey ? 'hide' : 'show'}
+                {showKey ? t('settings.apiKey.hide', byok.locale) : t('settings.apiKey.show', byok.locale)}
               </button>
             </div>
             {def.keyUrl && (
@@ -574,7 +599,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
                 rel="noopener noreferrer"
                 className="inline-block mt-1 text-[10px] text-blue-500 hover:underline"
               >
-                Get a key from {def.label} →
+                {t('settings.apiKey.getKey', byok.locale).replace('{label}', def.label)}
               </a>
             )}
           </div>
@@ -582,14 +607,14 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
           {/* Model picker */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-[11px] font-semibold text-slate-600">Model</label>
+              <label className="block text-[11px] font-semibold text-slate-600">{t('settings.model', byok.locale)}</label>
               <button
                 onClick={runFetch}
                 disabled={fetching || !byok.apiKey || ((byok.provider === 'custom' || byok.provider === 'openrouter-custom') && !byok.baseUrl)}
-                title="一键从厂商接口拉取可用模型列表"
+                title={t('settings.model.fetch', byok.locale)}
                 className="text-[10px] text-blue-500 hover:text-blue-700 disabled:opacity-40"
               >
-                {fetching ? '拉取中…' : fetchedModels ? '↻ 重新拉取' : '⬇ 拉取模型列表'}
+                {fetching ? t('settings.model.fetching', byok.locale) : fetchedModels ? t('settings.model.refetch', byok.locale) : t('settings.model.fetch', byok.locale)}
               </button>
             </div>
 
@@ -618,7 +643,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
                         {m.label}
                       </option>
                     ))}
-                    <option value="__custom__">自定义模型 id…</option>
+                    <option value="__custom__">{t('settings.model.custom', byok.locale)}</option>
                   </select>
                 )
               }
@@ -629,7 +654,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
               <div className="mt-1 text-[10px] text-amber-600">{fetchError}</div>
             )}
             {fetchedModels && fetchedModels.length > 0 && (
-              <div className="mt-1 text-[10px] text-slate-400">已拉取 {fetchedModels.length} 个模型</div>
+              <div className="mt-1 text-[10px] text-slate-400">{t('settings.model.fetchedCount', byok.locale).replace('{n}', String(fetchedModels.length))}</div>
             )}
 
             {/* Free-text input: when custom selected, or no list matches. */}
@@ -653,7 +678,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
               disabled={testing || !byok.apiKey || ((byok.provider === 'custom' || byok.provider === 'openrouter-custom') && !byok.baseUrl)}
               className="w-full py-2 text-[12px] font-medium rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
             >
-              {testing ? 'Testing…' : 'Test connection'}
+              {testing ? t('settings.testing', byok.locale) : t('settings.test', byok.locale)}
             </button>
             {testResult && (
               <div
@@ -673,7 +698,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
             onClick={onClose}
             className="w-full py-2.5 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-lg text-[13px] font-semibold"
           >
-            Done
+            {t('settings.done', byok.locale)}
           </button>
         </div>
       </div>
