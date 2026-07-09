@@ -119,6 +119,30 @@ export const STRINGS = {
   'toolbar.explain': { en: '💬 Explain', zh: '💬 解释' },
   'toolbar.summarize': { en: '📄 Summarize', zh: '📄 摘要' },
   'toolbar.ask': { en: '🤖 Ask', zh: '🤖 提问' },
+  'toolbar.highlight': { en: '🔖 Highlight', zh: '🔖 高亮' },
+  'toolbar.saveWord': { en: '📚 Save word', zh: '📚 存词' },
+
+  // --- side panel: highlights drawer (Feature ②) ---
+  'side.highlights.title': { en: 'Highlights', zh: '高亮收藏' },
+  'side.highlights.empty': {
+    en: 'Select text on any page and tap the highlight button to capture it.',
+    zh: '在任意页面选中文字，点击高亮按钮即可收藏。',
+  },
+  'side.highlights.export': { en: '⬇ Export Markdown', zh: '⬇ 导出 Markdown' },
+
+  // --- side panel: vocabulary review drawer (Feature ③) ---
+  'side.vocab.title': { en: 'Vocabulary', zh: '生词本' },
+  'side.vocab.empty': {
+    en: 'Select a word on any page and tap the save-word button to review it.',
+    zh: '在任意页面选中单词，点击存词按钮即可加入复习。',
+  },
+  'side.vocab.due': { en: 'due', zh: '待复习' },
+  'side.vocab.reviews': { en: 'reviews', zh: '次' },
+  'side.vocab.showTranslation': { en: 'Show translation', zh: '显示释义' },
+  'side.vocab.again': { en: 'Again', zh: '忘记' },
+  'side.vocab.hard': { en: 'Hard', zh: '困难' },
+  'side.vocab.good': { en: 'Good', zh: '良好' },
+  'side.vocab.easy': { en: 'Easy', zh: '简单' },
 
   // --- content script: popups ---
   'popup.loading': { en: 'AI processing…', zh: 'AI 处理中…' },

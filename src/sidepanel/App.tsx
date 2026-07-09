@@ -1,6 +1,15 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import { useStore, type ChatMessage, type ChatSession } from '../shared/store'
 import { renderMarkdown } from './markdown'
+import { renderCitations, type PageBlock } from '../shared/citations'
+import { isDue, scheduleSrs, type Grade } from '../shared/srs'
+import { toMarkdown } from '../shared/exporters'
+import type { Highlight } from '../shared/highlights'
+import type { VocabEntry } from '../shared/vocabulary'
+import {
+  LibraryIcon, BookmarkIcon, BookOpenIcon, LanguagesIcon,
+  SendIcon, XIcon,
+} from '../shared/icons'
 import {
   PROVIDERS,
   getProvider,
@@ -15,6 +24,7 @@ interface PageContext {
   url: string
   text: string
   lang: string
+  blocks: PageBlock[]
 }
 
 const SUGGESTIONS: { label: StringKey; prompt: string }[] = [
@@ -31,6 +41,12 @@ function newId(): string {
 export default function App() {
   const { byok, setByok, sessions, addSession, updateSession, removeSession, clearSessions } =
     useStore()
+  const highlights = useStore((s) => s.highlights)
+  const vocab = useStore((s) => s.vocab)
+  const addHighlight = useStore((s) => s.addHighlight)
+  const removeHighlight = useStore((s) => s.removeHighlight)
+  const updateVocabSrs = useStore((s) => s.updateVocabSrs)
+  const removeVocab = useStore((s) => s.removeVocab)
 
   const tr = (key: StringKey) => t(key, byok.locale)
 
@@ -42,6 +58,10 @@ export default function App() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [showLibrary, setShowLibrary] = useState(false)
+  const [showHighlights, setShowHighlights] = useState(false)
+  const [showVocab, setShowVocab] = useState(false)
+  const [revealedVocab, setRevealedVocab] = useState<Set<string>>(new Set())
+  const [bilingualBusy, setBilingualBusy] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const assistantBuf = useRef<string>('')
@@ -85,9 +105,82 @@ export default function App() {
     })()
   }, [setByok])
 
+  // Sync knowledge captured by the content→background relay (chrome.storage)
+  // into the zustand store so the Highlights / Vocab drawers stay live.
+  useEffect(() => {
+    const onStorage = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      area: string
+    ) => {
+      if (area !== 'local') return
+      if (changes.lectorHighlights) {
+        const list = (changes.lectorHighlights.newValue as unknown as Highlight[]) || []
+        for (const h of list) addHighlight(h)
+        chrome.storage.local.remove('lectorHighlights')
+      }
+      if (changes.lectorVocab) {
+        const list = (changes.lectorVocab.newValue as unknown as VocabEntry[]) || []
+        const addVocab = useStore.getState().addVocab
+        for (const v of list) addVocab(v)
+        chrome.storage.local.remove('lectorVocab')
+      }
+    }
+    chrome.storage.onChanged.addListener(onStorage)
+    return () => chrome.storage.onChanged.removeListener(onStorage)
+  }, [addHighlight])
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, streaming])
+
+  const downloadMarkdown = (hs: Highlight[]) => {
+    const md = toMarkdown(hs)
+    const blob = new Blob([md], { type: 'text/markdown' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'lector-highlights.md'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const gradeVocab = (v: VocabEntry, grade: Grade) => {
+    updateVocabSrs(v.id, scheduleSrs(v.srs, grade))
+    setRevealedVocab((cur) => {
+      const next = new Set(cur)
+      next.delete(v.id)
+      return next
+    })
+  }
+
+  const toggleReveal = (id: string) => {
+    setRevealedVocab((cur) => {
+      const next = new Set(cur)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // Inline bilingual translation — ask the active tab's content script to
+  // inject paragraph-level translations. The content script tracks which
+  // blocks it has already translated, so repeated toggles add new ones.
+  const toggleBilingual = async () => {
+    if (bilingualBusy) return
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (!tab?.id) return
+      setBilingualBusy(true)
+      await new Promise<void>((resolve) => {
+        chrome.tabs.sendMessage(tab.id!, { action: 'lector-toggle-bilingual' }, () => {
+          void chrome.runtime.lastError
+          resolve()
+        })
+      })
+    } finally {
+      setBilingualBusy(false)
+    }
+  }
 
   const handleSend = useCallback(
     async (overrideInput?: string) => {
@@ -110,6 +203,15 @@ export default function App() {
       assistantBuf.current = ''
 
       try {
+        // Build citation-grounded page context: number the extracted blocks so
+        // the model can cite them inline as [0], [1], … which we render as
+        // clickable chips that jump back to the source on the page.
+        const blocks = page?.blocks ?? []
+        const citeContext =
+          blocks.length > 0
+            ? blocks.map((b, i) => `[${i}] ${b.text}`).join('\n\n')
+            : (page?.text || '')
+
         const systemPrompt = `You are Lector AI, a sharp reading companion embedded in the user's browser.
 
 You answer questions about the article the user is reading, summarize, explain
@@ -117,12 +219,16 @@ concepts, translate, and draft. Be concise and information-dense. Use Markdown.
 When the user asks about "the article", reason only from the provided PAGE
 CONTENT; if it isn't covered there, say so rather than guessing.
 
+When you rely on the page content, cite the source block inline using the form
+[0], [1], … matching the numbered blocks below. Place the citation right after
+the claim it supports.
+
 ${page?.title ? `PAGE TITLE: ${page.title}` : ''}
 ${page?.url ? `PAGE URL: ${page.url}` : ''}
 
-PAGE CONTENT (cleaned):
+PAGE CONTENT (numbered blocks):
 """
-${(page?.text || '').slice(0, 12000)}
+${citeContext.slice(0, 12000)}
 """`
 
         const history: WireMessage[] = next
@@ -196,11 +302,11 @@ ${(page?.text || '').slice(0, 12000)}
   const providerConfigured = Boolean(byok.apiKey)
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50">
+    <div className="flex flex-col h-screen bg-bg">
       {/* Header */}
-      <header className="flex items-center justify-between px-3 py-2.5 bg-white border-b border-slate-200">
+      <header className="flex items-center justify-between px-3 py-2.5 bg-surface border-b border-line">
         <div className="flex items-center gap-2 min-w-0">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 text-white font-bold flex items-center justify-center text-sm flex-shrink-0">
+          <div className="w-7 h-7 rounded-lg bg-accent text-accent-on font-bold flex items-center justify-center text-sm flex-shrink-0">
             L
           </div>
           <div className="min-w-0">
@@ -220,7 +326,39 @@ ${(page?.text || '').slice(0, 12000)}
             title={tr('side.library.title')}
             className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center text-sm"
           >
-            📚
+            <LibraryIcon />
+          </button>
+          <button
+            onClick={() => setShowHighlights(true)}
+            title="Highlights"
+            className="lector-focus w-8 h-8 rounded-lg hover:bg-surface-muted text-ink-soft flex items-center justify-center relative"
+          >
+            <BookmarkIcon />
+            {highlights.length > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent" />
+            )}
+          </button>
+          <button
+            onClick={() => setShowVocab(true)}
+            title="Vocabulary"
+            className="lector-focus w-8 h-8 rounded-lg hover:bg-surface-muted text-ink-soft flex items-center justify-center relative"
+          >
+            <BookOpenIcon />
+            {vocab.some((v) => isDue(v.srs)) && (
+              <span className="lector-due-badge absolute -top-0.5 -right-1">!</span>
+            )}
+          </button>
+          <button
+            onClick={toggleBilingual}
+            disabled={!page || bilingualBusy}
+            title={page ? 'Translate page paragraphs (bilingual)' : 'Open a page first'}
+            className="lector-focus w-8 h-8 rounded-lg hover:bg-surface-muted text-ink-soft flex items-center justify-center disabled:opacity-40"
+          >
+            {bilingualBusy ? (
+              <span className="block w-3 h-3 border-2 border-line border-t-accent rounded-full animate-spin" />
+            ) : (
+              <LanguagesIcon />
+            )}
           </button>
           <button
             onClick={() => setShowSettings(true)}
@@ -255,7 +393,7 @@ ${(page?.text || '').slice(0, 12000)}
 
         {messages.length === 0 && (
           <div className="text-center py-8">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 text-white font-bold flex items-center justify-center text-xl mx-auto mb-3">
+            <div className="w-12 h-12 rounded-lg bg-accent text-accent-on font-bold flex items-center justify-center text-xl mx-auto mb-3">
               L
             </div>
             <h2 className="text-sm font-semibold text-slate-700 mb-1">{tr('side.empty.title')}</h2>
@@ -285,13 +423,18 @@ ${(page?.text || '').slice(0, 12000)}
         {messages.map((m) => (
           <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             {m.role === 'user' ? (
-              <div className="max-w-[85%] px-3 py-2 bg-gradient-to-r from-blue-500 to-purple-600 text-white text-[13px] rounded-2xl rounded-br-md whitespace-pre-wrap break-words">
+              <div className="max-w-[85%] px-3 py-2 bg-accent text-accent-on text-body rounded-lg rounded-br-sm whitespace-pre-wrap break-words">
                 {m.content}
               </div>
             ) : (
-              <div className="max-w-[92%] px-3.5 py-2.5 bg-white border border-slate-200 rounded-2xl rounded-bl-md shadow-sm">
+              <div className="max-w-[92%] px-3.5 py-2.5 bg-surface border border-line rounded-lg rounded-bl-sm shadow-sm">
                 {m.content ? (
-                  <div className="lector-prose" dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }} />
+                  <CitationContent
+                    html={renderCitations(
+                      renderMarkdown(m.content),
+                      new Set((page?.blocks ?? []).map((b) => b.id))
+                    )}
+                  />
                 ) : (
                   <div className="flex items-center gap-2 text-[12px] text-slate-400">
                     <div className="w-3 h-3 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
@@ -319,7 +462,7 @@ ${(page?.text || '').slice(0, 12000)}
             }}
             placeholder={providerConfigured ? tr('side.composer.placeholder.ready') : tr('side.composer.placeholder.noKey')}
             rows={1}
-            className="flex-1 max-h-32 resize-none px-3 py-2 text-[13px] bg-slate-50 border border-transparent rounded-xl focus:outline-none focus:border-blue-400 focus:bg-white"
+            className="flex-1 max-h-32 resize-none px-3 py-2 text-body bg-bg border border-transparent rounded-xl lector-focus focus:outline-none focus:bg-surface"
           />
           <button
             onClick={() => handleSend()}
@@ -327,9 +470,9 @@ ${(page?.text || '').slice(0, 12000)}
             className="w-9 h-9 flex-shrink-0 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 text-white flex items-center justify-center disabled:opacity-40"
           >
             {streaming ? (
-              <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              <div className="w-3.5 h-3.5 border-2 border-accent-on/40 border-t-accent-on rounded-full animate-spin" />
             ) : (
-              <span className="text-sm">↑</span>
+              <SendIcon size={16} />
             )}
           </button>
         </div>
@@ -356,7 +499,7 @@ ${(page?.text || '').slice(0, 12000)}
       {/* Library drawer */}
       {showLibrary && (
         <div
-          className="absolute inset-0 bg-black/30 z-40"
+          className="absolute inset-0 bg-ink/30 z-40 lector-anim-fade"
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowLibrary(false)
           }}
@@ -377,7 +520,7 @@ ${(page?.text || '').slice(0, 12000)}
                 sessions.map((s) => (
                   <div
                     key={s.id}
-                    className="group px-3 py-2.5 border-b border-slate-100 hover:bg-slate-50 cursor-pointer"
+                    className="group px-3 py-2.5 border-b border-line/60 hover:bg-surface-muted cursor-pointer"
                     onClick={() => openSession(s)}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -391,9 +534,9 @@ ${(page?.text || '').slice(0, 12000)}
                           removeSession(s.id)
                           if (activeSessionId === s.id) startNewChat()
                         }}
-                        className="opacity-0 group-hover:opacity-100 text-[11px] text-slate-400 hover:text-red-500"
+                        className="opacity-0 group-hover:opacity-100 text-meta text-ink-faint hover:text-danger"
                       >
-                        ✕
+                        <XIcon size={15} />
                       </button>
                     </div>
                   </div>
@@ -406,7 +549,7 @@ ${(page?.text || '').slice(0, 12000)}
                   clearSessions()
                   startNewChat()
                 }}
-                className="px-3 py-2 text-[11px] text-slate-400 hover:text-red-500 border-t border-slate-200"
+                className="px-3 py-2 text-meta text-ink-faint hover:text-danger border-t border-line"
               >
                 {tr('side.library.clearAll')}
               </button>
@@ -414,8 +557,166 @@ ${(page?.text || '').slice(0, 12000)}
           </div>
         </div>
       )}
+
+      {/* Highlights drawer */}
+      {showHighlights && (
+        <Drawer title={tr('side.highlights.title')} onClose={() => setShowHighlights(false)}>
+          {highlights.length === 0 ? (
+            <Empty text={tr('side.highlights.empty')} />
+          ) : (
+            <>
+              <div className="flex-1 overflow-y-auto">
+                {highlights.map((h) => (
+                  <div key={h.id} className="group px-3 py-2.5 border-b border-line/60">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[12px] text-ink leading-relaxed">{h.text}</div>
+                        {h.note && <div className="text-[11px] text-ink-faint mt-1">{h.note}</div>}
+                        <div className="text-[10px] text-ink-faint mt-1 truncate">{h.title}</div>
+                      </div>
+                      <button
+                        onClick={() => removeHighlight(h.id)}
+                        className="opacity-0 group-hover:opacity-100 text-meta text-ink-faint hover:text-danger"
+                      >
+                        <XIcon size={15} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => downloadMarkdown(highlights)}
+                className="px-3 py-2 text-meta text-ink-soft hover:text-ink border-t border-line"
+              >
+                {tr('side.highlights.export')}
+              </button>
+            </>
+          )}
+        </Drawer>
+      )}
+
+      {/* Vocabulary review drawer */}
+      {showVocab && (
+        <Drawer title={tr('side.vocab.title')} onClose={() => setShowVocab(false)}>
+          {vocab.length === 0 ? (
+            <Empty text={tr('side.vocab.empty')} />
+          ) : (
+            <div className="flex-1 overflow-y-auto">
+              {vocab.slice(0, 200).map((v) => {
+                const due = isDue(v.srs)
+                const revealed = revealedVocab.has(v.id)
+                return (
+                  <div key={v.id} className="group px-3 py-2.5 border-b border-line/60">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[12px] font-semibold ${due ? 'text-accent' : 'text-ink'}`}>
+                        {v.word}
+                      </span>
+                      {due && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
+                          {tr('side.vocab.due')}
+                        </span>
+                      )}
+                      <span className="text-[10px] text-ink-faint ml-auto">
+                        {v.srs.reps} {tr('side.vocab.reviews')}
+                      </span>
+                      <button
+                        onClick={() => removeVocab(v.id)}
+                        className="opacity-0 group-hover:opacity-100 text-meta text-ink-faint hover:text-danger"
+                      >
+                        <XIcon size={15} />
+                      </button>
+                    </div>
+                    {v.context && (
+                      <div className="text-[11px] text-ink-faint mt-1 leading-relaxed">{v.context}</div>
+                    )}
+                    {v.translation && (
+                      <button
+                        onClick={() => toggleReveal(v.id)}
+                        className="text-[10px] text-accent hover:underline mt-1"
+                      >
+                        {revealed ? v.translation : tr('side.vocab.showTranslation')}
+                      </button>
+                    )}
+                    {due && (
+                      <div className="flex gap-1.5 mt-2">
+                        {(['again', 'hard', 'good', 'easy'] as Grade[]).map((g) => (
+                          <button
+                            key={g}
+                            onClick={() => gradeVocab(v, g)}
+                            className="flex-1 py-1.5 text-[10px] font-medium rounded-md border border-line hover:bg-surface-muted text-ink-soft"
+                          >
+                            {tr(`side.vocab.${g}` as StringKey)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Drawer>
+      )}
     </div>
   )
+}
+
+// --- small helpers used by the drawers --------------------------------------
+function Drawer({
+  title,
+  onClose,
+  children,
+}: {
+  title: string
+  onClose: () => void
+  children: ReactNode
+}) {
+  return (
+    <div
+      className="absolute inset-0 bg-ink/30 z-40 lector-anim-fade"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div className="absolute right-0 top-0 bottom-0 w-[300px] bg-white shadow-2xl flex flex-col lector-anim-slide">
+        <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200">
+          <h3 className="text-[13px] font-semibold text-slate-800">{title}</h3>
+          <button onClick={onClose} className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500">
+            <XIcon size={16} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function Empty({ text }: { text: string }) {
+  return <div className="text-center text-[12px] text-slate-400 py-8 px-4">{text}</div>
+}
+
+// Renders assistant HTML and wires citation chips to jump back to the source
+// block on the page (Feature ①). Uses event delegation so re-renders are cheap.
+function CitationContent({ html }: { html: string }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const root = ref.current
+    if (!root) return
+    const onClick = async (e: MouseEvent) => {
+      const cite = (e.target as HTMLElement).closest<HTMLElement>('.lector-cite')
+      if (!cite) return
+      const blockId = cite.getAttribute('data-cite') || ''
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (tab?.id) {
+        chrome.tabs.sendMessage(tab.id, { action: 'lector-jump-to', blockId }, () => {
+          void chrome.runtime.lastError
+        })
+      }
+    }
+    root.addEventListener('click', onClick)
+    return () => root.removeEventListener('click', onClick)
+  }, [])
+  return <div ref={ref} className="lector-prose" dangerouslySetInnerHTML={{ __html: html }} />
 }
 
 // ---------------------------------------------------------------------------

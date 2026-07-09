@@ -25,26 +25,26 @@ function injectStyles() {
   style.textContent = `
     @keyframes lectorFadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes lectorSpin { to { transform: rotate(360deg); } }
-    @keyframes lectorFabPulse { 0%,100%{ box-shadow: 0 6px 20px rgba(102,126,234,.35);} 50%{ box-shadow: 0 6px 28px rgba(118,75,162,.55);} }
-    #lector-ai-fab { position: fixed; right: 20px; bottom: 24px; width: 48px; height: 48px; border-radius: 50%; background: linear-gradient(135deg,#667eea 0%,#764ba2 100%); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; cursor: pointer; z-index: 2147483646; box-shadow: 0 6px 20px rgba(102,126,234,.35); animation: lectorFabPulse 3s ease-in-out infinite; transition: transform .15s ease; user-select: none; }
+    @keyframes lectorFabPulse { 0%,100%{ box-shadow: 0 6px 20px rgba(156,107,60,.35);} 50%{ box-shadow: 0 6px 28px rgba(135,90,47,.55);} }
+    #lector-ai-fab { position: fixed; right: 20px; bottom: 24px; width: 48px; height: 48px; border-radius: 50%; background: #9C6B3C; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; cursor: pointer; z-index: 2147483646; box-shadow: 0 6px 20px rgba(156,107,60,.35); animation: lectorFabPulse 3s ease-in-out infinite; transition: transform .15s ease; user-select: none; }
     #lector-ai-fab:hover { transform: scale(1.08); }
     #lector-ai-toolbar button { padding: 6px 12px; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s ease; display: flex; align-items: center; gap: 4px; }
-    #lector-ai-toolbar .t-btn { background: #fff; color: #667eea; }
-    #lector-ai-toolbar .t-btn:hover { background: #f8fafc; transform: scale(1.05); }
+    #lector-ai-toolbar .t-btn { background: #fff; color: #9C6B3C; }
+    #lector-ai-toolbar .t-btn:hover { background: #F5EFE3; }
     #lector-ai-toolbar .summary-btn { background: rgba(255,255,255,.2); color: #fff; }
-    #lector-ai-toolbar .summary-btn:hover { background: rgba(255,255,255,.3); transform: scale(1.05); }
+    #lector-ai-toolbar .summary-btn:hover { background: rgba(255,255,255,.3); }
     #lector-ai-toolbar .close-btn { background: rgba(255,255,255,.1); color: #fff; padding: 6px 8px; }
     #lector-ai-toolbar .close-btn:hover { background: rgba(255,255,255,.25); }
-    #lector-ai-result .result-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #e2e8f0; }
-    #lector-ai-result .result-title { font-size:13px; font-weight:700; color:#667eea; display:flex; align-items:center; gap:6px; }
-    #lector-ai-result .result-content { font-size:13px; line-height:1.7; color:#334155; white-space:pre-wrap; word-break:break-word; }
+    #lector-ai-result .result-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #E8DECC; }
+    #lector-ai-result .result-title { font-size:13px; font-weight:700; color:#9C6B3C; display:flex; align-items:center; gap:6px; }
+    #lector-ai-result .result-content { font-size:13px; line-height:1.7; color:#2B2620; white-space:pre-wrap; word-break:break-word; }
     #lector-ai-result .result-content p { margin: 0 0 8px; }
     #lector-ai-result .action-btn { flex:1; padding:8px 12px; border:none; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; transition:all .15s ease; }
-    #lector-ai-result .action-btn.primary { background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); color:#fff; }
-    #lector-ai-result .action-btn.primary:hover { transform:scale(1.02); box-shadow:0 4px 12px rgba(102,126,234,.3); }
-    #lector-ai-result .copy-btn { flex:1; padding:8px 12px; border:none; border-radius:8px; font-size:12px; font-weight:600; background:#f1f5f9; color:#64748b; cursor:pointer; transition:all .15s ease; }
-    #lector-ai-result .copy-btn:hover { background:#e2e8f0; }
-    .lector-bilingual { font-size:.9em; color:#475569; border-left:3px solid #c7d2fe; padding:2px 0 2px 10px; margin:6px 0 6px 4px; }
+    #lector-ai-result .action-btn.primary { background:#9C6B3C; color:#fff; }
+    #lector-ai-result .action-btn.primary:hover { box-shadow:0 4px 12px rgba(156,107,60,.3); }
+    #lector-ai-result .copy-btn { flex:1; padding:8px 12px; border:none; border-radius:8px; font-size:12px; font-weight:600; background:#F5EFE3; color:#6B6155; cursor:pointer; transition:all .15s ease; }
+    #lector-ai-result .copy-btn:hover { background:#E8DECC; }
+    .lector-bilingual { font-size:.9em; color:#6B6155; border-left:3px solid #9C6B3C; padding:2px 0 2px 10px; margin:6px 0 6px 4px; }
   `
   document.head.appendChild(style)
 }
@@ -72,6 +72,12 @@ function scoreNode(el: Element): number {
   return text.length + commas * 8 - linkDensity * 200
 }
 
+export interface ExtractedPageBlock {
+  id: string
+  text: string
+  domSelector: string
+}
+
 export interface ExtractedPage {
   title: string
   url: string
@@ -79,6 +85,8 @@ export interface ExtractedPage {
   text: string
   /** Best-effort language tag (e.g. "en", "zh") for the bilingual feature. */
   lang: string
+  /** Block-level anchors (Feature ①) for citation grounding + jump-to. */
+  blocks: ExtractedPageBlock[]
 }
 
 function detectLang(text: string): string {
@@ -110,13 +118,24 @@ export function extractPage(): ExtractedPage {
     clone.querySelectorAll(sel).forEach((n) => n.remove())
   })
 
-  // Collect paragraph-ish text preserving some structure.
-  const blocks: string[] = []
-  clone.querySelectorAll('h1,h2,h3,h4,p,li,blockquote,pre').forEach((el) => {
+  // Collect paragraph-ish text preserving some structure, tagging the LIVE DOM
+  // nodes with stable ids so citations (Feature ①) can jump back to them.
+  const pageBlocks: ExtractedPageBlock[] = []
+  const textParts: string[] = []
+  const liveNodes = root.querySelectorAll('h1,h2,h3,h4,p,li,blockquote,pre')
+  liveNodes.forEach((el) => {
     const t = (el.textContent || '').replace(/\s+/g, ' ').trim()
-    if (t.length > 0) blocks.push(t)
+    if (t.length === 0) return
+    const id = `b${pageBlocks.length}`
+    try {
+      ;(el as HTMLElement).setAttribute('data-lector-id', id)
+    } catch {
+      // some nodes reject setAttribute; skip tagging
+    }
+    pageBlocks.push({ id, text: t, domSelector: '' })
+    textParts.push(t)
   })
-  let text = blocks.join('\n\n')
+  let text = textParts.join('\n\n')
   if (text.length < 200) {
     text = (clone.textContent || '').replace(/\s+/g, ' ').trim()
   }
@@ -137,6 +156,7 @@ export function extractPage(): ExtractedPage {
     byline: bylineMeta?.getAttribute('content') || null,
     text,
     lang: detectLang(text),
+    blocks: pageBlocks,
   }
 }
 
@@ -172,7 +192,7 @@ function createToolbar(x: number, y: number, text: string) {
     display: flex;
     gap: 6px;
     padding: 6px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #9C6B3C;
     border-radius: 10px;
     box-shadow: 0 4px 20px rgba(0,0,0,.25);
     z-index: 2147483647;
@@ -199,6 +219,8 @@ function createToolbar(x: number, y: number, text: string) {
   selectionToolbar.appendChild(mk('t-btn', tr('toolbar.explain'), () => handleAction('explain', text)))
   selectionToolbar.appendChild(mk('summary-btn', tr('toolbar.summarize'), () => handleAction('summarize', text)))
   selectionToolbar.appendChild(mk('t-btn', tr('toolbar.ask'), () => handleAction('ask', text)))
+  selectionToolbar.appendChild(mk('t-btn', tr('toolbar.highlight'), () => handleHighlight(text)))
+  selectionToolbar.appendChild(mk('t-btn', tr('toolbar.saveWord'), () => handleSaveWord(text)))
 
   const closeBtn = document.createElement('button')
   closeBtn.className = 'close-btn'
@@ -239,12 +261,12 @@ function showLoading(x: number, y: number) {
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: #667eea;
+    color: #9C6B3C;
   `
 
   const spinner = document.createElement('div')
   spinner.style.cssText = `
-    width:16px;height:16px;border:2px solid #e2e8f0;border-top-color:#667eea;border-radius:50%;animation:lectorSpin .8s linear infinite;
+    width:16px;height:16px;border:2px solid #E8DECC;border-top-color:#9C6B3C;border-radius:50%;animation:lectorSpin .8s linear infinite;
   `
   const label = document.createElement('span')
   label.textContent = tr('popup.loading')
@@ -309,7 +331,7 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
   content.textContent = result
 
   const footer = document.createElement('div')
-  footer.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid #e2e8f0;display:flex;gap:8px;'
+  footer.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid #E8DECC;display:flex;gap:8px;'
 
   const copyBtn = document.createElement('button')
   copyBtn.className = 'action-btn copy-btn'
@@ -377,6 +399,73 @@ async function loadPref(): Promise<LocalePref> {
   return cachedPref
 }
 const tr = (key: StringKey) => t(key, cachedPref)
+
+// ---------------------------------------------------------------------------
+// Highlight capture (Feature ②) and vocabulary save (Feature ③)
+// ---------------------------------------------------------------------------
+// These relay to the background worker, which persists the entry into
+// chrome.storage; the side panel picks it up from there and syncs its store.
+function handleHighlight(text: string) {
+  const sel = window.getSelection()
+  if (!sel || sel.isCollapsed) {
+    removeToolbar()
+    return
+  }
+  const range = sel.getRangeAt(0)
+  let blockId: string | undefined
+  let context = text.slice(0, 200)
+  let marked = false
+  try {
+    // Wrap the range in a mark node without disturbing the DOM structure.
+    const mark = document.createElement('mark')
+    mark.className = 'lector-hl'
+    mark.title = 'Lector highlight'
+    range.surroundContents(mark)
+    marked = true
+    const block = mark.closest('[data-lector-id]') as HTMLElement | null
+    blockId = block?.getAttribute('data-lector-id') || undefined
+    context = (mark.parentElement?.textContent || text).slice(0, 200)
+  } catch {
+    // surroundContents fails on multi-node ranges; fall back to text-only.
+  }
+  chrome.runtime
+    .sendMessage({
+      action: 'lector-highlight',
+      highlight: {
+        id: 'h' + Date.now().toString(36),
+        text,
+        note: '',
+        quote: context,
+        url: location.href,
+        title: document.title,
+        blockId,
+        createdAt: Date.now(),
+        color: 'yellow' as const,
+        marked,
+      },
+    })
+    .catch(() => {})
+  removeToolbar()
+}
+
+function handleSaveWord(word: string) {
+  const sel = window.getSelection()
+  const anchor = sel?.anchorNode?.parentElement
+  const block = anchor?.closest('[data-lector-id]') as HTMLElement | null
+  const blockId = block?.getAttribute('data-lector-id') || undefined
+  const context = (anchor?.textContent || word).slice(0, 160)
+  chrome.runtime
+    .sendMessage({
+      action: 'lector-save-word',
+      word,
+      context,
+      url: location.href,
+      title: document.title,
+      blockId,
+    })
+    .catch(() => {})
+  removeToolbar()
+}
 
 // ---------------------------------------------------------------------------
 // Actions — call the provider directly (BYOK), no backend
@@ -547,6 +636,27 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.action === 'lector-toggle-bilingual') {
     toggleBilingual().then(() => sendResponse({ ok: true }))
     return true
+  }
+  if (message?.action === 'lector-jump-to') {
+    const node = document.querySelector<HTMLElement>(`[data-lector-id="${message.blockId}"]`)
+    if (node) {
+      node.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      node.classList.add('lector-pulse')
+      setTimeout(() => node.classList.remove('lector-pulse'), 2000)
+      sendResponse({ ok: true })
+    } else {
+      sendResponse({ ok: false, reason: 'node-unavailable' })
+    }
+    return false
+  }
+  if (message?.action === 'lector-command') {
+    const sel = window.getSelection()
+    const text = sel?.toString().trim() || ''
+    if (text.length > 0) {
+      if (message.command === 'highlight-selection') handleHighlight(text)
+      else if (message.command === 'save-word') handleSaveWord(text)
+    }
+    return false
   }
   return false
 })

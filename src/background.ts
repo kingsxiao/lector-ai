@@ -7,7 +7,7 @@
 // user's own key — there is no backend.
 
 import { t, type StringKey } from './shared/i18n'
-import { getSettings } from './shared/byok'
+import { getSettings, completeOnce } from './shared/byok'
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Lector AI installed')
@@ -43,8 +43,89 @@ async function setupMenus() {
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.action === 'open-side-panel') {
     openSidePanel(message.seed || null)
+    return false
   }
+  if (message?.action === 'lector-highlight') {
+    chrome.storage.local.get(['lectorHighlights'], (r) => {
+      const list = Array.isArray(r.lectorHighlights) ? r.lectorHighlights : []
+      list.unshift(message.highlight)
+      chrome.storage.local.set({ lectorHighlights: list.slice(0, 500) })
+    })
+    return false
+  }
+  if (message?.action === 'lector-save-word') {
+    handleSaveWordRelay(message).catch(() => {})
+    return false
+  }
+  return false
 })
+
+// Keyboard commands → forward to the active tab's content script.
+chrome.commands?.onCommand.addListener((cmd) => {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tabId = tabs[0]?.id
+    if (tabId === undefined) return
+    chrome.tabs.sendMessage(tabId, { action: 'lector-command', command: cmd }, () => {
+      void chrome.runtime.lastError
+    })
+  })
+})
+
+async function handleSaveWordRelay(message: {
+  word: string
+  context: string
+  url: string
+  title: string
+  blockId?: string
+}) {
+  // Translate the saved word with the user's own key (BYOK). If no key is set,
+  // the translation stays empty and is surfaced at review time.
+  let translation = ''
+  try {
+    const settings = await getSettings()
+    if (settings.apiKey) {
+      const target = /[\u4e00-\u9fff]/.test(message.word) ? 'English' : '中文'
+      translation = await completeOnce(
+        settings,
+        `You are a professional translator. Translate the user text to ${target}. Preserve meaning and tone. Output ONLY the translation.`,
+        message.word,
+        { maxTokens: 120, temperature: 0.2 }
+      )
+    }
+  } catch {
+    // leave translation empty; flagged at review time
+  }
+  const entry = {
+    id: 'v' + Date.now().toString(36),
+    word: message.word,
+    translation,
+    context: message.context,
+    url: message.url,
+    title: message.title,
+    lang: 'en',
+    blockId: message.blockId,
+    createdAt: Date.now(),
+    srs: { due: Date.now(), interval: 0, ease: 2.5, reps: 0, lapses: 0 },
+  }
+  chrome.storage.local.get(['lectorVocab'], (r) => {
+    const list: Array<{ word: string; srs: { interval: number; ease: number; reps: number; lapses: number; due: number }; createdAt: number; context: string; translation: string }> =
+      Array.isArray(r.lectorVocab) ? r.lectorVocab : []
+    const idx = list.findIndex((x) => x.word.toLowerCase() === entry.word.toLowerCase())
+    if (idx === -1) {
+      list.unshift(entry)
+    } else {
+      const existing = list[idx]
+      list[idx] = {
+        ...existing,
+        context: entry.context || existing.context,
+        translation: entry.translation || existing.translation,
+        createdAt: Math.min(existing.createdAt, entry.createdAt),
+        srs: existing.srs,
+      }
+    }
+    chrome.storage.local.set({ lectorVocab: list.slice(0, 2000) })
+  })
+}
 
 async function openSidePanel(seed: { kind: string; text: string } | null) {
   if (seed) {
