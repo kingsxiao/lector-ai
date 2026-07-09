@@ -1,40 +1,54 @@
-import struct
-import zlib
-import os
+#!/usr/bin/env python3
+"""
+Render Lector AI's extension icons from the SVG sources.
 
-def create_png(width, height, color=(66, 133, 244)):
-    def png_chunk(chunk_type, data):
-        chunk = chunk_type + data
-        crc = zlib.crc32(chunk) & 0xffffffff
-        return struct.pack('>I', len(data)) + chunk + struct.pack('>I', crc)
-    
-    signature = b'\x89PNG\r\n\x1a\n'
-    ihdr_data = struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0)
-    ihdr = png_chunk(b'IHDR', ihdr_data)
-    
-    raw_data = b''
-    for y in range(height):
-        raw_data += b'\x00'
-        for x in range(width):
-            cx, cy = width // 2, height // 2
-            r = min(width, height) // 2 - 2
-            dist = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5
-            if dist < r:
-                raw_data += bytes(color + (255,))
-            else:
-                raw_data += bytes([0, 0, 0, 0])
-    
-    compressed = zlib.compress(raw_data, 9)
-    idat = png_chunk(b'IDAT', compressed)
-    iend = png_chunk(b'IEND', b'')
-    
-    return signature + ihdr + idat + iend
+The icons are authored as SVG (icons/icon.svg for 48/128px and
+icons/icon-small.svg for the 16px simplified variant) and rasterized with
+rsvg-convert. The brand mark is a white geometric "L" with an AI sparkle, on
+the warm-brown gradient (#9C6B3C → #875A2F → #6B4A24) that matches the app's
+Editorial theme tokens (src/styles/tokens.css: --accent / --accent-hover).
 
-os.makedirs('public/icons', exist_ok=True)
+Prerequisites (macOS):
+    brew install librsvg
 
-for size, filename in [(16, 'icon16.png'), (48, 'icon48.png'), (128, 'icon128.png')]:
-    with open(f'public/icons/{filename}', 'wb') as f:
-        f.write(create_png(size, size))
-    print(f'Created {filename}')
+If rsvg-convert is missing, this script will print install instructions and exit.
+"""
 
-print('Done!')
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+SRC_LARGE = ROOT / "icons" / "icon.svg"        # used for 48 + 128
+SRC_SMALL = ROOT / "icons" / "icon-small.svg"  # simplified, for 16
+DEST = ROOT / "public" / "icons"
+
+SIZES = [
+    (16, SRC_SMALL),
+    (48, SRC_LARGE),
+    (128, SRC_LARGE),
+]
+
+
+def main() -> int:
+    if not shutil.which("rsvg-convert"):
+        print("rsvg-convert not found. Install it with:\n  brew install librsvg", file=sys.stderr)
+        return 1
+
+    DEST.mkdir(parents=True, exist_ok=True)
+
+    for size, src in SIZES:
+        out = DEST / f"icon{size}.png"
+        subprocess.run(
+            ["rsvg-convert", "-w", str(size), "-h", str(size), str(src), "-o", str(out)],
+            check=True,
+        )
+        print(f"Created {out.relative_to(ROOT)} ({size}x{size}) from {src.relative_to(ROOT)}")
+
+    print("Done!")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

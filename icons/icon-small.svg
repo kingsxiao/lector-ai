@@ -3,9 +3,9 @@
        No thin accents. The L stroke is widened so it stays readable at 16px. -->
   <defs>
     <linearGradient id="bg" x1="8" y1="8" x2="120" y2="120" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#0d9488"/>
-      <stop offset="0.55" stop-color="#0f766e"/>
-      <stop offset="1" stop-color="#115e59"/>
+      <stop offset="0" stop-color="#9C6B3C"/>
+      <stop offset="0.55" stop-color="#875A2F"/>
+      <stop offset="1" stop-color="#6B4A24"/>
     </linearGradient>
     <radialGradient id="glow" cx="40" cy="34" r="92" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#ffffff" stop-opacity="0.30"/>
