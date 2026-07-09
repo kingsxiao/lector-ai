@@ -633,6 +633,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse({ page })
     return false
   }
+  if (message?.action === 'lector-get-selection') {
+    const sel = window.getSelection()
+    sendResponse({ selection: sel ? sel.toString().trim() : '' })
+    return false
+  }
   if (message?.action === 'lector-toggle-bilingual') {
     toggleBilingual().then(() => sendResponse({ ok: true }))
     return true

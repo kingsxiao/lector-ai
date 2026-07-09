@@ -176,6 +176,39 @@ export const STRINGS = {
   'menu.translate': { en: 'Translate with Lector AI', zh: '用 Lector AI 翻译' },
   'menu.explain': { en: 'Explain with Lector AI', zh: '用 Lector AI 解释' },
   'menu.ask': { en: 'Ask Lector AI about this…', zh: '向 Lector AI 提问…' },
+
+  // --- prompt templates ---
+  'side.templates.title': { en: 'Templates', zh: '模板' },
+  'side.templates.empty': {
+    en: 'No custom templates yet. Tap + to create one.',
+    zh: '还没有自定义模板，点击 + 创建。',
+  },
+  'side.templates.add': { en: '+ New template', zh: '+ 新建模板' },
+  'side.templates.builtIn': { en: 'Built-in', zh: '内置' },
+  'side.templates.titleField': { en: 'Template name', zh: '模板名称' },
+  'side.templates.contentField': { en: 'Template content', zh: '模板内容' },
+  'side.templates.hint': {
+    en: 'Placeholders: {selection} {page} {lang}',
+    zh: '可用占位符：{selection} {page} {lang}',
+  },
+  'side.templates.save': { en: 'Save', zh: '保存' },
+  'side.templates.cancel': { en: 'Cancel', zh: '取消' },
+  'composer.templates.hint': { en: 'Type / for templates', zh: '按 / 插入模板' },
+  'side.templates.menuEmpty': { en: 'No matching templates', zh: '没有匹配的模板' },
+  'side.templates.errTitle': { en: 'Name is required', zh: '请填写模板名称' },
+  'side.templates.errContent': { en: 'Content is required', zh: '请填写模板内容' },
+
+  // --- built-in template titles ---
+  'tpl.summarize': { en: 'Summarize', zh: '总结全文' },
+  'tpl.keypoints': { en: 'Key points', zh: '关键观点' },
+  'tpl.eli5': { en: 'ELI5', zh: 'ELI5 解释' },
+  'tpl.rewrite': { en: 'Rewrite', zh: '润色改写' },
+  'tpl.translateZh': { en: 'Translate to 中文', zh: '翻译成中文' },
+  'tpl.translateEn': { en: 'Translate to English', zh: '翻译成英文' },
+  'tpl.expand': { en: 'Expand', zh: '续写扩写' },
+  'tpl.email': { en: 'Email reply', zh: '邮件回复' },
+  'tpl.extract': { en: 'Extract facts', zh: '提取要点' },
+  'tpl.critique': { en: 'Critique', zh: '批判分析' },
 } as const
 
 export type StringKey = keyof typeof STRINGS

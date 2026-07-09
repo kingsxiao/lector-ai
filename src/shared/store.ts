@@ -4,6 +4,7 @@ import { DEFAULT_BYOK_SETTINGS, type ByokSettings } from './providers'
 import type { Highlight } from './highlights'
 import type { VocabEntry } from './vocabulary'
 import type { SrsState } from './srs'
+import { BUILTIN_TEMPLATES, newTemplateId, type PromptTemplate } from './promptTemplates'
 
 export interface ChatMessage {
   id: string
@@ -30,6 +31,9 @@ interface AppState {
   highlights: Highlight[]
   vocab: VocabEntry[]
 
+  // Prompt templates — built-in + user-custom, invoked via "/" in composer.
+  templates: PromptTemplate[]
+
   // Actions
   setByok: (patch: Partial<ByokSettings>) => void
   setByokAll: (s: ByokSettings) => void
@@ -46,6 +50,11 @@ interface AppState {
   addVocab: (v: VocabEntry) => void
   removeVocab: (id: string) => void
   updateVocabSrs: (id: string, srs: SrsState) => void
+
+  addTemplate: (t: Omit<PromptTemplate, 'id' | 'builtIn' | 'order'>) => void
+  updateTemplate: (id: string, patch: Partial<PromptTemplate>) => void
+  removeTemplate: (id: string) => void
+  reorderTemplates: (orderedIds: string[]) => void
 }
 
 export const useStore = create<AppState>()(
@@ -55,6 +64,7 @@ export const useStore = create<AppState>()(
       sessions: [],
       highlights: [],
       vocab: [],
+      templates: BUILTIN_TEMPLATES,
 
       setByok: (patch) => set((s) => ({ byok: { ...s.byok, ...patch } })),
       setByokAll: (next) => set({ byok: next }),
@@ -113,6 +123,43 @@ export const useStore = create<AppState>()(
         set((s) => ({
           vocab: s.vocab.map((x) => (x.id === id ? { ...x, srs } : x)),
         })),
+
+      addTemplate: (t) =>
+        set((s) => {
+          // New custom templates go to the top (order = min - 1, clamped ≥ 0).
+          const minOrder = s.templates.reduce((m, x) => Math.min(m, x.order), 0)
+          const entry: PromptTemplate = {
+            ...t,
+            id: newTemplateId(),
+            builtIn: false,
+            order: Math.max(0, minOrder - 1),
+          }
+          return { templates: [entry, ...s.templates] }
+        }),
+      updateTemplate: (id, patch) =>
+        set((s) => ({
+          templates: s.templates.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+        })),
+      removeTemplate: (id) =>
+        set((s) => ({
+          // Built-in templates can't be removed — keep them even if id matches.
+          templates: s.templates.filter((x) => x.id !== id || x.builtIn),
+        })),
+      reorderTemplates: (orderedIds) =>
+        set((s) => {
+          const map = new Map(s.templates.map((t) => [t.id, t]))
+          const reordered: PromptTemplate[] = []
+          orderedIds.forEach((id, i) => {
+            const t = map.get(id)
+            if (t) {
+              reordered.push({ ...t, order: i })
+              map.delete(id)
+            }
+          })
+          // Append any templates not in orderedIds (shouldn't happen) at the end.
+          reordered.push(...[...map.values()].map((t, i) => ({ ...t, order: orderedIds.length + i })))
+          return { templates: reordered }
+        }),
     }),
     {
       name: 'lector-ai-storage',
@@ -125,6 +172,7 @@ export const useStore = create<AppState>()(
         sessions: state.sessions,
         highlights: state.highlights,
         vocab: state.vocab,
+        templates: state.templates,
       }),
     }
   )

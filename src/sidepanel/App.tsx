@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useCallback, type ReactNode, type DragEvent } from 'react'
 import { useStore, type ChatMessage, type ChatSession } from '../shared/store'
 import { renderMarkdown } from './markdown'
 import { renderCitations, type PageBlock } from '../shared/citations'
@@ -8,7 +8,7 @@ import type { Highlight } from '../shared/highlights'
 import type { VocabEntry } from '../shared/vocabulary'
 import {
   LibraryIcon, BookmarkIcon, BookOpenIcon, LanguagesIcon,
-  SendIcon, XIcon,
+  SendIcon, XIcon, ClipboardListIcon, PlusIcon, PencilIcon, TrashIcon,
 } from '../shared/icons'
 import {
   PROVIDERS,
@@ -18,6 +18,10 @@ import {
 } from '../shared/providers'
 import { streamChat, getSettings, saveSettings, testConnection, fetchModels, type ChatMessage as WireMessage, type FetchedModel } from '../shared/byok'
 import { t, type StringKey, type LocalePref } from '../shared/i18n'
+import {
+  fillTemplate, filterTemplates, sortTemplates, validateTemplate,
+  type PromptTemplate, type TemplateContext,
+} from '../shared/promptTemplates'
 
 interface PageContext {
   title: string
@@ -26,13 +30,6 @@ interface PageContext {
   lang: string
   blocks: PageBlock[]
 }
-
-const SUGGESTIONS: { label: StringKey; prompt: string }[] = [
-  { label: 'side.suggest.summarize', prompt: 'Summarize this page in 3-5 bullets and a one-line takeaway.' },
-  { label: 'side.suggest.keyPoints', prompt: 'What are the 3 most important points the author is making?' },
-  { label: 'side.suggest.explain', prompt: 'Explain the most difficult concept on this page simply, with an example.' },
-  { label: 'side.suggest.followup', prompt: 'What questions should I ask myself to test my understanding of this page?' },
-]
 
 function newId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -47,8 +44,21 @@ export default function App() {
   const removeHighlight = useStore((s) => s.removeHighlight)
   const updateVocabSrs = useStore((s) => s.updateVocabSrs)
   const removeVocab = useStore((s) => s.removeVocab)
+  const templates = useStore((s) => s.templates)
+  const addTemplate = useStore((s) => s.addTemplate)
+  const updateTemplate = useStore((s) => s.updateTemplate)
+  const removeTemplate = useStore((s) => s.removeTemplate)
+  const reorderTemplates = useStore((s) => s.reorderTemplates)
 
   const tr = (key: StringKey) => t(key, byok.locale)
+  // Resolve a template's display title (i18n key for built-ins, raw for custom).
+  const tplTitle = (tpl: PromptTemplate) =>
+    tpl.titleKey ? t(tpl.titleKey, byok.locale) : tpl.title
+
+  const sortedTemplates = sortTemplates(templates)
+  // Empty-state suggestion chips = the first 4 templates (same data source as
+  // the "/" menu and the templates drawer).
+  const suggestions = sortedTemplates.slice(0, 4)
 
   const [page, setPage] = useState<PageContext | null>(null)
   const [input, setInput] = useState('')
@@ -60,8 +70,13 @@ export default function App() {
   const [showLibrary, setShowLibrary] = useState(false)
   const [showHighlights, setShowHighlights] = useState(false)
   const [showVocab, setShowVocab] = useState(false)
+  const [showTemplates, setShowTemplates] = useState(false)
   const [revealedVocab, setRevealedVocab] = useState<Set<string>>(new Set())
   const [bilingualBusy, setBilingualBusy] = useState(false)
+  // "/" menu state
+  const [slashMenu, setSlashMenu] = useState<{ open: boolean; query: string; activeIdx: number }>(
+    { open: false, query: '', activeIdx: 0 }
+  )
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const assistantBuf = useRef<string>('')
@@ -180,6 +195,48 @@ export default function App() {
     } finally {
       setBilingualBusy(false)
     }
+  }
+
+  // Ask the active tab's content script for the current text selection.
+  const getSelectionFromPage = async (): Promise<string> => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      if (!tab?.id) return ''
+      const tabId = tab.id
+      return await new Promise<string>((resolve) => {
+        chrome.tabs.sendMessage(tabId, { action: 'lector-get-selection' }, (resp: { selection?: string }) => {
+          void chrome.runtime.lastError
+          resolve(resp?.selection || '')
+        })
+      })
+    } catch {
+      return ''
+    }
+  }
+
+  // Insert a template into the composer, filling placeholders from context.
+  const applyTemplate = async (tpl: PromptTemplate) => {
+    const selection = await getSelectionFromPage()
+    const ctx: TemplateContext = {
+      selection,
+      page: (page?.text || '').slice(0, 2000),
+      lang: page?.lang || 'en',
+    }
+    setInput(fillTemplate(tpl.content, ctx))
+    setSlashMenu({ open: false, query: '', activeIdx: 0 })
+  }
+
+  // Fill a template's placeholders and send it immediately. Used by the
+  // empty-state suggestion chips — unlike applyTemplate (which fills the
+  // composer for editing), this sends right away.
+  const sendTemplate = async (tpl: PromptTemplate) => {
+    const selection = await getSelectionFromPage()
+    const ctx: TemplateContext = {
+      selection,
+      page: (page?.text || '').slice(0, 2000),
+      lang: page?.lang || 'en',
+    }
+    handleSend(fillTemplate(tpl.content, ctx))
   }
 
   const handleSend = useCallback(
@@ -349,6 +406,16 @@ ${citeContext.slice(0, 12000)}
             )}
           </button>
           <button
+            onClick={() => setShowTemplates(true)}
+            title={tr('side.templates.title')}
+            className="lector-focus w-8 h-8 rounded-lg hover:bg-surface-muted text-ink-soft flex items-center justify-center relative"
+          >
+            <ClipboardListIcon />
+            {templates.filter((t) => !t.builtIn).length > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent" />
+            )}
+          </button>
+          <button
             onClick={toggleBilingual}
             disabled={!page || bilingualBusy}
             title={page ? 'Translate page paragraphs (bilingual)' : 'Open a page first'}
@@ -401,14 +468,14 @@ ${citeContext.slice(0, 12000)}
               {tr('side.empty.subtitle')}
             </p>
             <div className="grid grid-cols-2 gap-2 px-2">
-              {SUGGESTIONS.map((s) => (
+              {suggestions.map((tpl) => (
                 <button
-                  key={s.label}
-                  onClick={() => handleSend(s.prompt)}
+                  key={tpl.id}
+                  onClick={() => sendTemplate(tpl)}
                   disabled={!page || !providerConfigured}
                   className="px-3 py-2.5 text-left text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:border-accent hover:bg-accent-soft transition-colors disabled:opacity-50"
                 >
-                  {tr(s.label)}
+                  {tplTitle(tpl)}
                 </button>
               ))}
             </div>
@@ -450,11 +517,62 @@ ${citeContext.slice(0, 12000)}
       {/* Composer */}
       <div className="px-3 py-2.5 bg-white border-t border-slate-200">
         {error && <div className="text-[11px] text-red-500 mb-1.5 px-1">{error}</div>}
+
+        {/* "/" template menu — floats above the textarea */}
+        {slashMenu.open && (
+          <SlashMenu
+            templates={filterTemplates(sortedTemplates, slashMenu.query)}
+            activeIdx={slashMenu.activeIdx}
+            titleFor={tplTitle}
+            emptyText={tr('side.templates.menuEmpty')}
+            onPick={(tpl) => applyTemplate(tpl)}
+            onHover={(idx) => setSlashMenu((m) => ({ ...m, activeIdx: idx }))}
+          />
+        )}
+
         <div className="flex items-end gap-2">
           <textarea
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value
+              setInput(v)
+              // Open the "/" menu when the input is just "/" or "/" + filter text.
+              if (v.startsWith('/')) {
+                setSlashMenu({ open: true, query: v.slice(1), activeIdx: 0 })
+              } else if (slashMenu.open) {
+                setSlashMenu({ open: false, query: '', activeIdx: 0 })
+              }
+            }}
             onKeyDown={(e) => {
+              // Keyboard navigation for the "/" menu takes priority.
+              if (slashMenu.open) {
+                const matches = filterTemplates(sortedTemplates, slashMenu.query)
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  setSlashMenu((m) => ({
+                    ...m,
+                    activeIdx: Math.min(m.activeIdx + 1, matches.length - 1),
+                  }))
+                  return
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setSlashMenu((m) => ({ ...m, activeIdx: Math.max(m.activeIdx - 1, 0) }))
+                  return
+                }
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  const pick = matches[slashMenu.activeIdx]
+                  if (pick) applyTemplate(pick)
+                  else setSlashMenu({ open: false, query: '', activeIdx: 0 })
+                  return
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  setSlashMenu({ open: false, query: '', activeIdx: 0 })
+                  return
+                }
+              }
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
                 handleSend()
@@ -477,7 +595,9 @@ ${citeContext.slice(0, 12000)}
           </button>
         </div>
         <div className="flex items-center justify-between mt-1.5 px-1">
-          <span className="text-[10px] text-slate-400">{tr('side.composer.hint')}</span>
+          <span className="text-[10px] text-slate-400">
+            {tr('side.composer.hint')} · {tr('composer.templates.hint')}
+          </span>
           {messages.length > 0 && (
             <button onClick={startNewChat} className="text-[10px] text-slate-400 hover:text-slate-600">
               {tr('side.composer.newChat')}
@@ -657,11 +777,23 @@ ${citeContext.slice(0, 12000)}
           )}
         </Drawer>
       )}
+
+      {/* Templates drawer */}
+      {showTemplates && (
+        <TemplatesDrawer
+          templates={sortedTemplates}
+          titleFor={tplTitle}
+          tr={tr}
+          onClose={() => setShowTemplates(false)}
+          onAdd={(t) => addTemplate(t)}
+          onUpdate={(id, patch) => updateTemplate(id, patch)}
+          onRemove={(id) => removeTemplate(id)}
+          onReorder={reorderTemplates}
+        />
+      )}
     </div>
   )
 }
-
-// --- small helpers used by the drawers --------------------------------------
 function Drawer({
   title,
   onClose,
@@ -717,6 +849,244 @@ function CitationContent({ html }: { html: string }) {
     return () => root.removeEventListener('click', onClick)
   }, [])
   return <div ref={ref} className="lector-prose" dangerouslySetInnerHTML={{ __html: html }} />
+}
+
+// ---------------------------------------------------------------------------
+// "/" template menu — floats above the composer
+// ---------------------------------------------------------------------------
+function SlashMenu({
+  templates,
+  activeIdx,
+  titleFor,
+  emptyText,
+  onPick,
+  onHover,
+}: {
+  templates: PromptTemplate[]
+  activeIdx: number
+  titleFor: (t: PromptTemplate) => string
+  emptyText: string
+  onPick: (t: PromptTemplate) => void
+  onHover: (idx: number) => void
+}) {
+  return (
+    <div className="mb-1 max-h-60 overflow-y-auto rounded-xl border border-line bg-surface shadow-lg lector-anim-fade">
+      {templates.length === 0 ? (
+        <div className="px-3 py-3 text-[12px] text-ink-faint">{emptyText}</div>
+      ) : (
+        templates.map((tpl, i) => (
+          <button
+            key={tpl.id}
+            onMouseEnter={() => onHover(i)}
+            onClick={() => onPick(tpl)}
+            className={`w-full text-left px-3 py-2 flex flex-col gap-0.5 transition-colors ${
+              i === activeIdx ? 'bg-accent-soft' : 'hover:bg-surface-muted'
+            }`}
+          >
+            <span className="text-[12px] font-medium text-ink flex items-center gap-1.5">
+              {titleFor(tpl)}
+              {tpl.builtIn && (
+                <span className="text-[9px] px-1 py-0.5 rounded-full bg-surface-muted text-ink-faint">
+                  built-in
+                </span>
+              )}
+            </span>
+            <span className="text-[10px] text-ink-faint truncate">
+              {tpl.content.replace(/\n/g, ' ').slice(0, 60)}
+            </span>
+          </button>
+        ))
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Templates drawer — list, create, edit, delete, drag-reorder
+// ---------------------------------------------------------------------------
+interface TemplatesDrawerProps {
+  templates: PromptTemplate[]
+  titleFor: (t: PromptTemplate) => string
+  tr: (key: StringKey) => string
+  onClose: () => void
+  onAdd: (t: { title: string; content: string; titleKey?: StringKey }) => void
+  onUpdate: (id: string, patch: Partial<PromptTemplate>) => void
+  onRemove: (id: string) => void
+  onReorder: (orderedIds: string[]) => void
+}
+
+function TemplatesDrawer({
+  templates,
+  titleFor,
+  tr,
+  onClose,
+  onAdd,
+  onUpdate,
+  onRemove,
+  onReorder,
+}: TemplatesDrawerProps) {
+  const [editing, setEditing] = useState<{ id: string | null; title: string; content: string } | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const dragId = useRef<string | null>(null)
+
+  const startNew = () => {
+    setEditing({ id: null, title: '', content: '' })
+    setErr(null)
+  }
+  const startEdit = (tpl: PromptTemplate) => {
+    setEditing({ id: tpl.id, title: tpl.title, content: tpl.content })
+    setErr(null)
+  }
+
+  const save = () => {
+    if (!editing) return
+    const v = validateTemplate(editing)
+    if (!v.ok) {
+      setErr(
+        v.reason === 'empty-title'
+          ? tr('side.templates.errTitle')
+          : v.reason === 'empty-content'
+            ? tr('side.templates.errContent')
+            : (v.reason ?? '')
+      )
+      return
+    }
+    if (editing.id) {
+      // Built-in templates: only allow editing the title (keep content + builtIn).
+      const existing = templates.find((t) => t.id === editing.id)
+      if (existing?.builtIn) {
+        onUpdate(editing.id, { title: editing.title })
+      } else {
+        onUpdate(editing.id, { title: editing.title, content: editing.content })
+      }
+    } else {
+      onAdd({ title: editing.title, content: editing.content })
+    }
+    setEditing(null)
+  }
+
+  const onDragStart = (id: string) => (e: DragEvent) => {
+    dragId.current = id
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  const onDrop = (targetId: string) => (e: DragEvent) => {
+    e.preventDefault()
+    const sourceId = dragId.current
+    dragId.current = null
+    if (!sourceId || sourceId === targetId) return
+    const ids = templates.map((t) => t.id)
+    const from = ids.indexOf(sourceId)
+    const to = ids.indexOf(targetId)
+    if (from === -1 || to === -1) return
+    ids.splice(to, 0, ids.splice(from, 1)[0])
+    onReorder(ids)
+  }
+
+  return (
+    <Drawer title={tr('side.templates.title')} onClose={onClose}>
+      {editing ? (
+        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+          <div>
+            <label className="block text-[11px] font-semibold text-ink-soft mb-1">
+              {tr('side.templates.titleField')}
+            </label>
+            <input
+              value={editing.title}
+              onChange={(e) => setEditing({ ...editing, title: e.target.value })}
+              className="w-full px-3 py-2 text-[12px] bg-bg border border-line rounded-lg focus:outline-none focus:border-accent focus:bg-surface"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-ink-soft mb-1">
+              {tr('side.templates.contentField')}
+            </label>
+            <textarea
+              value={editing.content}
+              onChange={(e) => setEditing({ ...editing, content: e.target.value })}
+              rows={6}
+              disabled={editing.id ? templates.find((t) => t.id === editing.id)?.builtIn : false}
+              className="w-full px-3 py-2 text-[12px] bg-bg border border-line rounded-lg focus:outline-none focus:border-accent focus:bg-surface font-mono resize-none disabled:opacity-60"
+            />
+            <p className="text-[10px] text-ink-faint mt-1">{tr('side.templates.hint')}</p>
+          </div>
+          {err && <div className="text-[11px] text-danger">{err}</div>}
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={save}
+              className="flex-1 py-2 text-[12px] font-medium rounded-lg bg-accent text-accent-on"
+            >
+              {tr('side.templates.save')}
+            </button>
+            <button
+              onClick={() => setEditing(null)}
+              className="flex-1 py-2 text-[12px] font-medium rounded-lg border border-line text-ink-soft hover:bg-surface-muted"
+            >
+              {tr('side.templates.cancel')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="px-3 py-2 border-b border-line">
+            <button
+              onClick={startNew}
+              className="w-full py-2 text-[12px] font-medium rounded-lg border border-dashed border-line text-accent hover:bg-accent-soft flex items-center justify-center gap-1"
+            >
+              <PlusIcon size={14} />
+              {tr('side.templates.add')}
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {templates.length === 0 ? (
+              <Empty text={tr('side.templates.empty')} />
+            ) : (
+              templates.map((tpl) => (
+                <div
+                  key={tpl.id}
+                  draggable
+                  onDragStart={onDragStart(tpl.id)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={onDrop(tpl.id)}
+                  className="group px-3 py-2.5 border-b border-line/60 cursor-grab active:cursor-grabbing"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-ink-faint text-[12px] select-none">⋮⋮</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[12px] font-medium text-ink flex items-center gap-1.5">
+                        {titleFor(tpl)}
+                        {tpl.builtIn && (
+                          <span className="text-[9px] px-1 py-0.5 rounded-full bg-surface-muted text-ink-faint">
+                            {tr('side.templates.builtIn')}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-ink-faint truncate">
+                        {tpl.content.replace(/\n/g, ' ').slice(0, 60)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => startEdit(tpl)}
+                      className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent"
+                    >
+                      <PencilIcon size={14} />
+                    </button>
+                    {!tpl.builtIn && (
+                      <button
+                        onClick={() => onRemove(tpl.id)}
+                        className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger"
+                      >
+                        <TrashIcon size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </>
+      )}
+    </Drawer>
+  )
 }
 
 // ---------------------------------------------------------------------------

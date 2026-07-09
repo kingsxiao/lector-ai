@@ -52,3 +52,12 @@ export function SparklesIcon({ size = 18, ...p }: IconProps) {
 export function ListIcon({ size = 18, ...p }: IconProps) {
   return (<svg {...svgProps(size)} {...p}><path d="M3 12h.01" /><path d="M3 18h.01" /><path d="M3 6h.01" /><path d="M8 12h13" /><path d="M8 18h13" /><path d="M8 6h13" /></svg>)
 }
+export function ClipboardListIcon({ size = 18, ...p }: IconProps) {
+  return (<svg {...svgProps(size)} {...p}><rect width="8" height="4" x="8" y="2" rx="1" ry="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="M12 11h4" /><path d="M12 16h4" /><path d="M8 11h.01" /><path d="M8 16h.01" /></svg>)
+}
+export function PencilIcon({ size = 18, ...p }: IconProps) {
+  return (<svg {...svgProps(size)} {...p}><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /></svg>)
+}
+export function TrashIcon({ size = 18, ...p }: IconProps) {
+  return (<svg {...svgProps(size)} {...p}><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" x2="10" y1="11" y2="17" /><line x1="14" x2="14" y1="11" y2="17" /></svg>)
+}
