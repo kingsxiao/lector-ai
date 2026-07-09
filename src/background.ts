@@ -6,6 +6,9 @@
 // All AI calls happen client-side (content script or side panel) using the
 // user's own key — there is no backend.
 
+import { t, type StringKey } from './shared/i18n'
+import { getSettings } from './shared/byok'
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Lector AI installed')
 
@@ -15,16 +18,26 @@ chrome.runtime.onInstalled.addListener(() => {
       .catch(() => {})
   }
 
-  const menus: { id: string; title: string }[] = [
-    { id: 'lector-summarize', title: 'Summarize with Lector AI' },
-    { id: 'lector-translate', title: 'Translate with Lector AI' },
-    { id: 'lector-explain', title: 'Explain with Lector AI' },
-    { id: 'lector-ask', title: 'Ask Lector AI about this…' },
-  ]
-  menus.forEach((m) => {
-    chrome.contextMenus.create({ id: m.id, title: m.title, contexts: ['selection'] })
-  })
+  // Context-menu titles are fixed at creation in MV3; they reflect the
+  // language active on install/update. setupMenus reads the stored pref.
+  void setupMenus()
 })
+
+async function setupMenus() {
+  const pref = (await getSettings()).locale ?? 'auto'
+  const menus: { id: string; key: StringKey }[] = [
+    { id: 'lector-summarize', key: 'menu.summarize' },
+    { id: 'lector-translate', key: 'menu.translate' },
+    { id: 'lector-explain', key: 'menu.explain' },
+    { id: 'lector-ask', key: 'menu.ask' },
+  ]
+  // Remove old entries first (create() throws on duplicate id).
+  chrome.contextMenus.removeAll(() => {
+    menus.forEach((m) => {
+      chrome.contextMenus.create({ id: m.id, title: t(m.key, pref), contexts: ['selection'] })
+    })
+  })
+}
 
 // Open the side panel from the FAB / popup / content script.
 chrome.runtime.onMessage.addListener((message) => {
