@@ -1,8 +1,6 @@
 // Runs once per test file, BEFORE any test module imports its source code.
 //
-// The API handlers read process.env.OPENROUTER_API_KEY at module-load time
-// (api/_lib/openrouter.ts:3), so we set the defaults here. Individual tests
-// may override these (e.g. to clear the key and assert the "not configured"
-// path), but the import-time constant must already be populated.
-process.env.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || 'test-key'
-process.env.OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'test/model'
+// Lector AI is BYOK and has no backend, so the shared modules under test read
+// no environment variables at module-load time. This file is kept as the
+// vitest setupFiles entry (vitest.config.ts) and exists to host any future
+// environment plumbing the test suite may need; it is intentionally empty.

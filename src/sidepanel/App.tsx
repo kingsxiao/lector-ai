@@ -144,6 +144,24 @@ export default function App() {
     return () => chrome.storage.onChanged.removeListener(onStorage)
   }, [addHighlight])
 
+  // Surface bilingual translation errors reported by the content script. The
+  // inline bilingual loop runs best-effort per block; if the FIRST block fails
+  // (bad key, quota, network), the content script forwards the message here so
+  // the user isn't left wondering why nothing happened.
+  useEffect(() => {
+    const onMessage = (message: { action?: string; message?: string }) => {
+      if (message?.action === 'lector-bilingual-error' && message.message) {
+        setError(message.message)
+        // Key/quota errors mean the user should revisit settings.
+        if (/401|key|quota|429|credit/i.test(message.message)) {
+          setShowSettings(true)
+        }
+      }
+    }
+    chrome.runtime.onMessage.addListener(onMessage)
+    return () => chrome.runtime.onMessage.removeListener(onMessage)
+  }, [])
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, streaming])
@@ -180,21 +198,22 @@ export default function App() {
   // Inline bilingual translation — ask the active tab's content script to
   // inject paragraph-level translations. The content script tracks which
   // blocks it has already translated, so repeated toggles add new ones.
+  //
+  // The content script responds immediately (it can't hold the channel open
+  // across its ~30-block loop under MV3), so we flip bilingualBusy on send
+  // and clear it on a short timer rather than awaiting the full run. Errors
+  // arrive later via the 'lector-bilingual-error' message handler below.
   const toggleBilingual = async () => {
     if (bilingualBusy) return
-    try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-      if (!tab?.id) return
-      setBilingualBusy(true)
-      await new Promise<void>((resolve) => {
-        chrome.tabs.sendMessage(tab.id!, { action: 'lector-toggle-bilingual' }, () => {
-          void chrome.runtime.lastError
-          resolve()
-        })
-      })
-    } finally {
-      setBilingualBusy(false)
-    }
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+    if (!tab?.id) return
+    setBilingualBusy(true)
+    chrome.tabs.sendMessage(tab.id, { action: 'lector-toggle-bilingual' }, () => {
+      void chrome.runtime.lastError
+    })
+    // Clear after the first batch has had time to start injecting; the user
+    // can toggle again for more blocks. The content script is best-effort.
+    setTimeout(() => setBilingualBusy(false), 2500)
   }
 
   // Ask the active tab's content script for the current text selection.
@@ -381,6 +400,7 @@ ${citeContext.slice(0, 12000)}
           <button
             onClick={() => setShowLibrary(true)}
             title={tr('side.library.title')}
+            aria-label={tr('side.library.title')}
             className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center text-sm"
           >
             <LibraryIcon />
@@ -388,6 +408,7 @@ ${citeContext.slice(0, 12000)}
           <button
             onClick={() => setShowHighlights(true)}
             title="Highlights"
+            aria-label={tr('side.highlights.title')}
             className="lector-focus w-8 h-8 rounded-lg hover:bg-surface-muted text-ink-soft flex items-center justify-center relative"
           >
             <BookmarkIcon />
@@ -398,6 +419,7 @@ ${citeContext.slice(0, 12000)}
           <button
             onClick={() => setShowVocab(true)}
             title="Vocabulary"
+            aria-label={tr('side.vocab.title')}
             className="lector-focus w-8 h-8 rounded-lg hover:bg-surface-muted text-ink-soft flex items-center justify-center relative"
           >
             <BookOpenIcon />
@@ -408,6 +430,7 @@ ${citeContext.slice(0, 12000)}
           <button
             onClick={() => setShowTemplates(true)}
             title={tr('side.templates.title')}
+            aria-label={tr('side.templates.title')}
             className="lector-focus w-8 h-8 rounded-lg hover:bg-surface-muted text-ink-soft flex items-center justify-center relative"
           >
             <ClipboardListIcon />
@@ -419,6 +442,7 @@ ${citeContext.slice(0, 12000)}
             onClick={toggleBilingual}
             disabled={!page || bilingualBusy}
             title={page ? 'Translate page paragraphs (bilingual)' : 'Open a page first'}
+            aria-label={page ? 'Translate page paragraphs (bilingual)' : 'Open a page first'}
             className="lector-focus w-8 h-8 rounded-lg hover:bg-surface-muted text-ink-soft flex items-center justify-center disabled:opacity-40"
           >
             {bilingualBusy ? (
@@ -430,6 +454,7 @@ ${citeContext.slice(0, 12000)}
           <button
             onClick={() => setShowSettings(true)}
             title={tr('settings.title')}
+            aria-label={tr('settings.title')}
             className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center text-sm"
           >
             ⚙️
@@ -533,6 +558,7 @@ ${citeContext.slice(0, 12000)}
         <div className="flex items-end gap-2">
           <textarea
             value={input}
+            aria-label={tr('side.empty.title')}
             onChange={(e) => {
               const v = e.target.value
               setInput(v)
@@ -585,6 +611,7 @@ ${citeContext.slice(0, 12000)}
           <button
             onClick={() => handleSend()}
             disabled={streaming || !input.trim() || !providerConfigured}
+            aria-label={tr('side.composer.hint')}
             className="w-9 h-9 flex-shrink-0 rounded-xl bg-accent text-accent-on flex items-center justify-center disabled:opacity-40"
           >
             {streaming ? (
@@ -612,7 +639,9 @@ ${citeContext.slice(0, 12000)}
         byok={byok}
         onChange={async (next) => {
           setByok(next)
-          await saveSettings({ ...byok, ...next })
+          // Read the latest store state rather than the render-captured `byok`,
+          // so rapid sequential edits don't persist a stale snapshot.
+          await saveSettings({ ...useStore.getState().byok, ...next })
         }}
       />
 
@@ -627,7 +656,7 @@ ${citeContext.slice(0, 12000)}
           <div className="absolute right-0 top-0 bottom-0 w-[300px] bg-white shadow-2xl flex flex-col">
             <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200">
               <h3 className="text-[13px] font-semibold text-slate-800">{tr('side.library.title')}</h3>
-              <button onClick={() => setShowLibrary(false)} className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500">
+              <button onClick={() => setShowLibrary(false)} aria-label={tr('popup.close')} className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500">
                 ✕
               </button>
             </div>
@@ -654,6 +683,7 @@ ${citeContext.slice(0, 12000)}
                           removeSession(s.id)
                           if (activeSessionId === s.id) startNewChat()
                         }}
+                        aria-label="Delete conversation"
                         className="opacity-0 group-hover:opacity-100 text-meta text-ink-faint hover:text-danger"
                       >
                         <XIcon size={15} />
@@ -696,6 +726,7 @@ ${citeContext.slice(0, 12000)}
                       </div>
                       <button
                         onClick={() => removeHighlight(h.id)}
+                        aria-label="Delete highlight"
                         className="opacity-0 group-hover:opacity-100 text-meta text-ink-faint hover:text-danger"
                       >
                         <XIcon size={15} />
@@ -741,6 +772,7 @@ ${citeContext.slice(0, 12000)}
                       </span>
                       <button
                         onClick={() => removeVocab(v.id)}
+                        aria-label="Delete word"
                         className="opacity-0 group-hover:opacity-100 text-meta text-ink-faint hover:text-danger"
                       >
                         <XIcon size={15} />
@@ -813,7 +845,7 @@ function Drawer({
       <div className="absolute right-0 top-0 bottom-0 w-[300px] bg-white shadow-2xl flex flex-col lector-anim-slide">
         <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200">
           <h3 className="text-[13px] font-semibold text-slate-800">{title}</h3>
-          <button onClick={onClose} className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500">
+          <button onClick={onClose} aria-label="Close" className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500">
             <XIcon size={16} />
           </button>
         </div>
@@ -987,20 +1019,22 @@ function TemplatesDrawer({
       {editing ? (
         <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
           <div>
-            <label className="block text-[11px] font-semibold text-ink-soft mb-1">
+            <label htmlFor="lector-tpl-title" className="block text-[11px] font-semibold text-ink-soft mb-1">
               {tr('side.templates.titleField')}
             </label>
             <input
+              id="lector-tpl-title"
               value={editing.title}
               onChange={(e) => setEditing({ ...editing, title: e.target.value })}
               className="w-full px-3 py-2 text-[12px] bg-bg border border-line rounded-lg focus:outline-none focus:border-accent focus:bg-surface"
             />
           </div>
           <div>
-            <label className="block text-[11px] font-semibold text-ink-soft mb-1">
+            <label htmlFor="lector-tpl-content" className="block text-[11px] font-semibold text-ink-soft mb-1">
               {tr('side.templates.contentField')}
             </label>
             <textarea
+              id="lector-tpl-content"
               value={editing.content}
               onChange={(e) => setEditing({ ...editing, content: e.target.value })}
               rows={6}
@@ -1167,7 +1201,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
       <div className="bg-white w-full max-w-[340px] rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
           <h2 className="text-sm font-bold text-slate-800">{t('settings.title', byok.locale)}</h2>
-          <button onClick={onClose} className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500">
+          <button onClick={onClose} aria-label={t('popup.close', byok.locale)} className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500">
             ✕
           </button>
         </div>
@@ -1227,10 +1261,11 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
           {/* Custom base URL */}
           {(byok.provider === 'custom' || byok.provider === 'openrouter-custom') && (
             <div>
-              <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">
+              <label htmlFor="lector-base-url" className="block text-[11px] font-semibold text-slate-600 mb-1.5">
                 {t('settings.baseUrl', byok.locale)} <span className="text-slate-400 font-normal">{t('settings.baseUrl.hint', byok.locale)}</span>
               </label>
               <input
+                id="lector-base-url"
                 type="url"
                 value={byok.baseUrl}
                 onChange={(e) => onChange({ baseUrl: e.target.value })}
@@ -1242,9 +1277,10 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
 
           {/* API key */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">{t('settings.apiKey', byok.locale)}</label>
+            <label htmlFor="lector-api-key" className="block text-[11px] font-semibold text-slate-600 mb-1.5">{t('settings.apiKey', byok.locale)}</label>
             <div className="relative">
               <input
+                id="lector-api-key"
                 type={showKey ? 'text' : 'password'}
                 value={byok.apiKey}
                 onChange={(e) => {
@@ -1278,7 +1314,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
           {/* Model picker */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-[11px] font-semibold text-slate-600">{t('settings.model', byok.locale)}</label>
+              <label htmlFor="lector-model" className="block text-[11px] font-semibold text-slate-600">{t('settings.model', byok.locale)}</label>
               <button
                 onClick={runFetch}
                 disabled={fetching || !byok.apiKey || ((byok.provider === 'custom' || byok.provider === 'openrouter-custom') && !byok.baseUrl)}
@@ -1298,6 +1334,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
               if (list.length > 0) {
                 return (
                   <select
+                    id="lector-model"
                     value={currentInList ? byok.model : '__custom__'}
                     onChange={(e) => {
                       if (e.target.value === '__custom__') {
@@ -1334,6 +1371,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
             ) && (
               <input
                 type="text"
+                aria-label={t('settings.model', byok.locale)}
                 value={byok.model}
                 onChange={(e) => onChange({ model: e.target.value })}
                 placeholder={def.defaultModel || 'model id, e.g. gpt-4o-mini'}

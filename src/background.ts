@@ -102,7 +102,8 @@ async function handleSaveWordRelay(message: {
     context: message.context,
     url: message.url,
     title: message.title,
-    lang: 'en',
+    // Detect the word's own language family (mirrors content.ts detectLang).
+    lang: /[\u4e00-\u9fff]/.test(message.word) ? 'zh' : 'en',
     blockId: message.blockId,
     createdAt: Date.now(),
     srs: { due: Date.now(), interval: 0, ease: 2.5, reps: 0, lapses: 0 },

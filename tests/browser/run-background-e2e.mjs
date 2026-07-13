@@ -1,12 +1,12 @@
-// Real browser E2E for the Lector AI BACKGROUND service worker logic (§8 right-click menu).
+// Real browser E2E for the Lector AI BACKGROUND service worker (BYOK).
 //
 // Loads the REAL production dist/background.js into a page's main world with a
-// chrome.* stub that: records context-menu registrations, records broadcast
-// messages (summary-result / translate-result / explain-result), and routes
-// fetch to the local mock backend. We then fire contextMenus.onClicked events
-// for each menu item and assert the handler reaches the backend and broadcasts
-// the result — exercising the real handleSummarize/handleTranslate/handleExplain
-// code paths.
+// chrome.* stub that records context-menu registrations, side-panel opens,
+// storage writes, and message relays. window.fetch is stubbed to an OpenAI-
+// shaped SSE stream so the BYOK save-word translation path (handleSaveWordRelay
+// → completeOnce) runs end-to-end. We then fire contextMenus.onClicked and
+// runtime.onMessage events and assert the real handler reaches the provider and
+// writes the translated entry to chrome.storage.local.
 //
 // Run: node tests/browser/run-background-e2e.mjs
 
@@ -27,59 +27,76 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? '✅ PASS' : '❌ FAIL'}  ${name}${detail ? '  — ' + detail : ''}`)
 }
 
-// Serve dist/ (for the background.js + config chunk ESM imports) + a shell that
+// Serve dist/ (for background.js + the byok chunk ESM imports) + a shell that
 // installs the chrome.* stub and loads background.js as an ES module.
-function startServer(apiBase) {
+function startServer() {
   const mime = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html' }
   return http.createServer((req, res) => {
     const u = decodeURIComponent((req.url || '').split('?')[0])
-    if (u.startsWith('/api/')) {
-      res.setHeader('Access-Control-Allow-Origin', '*')
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-      if (req.method === 'OPTIONS') return res.writeHead(204).end()
-      let body = ''
-      req.on('data', (c) => (body += c))
-      req.on('end', () => {
-        if (u === '/api/summarize') return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ summary: 'MOCK SUMMARY' }))
-        if (u === '/api/translate') return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ translatedText: 'MOCK 译文' }))
-        if (u === '/api/chat') {
-          res.writeHead(200, { 'Content-Type': 'text/event-stream' })
-          const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`)
-          send({ type: 'token', delta: 'MOCK EXPLANATION' })
-          send({ type: 'done' })
-          return res.end()
-        }
-        res.writeHead(404).end('{}')
-      })
-      return
-    }
     if (u === '/' || u === '/shell.html') {
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><script>
 window.__menuItems = [];
-window.__broadcasts = [];
+window.__removedAll = false;
 window.__ctxClickHandlers = [];
 window.__cmdHandlers = [];
-window.__bgFetches = [];
+window.__onMessageListener = null;
+window.__panelOpens = [];
+window.__storageLocal = {};
+window.__bgFetchCalls = [];
+
+// OpenAI-shaped SSE stream so completeOnce → streamChat → readSSE parses tokens.
+function sse(tokens) {
+  const e = new TextEncoder();
+  return new ReadableStream({ start(c) {
+    for (const t of tokens) c.enqueue(e.encode('data: ' + JSON.stringify({ choices: [{ delta: { content: t } }] }) + '\\n\\n'));
+    c.enqueue(e.encode('data: [DONE]\\n\\n'));
+    c.close();
+  }});
+}
 const origFetch = window.fetch.bind(window);
-window.fetch = function(input, init){
-  try { const ur = typeof input === 'string' ? input : input.url; window.__bgFetches.push(ur); } catch(e){}
-  return origFetch(input, init);
+window.fetch = function (input, init) {
+  try { window.__bgFetchCalls.push(typeof input === 'string' ? input : input.url); } catch {}
+  // Every BYOK call hits {baseUrl}/chat/completions; return a 200 SSE body.
+  return Promise.resolve({ ok: true, status: 200, body: sse(['[译文] hello']) });
 };
+
 window.chrome = {
   runtime: {
     lastError: null, id: 'testbg',
     onInstalled: { addListener(fn){ window.__onInstalled = fn; } },
-    onMessage: { addListener(fn){} },
-    sendMessage(msg){ window.__broadcasts.push(msg); return Promise.resolve(); },
+    onMessage: { addListener(fn){ window.__onMessageListener = fn; } },
+    // background uses sendMessage only incidentally; return resolved promise.
+    sendMessage: () => Promise.resolve({}),
   },
   contextMenus: {
     create(item){ window.__menuItems.push(item); },
+    removeAll(cb){ window.__removedAll = true; cb && cb(); },
     onClicked: { addListener(fn){ window.__ctxClickHandlers.push(fn); } },
   },
   commands: { onCommand: { addListener(fn){ window.__cmdHandlers.push(fn); } } },
-  sidePanel: { setPanelBehavior(){return Promise.resolve()}, open(){return Promise.resolve()} },
-  storage: { local: { get: (k, cb) => cb && cb({ apiBase: ${JSON.stringify(apiBase)} }) } },
-  tabs: { query: (_, cb) => cb && cb([{ id: 1 }]), sendMessage: () => {} },
+  sidePanel: {
+    setPanelBehavior(){ return Promise.resolve(); },
+    open(opts){ window.__panelOpens.push(opts); return Promise.resolve(); },
+  },
+  storage: {
+    local: {
+      get: (keys, cb) => {
+        const out = {};
+        const want = Array.isArray(keys) ? keys : [keys];
+        for (const k of want) if (k in window.__storageLocal) out[k] = window.__storageLocal[k];
+        // getSettings() reads lector_byok_settings — return a configured BYOK
+        // so handleSaveWordRelay's translation path runs.
+        if (want.includes('lector_byok_settings')) out.lector_byok_settings = { provider:'openai', apiKey:'sk-test-bg', model:'gpt-4o-mini', baseUrl:'', locale:'auto' };
+        cb && cb(out);
+        return Promise.resolve(out);
+      },
+      set: (obj, cb) => { Object.assign(window.__storageLocal, obj); cb && cb(); return Promise.resolve(); },
+    },
+  },
+  tabs: {
+    query: (_, cb) => { const t = [{ id: 1, windowId: 1 }]; cb && cb(t); return Promise.resolve(t); },
+    sendMessage: () => {},
+  },
 };
 </script><script type="module" src="/background.js"></script></body></html>`
       return res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(html)
@@ -104,8 +121,7 @@ const getTargets = async (port) => (await (await fetch(`http://127.0.0.1:${port}
 const openTab = async (port, url) => (await (await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' })).json())
 
 async function main() {
-  const API = 'http://localhost:8787/api'
-  const server = startServer(API)
+  const server = startServer()
   await new Promise((r) => server.listen(8787, r))
   const SHELL = 'http://localhost:8787/'
 
@@ -130,36 +146,40 @@ async function main() {
     await sleep(1000)
 
     // The real background.js loaded as an ES module in the shell.
-    const stubPresent = await evalIn(page, `typeof window.__menuItems !== 'undefined'`)
-    check('real dist/background.js loads as ES module (stub wired)', stubPresent)
+    check('real dist/background.js loads as ES module (stub wired)', await evalIn(page, `typeof window.__onInstalled !== 'undefined'`))
 
-    // Fire onInstalled so the script registers its context menus.
+    // Fire onInstalled so the script registers its context menus. setupMenus is
+    // async (reads settings, then removeAll + create); wait for the creates.
     await evalIn(page, `(()=>{ if(window.__onInstalled) window.__onInstalled(); return 'fired' })()`)
-    await sleep(200)
-    const menuItems = JSON.parse(await evalIn(page, `JSON.stringify(window.__menuItems.map(i=>i.id))`) || '[]')
-    check('§8 context menus registered (summarize/translate/explain)', menuItems.length === 3 && menuItems.includes('summarize-selection') && menuItems.includes('translate-selection') && menuItems.includes('explain-selection'), `ids=${JSON.stringify(menuItems)}`)
+    await sleep(500)
+    const menuIds = JSON.parse(await evalIn(page, `JSON.stringify(window.__menuItems.map(i=>i.id))`) || '[]')
+    check('§8 context menus registered (lector-summarize/translate/explain/ask)', menuIds.length === 4 && menuIds.includes('lector-summarize') && menuIds.includes('lector-translate') && menuIds.includes('lector-explain') && menuIds.includes('lector-ask'), `ids=${JSON.stringify(menuIds)}`)
+    check('§8 menus removeAll ran before create', await evalIn(page, `window.__removedAll === true`))
 
-    // ---- Summarize menu click → handleSummarize → backend → summary-result broadcast ----
-    await evalIn(page, `(()=>{ const fn = window.__ctxClickHandlers[0]; if(!fn) return 'no-handler'; fn({ menuItemId: 'summarize-selection', selectionText: 'Some text to summarize.' }); return 'clicked' })()`)
-    await sleep(800)
-    const sumBcast = JSON.parse(await evalIn(page, `JSON.stringify((window.__broadcasts||[]).filter(m=>m.action==='summary-result'))`) || '[]')
-    check('§8 summarize menu → backend → summary-result broadcast', sumBcast.length >= 1 && typeof sumBcast[0].summary === 'string', `summary="${sumBcast[0]?.summary}"`)
-    const sumHit = JSON.parse(await evalIn(page, `JSON.stringify(window.__bgFetches.filter(u=>u.endsWith('/api/summarize')))`) || '[]')
-    check('§8 summarize hit the backend /api/summarize', sumHit.length >= 1)
+    // ---- context-menu click → openSidePanel({kind, text}) → sidePanel.open ----
+    await evalIn(page, `(()=>{ const fn = window.__ctxClickHandlers[0]; if(!fn) return 'no-handler'; fn({ menuItemId: 'lector-summarize', selectionText: 'Some text.' }); return 'clicked' })()`)
+    await sleep(400)
+    const panelOpens = JSON.parse(await evalIn(page, `JSON.stringify(window.__panelOpens)`) || '[]')
+    check('§8 summarize menu → sidePanel.open({windowId})', panelOpens.length >= 1, `opens=${panelOpens.length}`)
+    const seedSet = JSON.parse(await evalIn(page, `JSON.stringify(window.__storageLocal.lectorSeed || null)`) || 'null')
+    check('§8 summarize menu seeds side panel (kind=summarize)', !!seedSet && seedSet.kind === 'summarize' && /Some text/.test(seedSet.text), `seed=${JSON.stringify(seedSet).slice(0, 50)}`)
 
-    // ---- Translate menu click ----
-    await evalIn(page, `(()=>{ const fn = window.__ctxClickHandlers[0]; fn({ menuItemId: 'translate-selection', selectionText: 'hello' }); return 'ok' })()`)
-    await sleep(800)
-    const trBcast = JSON.parse(await evalIn(page, `JSON.stringify((window.__broadcasts||[]).filter(m=>m.action==='translate-result'))`) || '[]')
-    check('§8 translate menu → backend → translate-result broadcast', trBcast.length >= 1, `translatedText="${trBcast[0]?.translatedText}"`)
+    // ---- runtime.onMessage: lector-highlight relay → storage.local write ----
+    await evalIn(page, `(()=>{ const fn = window.__onMessageListener; if(!fn) return 'no-listener'; fn({ action:'lector-highlight', highlight:{ id:'h1', text:'hi', url:'http://x', title:'T', createdAt:1 } }, {}, ()=>{}); return 'sent' })()`)
+    await sleep(300)
+    const hlStored = JSON.parse(await evalIn(page, `JSON.stringify(window.__storageLocal.lectorHighlights || [])`) || '[]')
+    check('§relay lector-highlight → storage.local.lectorHighlights', hlStored.length >= 1 && hlStored[0].id === 'h1', `stored=${hlStored.length}`)
 
-    // ---- Explain menu click → chat SSE stream read into explanation ----
-    await evalIn(page, `(()=>{ const fn = window.__ctxClickHandlers[0]; fn({ menuItemId: 'explain-selection', selectionText: 'quantum' }); return 'ok' })()`)
-    await sleep(1000)
-    const exBcast = JSON.parse(await evalIn(page, `JSON.stringify((window.__broadcasts||[]).filter(m=>m.action==='explain-result'))`) || '[]')
-    check('§8 explain menu → chat SSE → explain-result broadcast', exBcast.length >= 1 && typeof exBcast[0].explanation === 'string', `explanation="${String(exBcast[0]?.explanation).slice(0,30)}"`)
+    // ---- runtime.onMessage: lector-save-word → BYOK translate → storage write ----
+    await evalIn(page, `(()=>{ const fn = window.__onMessageListener; if(!fn) return 'no-listener'; fn({ action:'lector-save-word', word:'hello', context:'hello world', url:'http://x', title:'T' }, {}, ()=>{}); return 'sent' })()`)
+    // handleSaveWordRelay awaits a BYOK translate round-trip; wait for it.
+    await sleep(1200)
+    const vocabStored = JSON.parse(await evalIn(page, `JSON.stringify(window.__storageLocal.lectorVocab || [])`) || '[]')
+    check('§relay lector-save-word → storage.local.lectorVocab (BYOK-translated)', vocabStored.length >= 1 && vocabStored[0].word === 'hello' && !!vocabStored[0].translation, `word="${vocabStored[0]?.word}" translation="${vocabStored[0]?.translation}"`)
+    const bgFetches = JSON.parse(await evalIn(page, `JSON.stringify(window.__bgFetchCalls.filter(u=>u.endsWith('/chat/completions')))`) || '[]')
+    check('§relay save-word translation hit provider /chat/completions (BYOK)', bgFetches.length >= 1, `calls=${bgFetches.length}`)
 
-    // ---- Keyboard command handler registered ----
+    // ---- keyboard command handler registered (forwards to content script) ----
     check('§5 keyboard command handler registered (commands.onCommand)', (await evalIn(page, `window.__cmdHandlers.length`)) >= 1)
 
     await cleanup()

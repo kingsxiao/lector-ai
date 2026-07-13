@@ -1,16 +1,17 @@
-// Real browser E2E for the Lector AI SIDE PANEL React app.
+// Real browser E2E for the Lector AI SIDE PANEL React app (BYOK).
 //
-// Loads the REAL production bundles (sidepanel.js + store/config chunks) by
-// serving dist/ over http and injecting an HTML shell that: (1) creates #root,
-// (2) installs a chrome.* stub (storage/tabs/runtime) wired to the mock backend,
-// then (3) loads sidepanel.js as an ES module. React mounts the real App; we
-// then drive it: chat send → SSE stream render → citation chip; 译 button click
-// → tabs.sendMessage captured; header buttons render.
+// Loads the REAL production bundles (sidepanel.js + css) by serving dist/ over
+// http and injecting an HTML shell that: (1) creates #root, (2) installs a
+// chrome.* stub wired to BYOK settings (apiKey present), (3) stubs window.fetch
+// to return an OpenAI-shaped SSE stream so streamChat/readSSE parse real tokens
+// (no network, no key). React mounts the real App; we then drive it: chat send
+// → SSE stream render → citation chip; 🌐 button click → tabs.sendMessage
+// captured; header buttons render.
 //
 // Run: node tests/browser/run-sidepanel-e2e.mjs
 
 import { spawn } from 'node:child_process'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -19,6 +20,10 @@ import WebSocket from 'ws'
 
 const DIST = resolve(import.meta.dirname, '..', '..', 'dist')
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+
+// Discover the hashed CSS filename so the test survives rebuilds.
+const cssFile = readdirSync(resolve(DIST, 'assets')).find((f) => /^sidepanel-.*\.css$/.test(f))
+const CSS_HREF = cssFile ? `/assets/${cssFile}` : ''
 
 const results = []
 const check = (name, ok, detail = '') => {
@@ -31,56 +36,58 @@ function startServer() {
   const mime = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' }
   return http.createServer((req, res) => {
     const u = decodeURIComponent((req.url || '').split('?')[0])
-    // The API mock (same origin, /api/...).
-    if (u.startsWith('/api/')) {
-      res.setHeader('Access-Control-Allow-Origin', '*')
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-      if (req.method === 'OPTIONS') return res.writeHead(204).end()
-      let body = ''
-      req.on('data', (c) => (body += c))
-      req.on('end', () => {
-        if (u === '/api/chat') {
-          res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' })
-          const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`)
-          send({ type: 'meta', remaining: 17 })
-          for (const t of ['Trust ', 'matters ', '[0].']) send({ type: 'token', delta: t })
-          send({ type: 'done' })
-          return res.end()
-        }
-        res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ translatedText: '译文', summary: 'sum' }))
-      })
-      return
-    }
-    // Shell page: stubs chrome.* then loads the real sidepanel bundle.
+    // Shell page: stubs chrome.* + fetch, then loads the real sidepanel bundle.
     if (u === '/' || u === '/shell.html') {
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>SP</title>
-<link rel="stylesheet" href="/assets/sidepanel-DzDcmfPu.css"></head>
+<link rel="stylesheet" href="${CSS_HREF}"></head>
 <body><div id="root"></div>
 <script>
 window.__tabsSent = [];
 window.__lectorMsgs = [];
-const apiBase = location.origin + '/api';
+
+// BYOK settings WITH an apiKey so chat (streamChat) and bilingual run.
+const BYOK = { provider: 'openai', apiKey: 'sk-test-sidepanel', model: 'gpt-4o-mini', baseUrl: '', locale: 'en' };
+
+// OpenAI-shaped SSE stream so streamChat → readSSE parses real tokens.
+function sse(tokens) {
+  const e = new TextEncoder();
+  return new ReadableStream({ start(c) {
+    for (const t of tokens) c.enqueue(e.encode('data: ' + JSON.stringify({ choices: [{ delta: { content: t } }] }) + '\\n\\n'));
+    c.enqueue(e.encode('data: [DONE]\\n\\n'));
+    c.close();
+  }});
+}
+window.__fetchCalls = [];
+window.fetch = function (url, opts) {
+  window.__fetchCalls.push(String(url));
+  // streamChat posts to {baseUrl}/chat/completions; emit tokens incl. a [0] cite.
+  return Promise.resolve({ ok: true, status: 200, body: sse(['Trust matters [0].']) });
+};
+
 window.chrome = {
-  runtime: { lastError: null, id: 'testextid' },
+  runtime: { lastError: null, id: 'testextid', onMessage: { addListener(){}, removeListener(){} } },
   storage: {
     local: {
-      // Modern chrome.storage supports promise usage (await get(...)); support
-      // BOTH callback and promise so the App's onMount (which awaits) works.
       get: (keys, cb) => {
-        const out = { apiBase, user: null, accessToken: null, lectorSeed: null }
-        if (cb) cb(out)
-        return Promise.resolve(out)
+        const out = { lector_byok_settings: BYOK, lectorSeed: null };
+        // The on-mount sync reads settings + drains the highlight/vocab relay
+        // queues; return empty arrays so nothing interferes.
+        out.lectorHighlights = [];
+        out.lectorVocab = [];
+        if (cb) cb(out);
+        return Promise.resolve(out);
       },
       set: (obj, cb) => { if (cb) cb(); return Promise.resolve() },
       remove: (_keys, cb) => { if (cb) cb(); return Promise.resolve() },
     },
+    // chrome.storage.onChanged is a sibling of .local, not nested under it.
     onChanged: { addListener(){}, removeListener(){} },
   },
   tabs: {
     query: (_q, cb) => {
-      const tabs = [{ id: 1, url: 'http://localhost/article.html', windowId: 1 }]
-      if (cb) cb(tabs)
-      return Promise.resolve(tabs)
+      const tabs = [{ id: 1, url: 'http://localhost/article.html', windowId: 1 }];
+      if (cb) cb(tabs);
+      return Promise.resolve(tabs);
     },
     sendMessage: (tabId, msg, cb) => {
       window.__lectorMsgs.push({ tabId, ...msg });
@@ -88,8 +95,8 @@ window.chrome = {
       // panel picks up page context (title/blocks) for citation grounding.
       if (msg && msg.action === 'lector-get-page') {
         cb && cb({ page: { title: 'Trust in Software', url: 'http://localhost/article.html', text: 'Trust matters. Consistency builds confidence.', lang: 'en', blocks: [{ id: 'b0', text: 'Trust matters.', domSelector: '' }, { id: 'b1', text: 'Consistency builds confidence.', domSelector: '' }] } });
-      } else if (msg && (msg.action === 'lector-jump-to' || msg.action === 'lector-toggle-bilingual')) {
-        cb && cb({ ok: true });
+      } else if (msg && (msg.action === 'lector-jump-to' || msg.action === 'lector-toggle-bilingual' || msg.action === 'lector-get-selection')) {
+        cb && cb({ ok: true, selection: '' });
       } else { cb && cb({}); }
     },
   },
@@ -147,20 +154,38 @@ async function main() {
     if (!pageTarget) { check('sidepanel shell page present', false); return cleanup() }
     page = await openWS(pageTarget.webSocketDebuggerUrl)
     await cdpCall(page, 'Runtime.enable')
+    // Surface page-side errors for diagnosis.
+    page.on('message', (data) => {
+      try {
+        const m = JSON.parse(data)
+        if (m.method === 'Runtime.exceptionThrown') {
+          const e = m.params.exceptionDetails
+          console.error('PAGE-EXC:', (e.exception?.description || e.text || '').slice(0, 500))
+        }
+        if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') {
+          console.error('PAGE-CONSOLE-ERR:', m.params.args.map((a) => a.value || a.description || '').join(' ').slice(0, 300))
+        }
+      } catch {}
+    })
 
     // ---- React app mounts ----
     const headerPresent = await evalIn(page, `!!document.querySelector('header')`)
     check('§sidepanel React app mounts (header)', headerPresent)
+    // Header has: Library, Highlights, Vocab, Templates, Bilingual, Settings (6).
     const headerBtns = await evalIn(page, `document.querySelectorAll('header button').length`)
-    check('§sidepanel header buttons render (📚🔖★译 + sign-in)', headerBtns >= 4, `buttons=${headerBtns}`)
+    check('§sidepanel header buttons render (Library/Highlights/Vocab/Templates/Bilingual/Settings)', headerBtns >= 6, `buttons=${headerBtns}`)
 
-    // The 译 button (bilingual toggle) we added.
-    const biBtn = await evalIn(page, `document.querySelectorAll('header button[title*="bilingual"], header button[title*="paragraphs"]').length`)
-    check('§9 「译」 bilingual toggle button present in header', biBtn === 1, `found=${biBtn}`)
+    // The bilingual toggle button (🌐 / "Translate page paragraphs").
+    const biBtn = await evalIn(page, `document.querySelectorAll('header button[title*="bilingual" i], header button[title*="paragraphs" i]').length`)
+    check('§9 bilingual toggle button present in header', biBtn === 1, `found=${biBtn}`)
 
     // The title pulled from the (stubbed) content-script page.
     const titleShown = await evalIn(page, `document.querySelector('header')?.innerText || ''`)
     check('§sidepanel shows page title from content script', /Trust in Software/i.test(titleShown), `title="${titleShown.slice(0, 40)}"`)
+
+    // Provider config line shows the configured provider (no "no key" prompt).
+    const providerLine = await evalIn(page, `[...document.querySelectorAll('header div')].map(d=>d.textContent).find(t=>/OpenAI|model/i.test(t)) || ''`)
+    check('§sidepanel shows configured provider (BYOK)', /OpenAI/i.test(providerLine), `line="${providerLine.slice(0, 40)}"`)
 
     // ---- §6 chat: type + Enter, watch SSE tokens stream into the bubble ----
     await evalIn(page, `(()=>{const ta=document.querySelector('textarea'); if(!ta) return 'no-textarea'; const setter=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set; setter.call(ta,'Why does trust matter?'); ta.dispatchEvent(new Event('input',{bubbles:true})); return ta.value})()`)
@@ -172,9 +197,11 @@ async function main() {
       if (/Trust/.test(assistant)) break
       await sleep(250)
     }
-    check('§6 chat streams tokens into assistant bubble', /Trust/.test(assistant), `text="${assistant.slice(0, 50)}"`)
+    check('§6 chat streams tokens into assistant bubble (BYOK SSE)', /Trust/.test(assistant), `text="${assistant.slice(0, 50)}"`)
+    const chatFetch = JSON.parse(await evalIn(page, `JSON.stringify((window.__fetchCalls||[]).filter(u=>u.endsWith('/chat/completions')))`) || '[]')
+    check('§6 chat hit provider /chat/completions (BYOK)', chatFetch.length >= 1, `calls=${chatFetch.length}`)
 
-    // Citation chip rendered from the [0] marker (validCiteIds = page blocks).
+    // Citation chip rendered from the [0] marker (validCiteIds = page blocks b0/b1).
     const chip = await evalIn(page, `document.querySelectorAll('.lector-cite[data-cite="b0"]').length`)
     check('§6 citation chip rendered ([0] → b0)', chip >= 1, `chips=${chip}`)
 
@@ -184,16 +211,15 @@ async function main() {
     const jumpMsg = JSON.parse(await evalIn(page, `JSON.stringify((window.__lectorMsgs||[]).filter(m=>m.action==='lector-jump-to'))`) || '[]')
     check('§6 citation chip click → lector-jump-to dispatched', jumpMsg.length >= 1, `msgs=${jumpMsg.length}`)
 
-    // ---- §9 「译」button click → lector-toggle-bilingual dispatched ----
+    // ---- §9 bilingual button click → lector-toggle-bilingual dispatched ----
     await evalIn(page, `(()=>{const b=[...document.querySelectorAll('header button')].find(x=>/bilingual|paragraphs/i.test(x.title||'')); if(!b) return 'no-btn'; b.click(); return 'clicked'})()`)
     await sleep(400)
     const biMsg = JSON.parse(await evalIn(page, `JSON.stringify((window.__lectorMsgs||[]).filter(m=>m.action==='lector-toggle-bilingual'))`) || '[]')
-    check('§9 「译」button click → lector-toggle-bilingual dispatched', biMsg.length >= 1, `msgs=${biMsg.length}`)
+    check('§9 bilingual button click → lector-toggle-bilingual dispatched', biMsg.length >= 1, `msgs=${biMsg.length}`)
 
     // ---- §7 session library: after a chat, the Library drawer lists it ----
-    await evalIn(page, `(()=>{const b=[...document.querySelectorAll('header button')].find(x=>(x.title||'')==='Library'); if(b){b.click(); return 'opened'} return 'no-btn'})()`)
+    await evalIn(page, `(()=>{const b=[...document.querySelectorAll('header button')].find(x=>(x.getAttribute('aria-label')||'')==='Library'); if(b){b.click(); return 'opened'} return 'no-btn'})()`)
     await sleep(400)
-    const libHas = await evalIn(page, `document.querySelectorAll('[class*="cursor-pointer"]').length`) // session rows are clickable
     check('§7 library drawer opens after a chat', await evalIn(page, `document.body.innerText.includes('Library')`))
 
     await cleanup()

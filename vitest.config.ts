@@ -6,9 +6,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     include: ['tests/**/*.test.{ts,tsx}'],
-    // The backend (api/) was dropped in the BYOK pivot, so its tests are
-    // excluded. They remain on disk for reference.
-    exclude: ['tests/api/**', 'node_modules/**'],
+    exclude: ['node_modules/**'],
     globals: false,
     setupFiles: ['tests/setup-env.ts'],
   },
