@@ -402,17 +402,20 @@ async function loadPref(): Promise<LocalePref> {
 const tr = (key: StringKey) => t(key, cachedPref)
 
 /**
- * Read the user's glossary from chrome.storage. The zustand store persists to
- * the 'lector-ai-storage' key (see store.ts); the content script is bundled
- * separately and can't share the in-memory store, so we read the serialized
- * snapshot directly. Returns [] on any error so callers safely no-op.
+ * Read the user's glossary from chrome.storage. The zustand store writes to
+ * window.localStorage under 'lector-ai-storage', but the content script runs
+ * in an isolated world and cannot read window.localStorage of the page. The
+ * side panel therefore mirrors the glossary into chrome.storage.local under
+ * the 'lectorGlossary' key (same pattern as byok.ts's settings double-write).
+ *
+ * Returns [] on any error so callers safely no-op (no glossary injection).
  */
 async function loadGlossary(): Promise<GlossaryEntry[]> {
   try {
     if (typeof chrome === 'undefined' || !chrome.storage) return []
-    const r = await chrome.storage.local.get('lector-ai-storage')
-    const state = (r['lector-ai-storage'] as { state?: { glossary?: GlossaryEntry[] } } | undefined)?.state
-    return Array.isArray(state?.glossary) ? state!.glossary! : []
+    const r = await chrome.storage.local.get('lectorGlossary')
+    const list = r.lectorGlossary as GlossaryEntry[] | undefined
+    return Array.isArray(list) ? list : []
   } catch {
     return []
   }

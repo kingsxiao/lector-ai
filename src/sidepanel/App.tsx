@@ -27,6 +27,11 @@ import {
   validateEntry, renderGlossaryPrompt, exportGlossary, importGlossary,
   type GlossaryEntry,
 } from '../shared/glossary'
+import {
+  exportVocabToAnki, withAnkiDefaults,
+  DEFAULT_ANKI_CONNECT_URL, DEFAULT_DECK_NAME, DEFAULT_MODEL_NAME,
+  type AnkiExportResult, type AnkiConfig,
+} from '../shared/anki'
 
 interface PageContext {
   title: string
@@ -154,6 +159,18 @@ export default function App() {
     chrome.storage.onChanged.addListener(onStorage)
     return () => chrome.storage.onChanged.removeListener(onStorage)
   }, [addHighlight])
+
+  // Mirror the glossary out of zustand into chrome.storage.local so the content
+  // script (which runs in a separate context and cannot read window.localStorage
+  // where zustand/persist writes) can inject it into translation prompts. This
+  // mirrors the byok.ts "double-write" pattern. We push the full array on every
+  // glossary change; the array is tiny so the cost is negligible.
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.storage) return
+    chrome.storage.local.set({ lectorGlossary: glossary }).catch(() => {
+      // best-effort; content script will just skip glossary injection
+    })
+  }, [glossary])
 
   // Surface bilingual translation errors reported by the content script. The
   // inline bilingual loop runs best-effort per block; if the FIRST block fails
@@ -771,66 +788,17 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
 
       {/* Vocabulary review drawer */}
       {showVocab && (
-        <Drawer title={tr('side.vocab.title')} onClose={() => setShowVocab(false)}>
-          {vocab.length === 0 ? (
-            <Empty text={tr('side.vocab.empty')} />
-          ) : (
-            <div className="flex-1 overflow-y-auto">
-              {vocab.slice(0, 200).map((v) => {
-                const due = isDue(v.srs)
-                const revealed = revealedVocab.has(v.id)
-                return (
-                  <div key={v.id} className="group px-3 py-2.5 border-b border-line/60">
-                    <div className="flex items-center gap-2">
-                      <span className={`text-[12px] font-semibold ${due ? 'text-accent' : 'text-ink'}`}>
-                        {v.word}
-                      </span>
-                      {due && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
-                          {tr('side.vocab.due')}
-                        </span>
-                      )}
-                      <span className="text-[10px] text-ink-faint ml-auto">
-                        {v.srs.reps} {tr('side.vocab.reviews')}
-                      </span>
-                      <button
-                        onClick={() => removeVocab(v.id)}
-                        aria-label="Delete word"
-                        className="opacity-0 group-hover:opacity-100 text-meta text-ink-faint hover:text-danger"
-                      >
-                        <XIcon size={15} />
-                      </button>
-                    </div>
-                    {v.context && (
-                      <div className="text-[11px] text-ink-faint mt-1 leading-relaxed">{v.context}</div>
-                    )}
-                    {v.translation && (
-                      <button
-                        onClick={() => toggleReveal(v.id)}
-                        className="text-[10px] text-accent hover:underline mt-1"
-                      >
-                        {revealed ? v.translation : tr('side.vocab.showTranslation')}
-                      </button>
-                    )}
-                    {due && (
-                      <div className="flex gap-1.5 mt-2">
-                        {(['again', 'hard', 'good', 'easy'] as Grade[]).map((g) => (
-                          <button
-                            key={g}
-                            onClick={() => gradeVocab(v, g)}
-                            className="flex-1 py-1.5 text-[10px] font-medium rounded-md border border-line hover:bg-surface-muted text-ink-soft"
-                          >
-                            {tr(`side.vocab.${g}` as StringKey)}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </Drawer>
+        <VocabDrawer
+          vocab={vocab}
+          revealedVocab={revealedVocab}
+          ankiConfig={byok.anki}
+          tr={tr}
+          onClose={() => setShowVocab(false)}
+          onToggleReveal={(id) => toggleReveal(id)}
+          onRemoveVocab={removeVocab}
+          onGradeVocab={(v, g) => gradeVocab(v, g)}
+          onSaveAnkiConfig={(cfg) => setByok({ anki: cfg })}
+        />
       )}
 
       {/* Templates drawer */}
@@ -966,6 +934,228 @@ function SlashMenu({
         ))
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Vocabulary review drawer — list + SRS review + Anki export
+// ---------------------------------------------------------------------------
+interface VocabDrawerProps {
+  vocab: VocabEntry[]
+  revealedVocab: Set<string>
+  ankiConfig?: { url: string; deckName: string; modelName: string; tags: string[] }
+  tr: (key: StringKey) => string
+  onClose: () => void
+  onToggleReveal: (id: string) => void
+  onRemoveVocab: (id: string) => void
+  onGradeVocab: (v: VocabEntry, grade: Grade) => void
+  /** Persist the user-edited Anki config back into settings. */
+  onSaveAnkiConfig: (cfg: { url: string; deckName: string; modelName: string; tags: string[] }) => void
+}
+
+function VocabDrawer({
+  vocab,
+  revealedVocab,
+  ankiConfig,
+  tr,
+  onClose,
+  onToggleReveal,
+  onRemoveVocab,
+  onGradeVocab,
+  onSaveAnkiConfig,
+}: VocabDrawerProps) {
+  // Anki export sub-panel state. `showPanel` toggles the form; `sending` and
+  // `result` drive the UX during/after the POST.
+  const [showPanel, setShowPanel] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [result, setResult] = useState<AnkiExportResult | null>(null)
+  const defaults = withAnkiDefaults(ankiConfig)
+  const [cfgUrl, setCfgUrl] = useState(defaults.url)
+  const [cfgDeck, setCfgDeck] = useState(defaults.deckName)
+  const [cfgModel, setCfgModel] = useState(defaults.modelName)
+  const [cfgTags, setCfgTags] = useState(defaults.tags.join(', '))
+
+  const handleSend = async () => {
+    setSending(true)
+    setResult(null)
+    const tags = cfgTags
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean)
+    const cfg: AnkiConfig = {
+      url: cfgUrl.trim() || DEFAULT_ANKI_CONNECT_URL,
+      deckName: cfgDeck.trim() || DEFAULT_DECK_NAME,
+      modelName: cfgModel.trim() || DEFAULT_MODEL_NAME,
+      tags: tags.length > 0 ? tags : ['lector'],
+    }
+    // Persist the (possibly edited) config so it sticks next time.
+    onSaveAnkiConfig(cfg)
+    try {
+      const res = await exportVocabToAnki(vocab, cfg)
+      setResult(res)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <Drawer title={tr('side.vocab.title')} onClose={onClose}>
+      {vocab.length === 0 ? (
+        <Empty text={tr('side.vocab.empty')} />
+      ) : (
+        <>
+          {/* Anki export action bar */}
+          <div className="px-3 py-2 border-b border-line">
+            {!showPanel ? (
+              <button
+                onClick={() => setShowPanel(true)}
+                className="w-full py-2 text-[12px] font-medium rounded-lg border border-dashed border-line text-accent hover:bg-accent-soft flex items-center justify-center gap-1"
+              >
+                {tr('side.vocab.sendAnki')}
+              </button>
+            ) : (
+              <div className="space-y-2 py-1">
+                <div>
+                  <label className="block text-[10px] font-semibold text-ink-soft mb-0.5">
+                    {tr('side.vocab.ankiUrl')}
+                  </label>
+                  <input
+                    value={cfgUrl}
+                    onChange={(e) => setCfgUrl(e.target.value)}
+                    className="w-full px-2 py-1.5 text-[11px] bg-bg border border-line rounded-md focus:outline-none focus:border-accent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-ink-soft mb-0.5">
+                    {tr('side.vocab.ankiDeck')}
+                  </label>
+                  <input
+                    value={cfgDeck}
+                    onChange={(e) => setCfgDeck(e.target.value)}
+                    className="w-full px-2 py-1.5 text-[11px] bg-bg border border-line rounded-md focus:outline-none focus:border-accent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-ink-soft mb-0.5">
+                    {tr('side.vocab.ankiModel')}
+                  </label>
+                  <input
+                    value={cfgModel}
+                    onChange={(e) => setCfgModel(e.target.value)}
+                    className="w-full px-2 py-1.5 text-[11px] bg-bg border border-line rounded-md focus:outline-none focus:border-accent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-ink-soft mb-0.5">
+                    {tr('side.vocab.ankiTags')}
+                  </label>
+                  <input
+                    value={cfgTags}
+                    onChange={(e) => setCfgTags(e.target.value)}
+                    placeholder="lector"
+                    className="w-full px-2 py-1.5 text-[11px] bg-bg border border-line rounded-md focus:outline-none focus:border-accent"
+                  />
+                </div>
+                <div className="text-[10px] text-ink-faint">
+                  {tr('side.vocab.ankiCount').replace('{n}', String(vocab.length))}
+                </div>
+                {result && (
+                  <div className="text-[10px] text-accent leading-relaxed">
+                    {tr('side.vocab.ankiResult')
+                      .replace('{added}', String(result.added))
+                      .replace('{duplicated}', String(result.duplicated))
+                      .replace('{failed}', String(result.failed))}
+                    {result.errors.length > 0 && (
+                      <div className="text-danger mt-1">
+                        {result.errors.slice(0, 3).join(' ')}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={handleSend}
+                    disabled={sending}
+                    className="flex-1 py-1.5 text-[11px] font-medium rounded-md bg-accent text-accent-on disabled:opacity-50"
+                  >
+                    {sending ? tr('side.vocab.ankiSending') : tr('side.vocab.ankiSend')}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowPanel(false)
+                      setResult(null)
+                    }}
+                    className="flex-1 py-1.5 text-[11px] font-medium rounded-md border border-line text-ink-soft hover:bg-surface-muted"
+                  >
+                    {tr('side.vocab.ankiCancel')}
+                  </button>
+                </div>
+                <p className="text-[10px] text-ink-faint leading-relaxed pt-1">
+                  {tr('side.vocab.ankiHelp')}
+                  <br />
+                  {tr('side.vocab.ankiHelpOrigin')}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            {vocab.slice(0, 200).map((v) => {
+              const due = isDue(v.srs)
+              const revealed = revealedVocab.has(v.id)
+              return (
+                <div key={v.id} className="group px-3 py-2.5 border-b border-line/60">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[12px] font-semibold ${due ? 'text-accent' : 'text-ink'}`}>
+                      {v.word}
+                    </span>
+                    {due && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
+                        {tr('side.vocab.due')}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-ink-faint ml-auto">
+                      {v.srs.reps} {tr('side.vocab.reviews')}
+                    </span>
+                    <button
+                      onClick={() => onRemoveVocab(v.id)}
+                      aria-label="Delete word"
+                      className="opacity-0 group-hover:opacity-100 text-meta text-ink-faint hover:text-danger"
+                    >
+                      <XIcon size={15} />
+                    </button>
+                  </div>
+                  {v.context && (
+                    <div className="text-[11px] text-ink-faint mt-1 leading-relaxed">{v.context}</div>
+                  )}
+                  {v.translation && (
+                    <button
+                      onClick={() => onToggleReveal(v.id)}
+                      className="text-[10px] text-accent hover:underline mt-1"
+                    >
+                      {revealed ? v.translation : tr('side.vocab.showTranslation')}
+                    </button>
+                  )}
+                  {due && (
+                    <div className="flex gap-1.5 mt-2">
+                      {(['again', 'hard', 'good', 'easy'] as Grade[]).map((g) => (
+                        <button
+                          key={g}
+                          onClick={() => onGradeVocab(v, g)}
+                          className="flex-1 py-1.5 text-[10px] font-medium rounded-md border border-line hover:bg-surface-muted text-ink-soft"
+                        >
+                          {tr(`side.vocab.${g}` as StringKey)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </Drawer>
   )
 }
 

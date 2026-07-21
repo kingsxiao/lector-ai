@@ -3,11 +3,13 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import {
   LibraryIcon, BookmarkIcon, BookOpenIcon, LanguagesIcon, LogOutIcon,
   SendIcon, PlusIcon, XIcon, SettingsIcon, FileTextIcon, SparklesIcon, ListIcon,
+  ClipboardListIcon, PencilIcon, TrashIcon, BookMarkedIcon, DownloadIcon, UploadIcon,
 } from '../../src/shared/icons'
 
 const icons = {
   LibraryIcon, BookmarkIcon, BookOpenIcon, LanguagesIcon, LogOutIcon,
   SendIcon, PlusIcon, XIcon, SettingsIcon, FileTextIcon, SparklesIcon, ListIcon,
+  ClipboardListIcon, PencilIcon, TrashIcon, BookMarkedIcon, DownloadIcon, UploadIcon,
 }
 
 describe('icons', () => {

@@ -403,6 +403,14 @@ export interface ByokSettings {
   baseUrl: string
   /** UI language: 'auto' follows the browser locale. */
   locale: LocalePref
+  /** AnkiConnect config for the "send to Anki" feature. Optional — when unset
+   *  the UI uses defaults from src/shared/anki.ts via withAnkiDefaults(). */
+  anki?: {
+    url: string
+    deckName: string
+    modelName: string
+    tags: string[]
+  }
 }
 
 export const DEFAULT_BYOK_SETTINGS: ByokSettings = {
