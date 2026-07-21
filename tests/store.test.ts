@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { useStore, type ChatSession } from '../src/shared/store'
 import type { Highlight } from '../src/shared/highlights'
 import type { VocabEntry } from '../src/shared/vocabulary'
+import type { GlossaryEntry } from '../src/shared/glossary'
 
 // The zustand store is persisted to localStorage under 'lector-ai-storage'.
 // jsdom gives us localStorage; clear it between tests for isolation.
@@ -11,6 +12,7 @@ beforeEach(() => {
     sessions: [],
     highlights: [],
     vocab: [],
+    glossary: [],
   })
 })
 
@@ -148,5 +150,78 @@ describe('vocab (Feature ③)', () => {
   it('caps vocab at 2000', () => {
     for (let i = 0; i < 2005; i++) useStore.getState().addVocab(v(`v${i}`, `w${i}`))
     expect(useStore.getState().vocab.length).toBe(2000)
+  })
+})
+
+describe('glossary (术语表)', () => {
+  const e = (source: string, target: string, opts: Partial<GlossaryEntry> = {}): Omit<GlossaryEntry, 'id' | 'createdAt'> => ({
+    source,
+    target,
+    enabled: opts.enabled ?? true,
+    note: opts.note,
+  })
+
+  it('addGlossaryEntry prepends new entries with id+createdAt', () => {
+    useStore.getState().addGlossaryEntry(e('LLM', '大语言模型'))
+    const list = useStore.getState().glossary
+    expect(list.length).toBe(1)
+    expect(list[0].source).toBe('LLM')
+    expect(list[0].target).toBe('大语言模型')
+    expect(list[0].enabled).toBe(true)
+    expect(typeof list[0].id).toBe('string')
+    expect(typeof list[0].createdAt).toBe('number')
+  })
+
+  it('addGlossaryEntry merges duplicate source case-insensitively, preserving id+createdAt', () => {
+    useStore.getState().addGlossaryEntry(e('LLM', '旧译文'))
+    const origId = useStore.getState().glossary[0].id
+    const origCreated = useStore.getState().glossary[0].createdAt
+    // Wait a tick so createdAt would differ if it were being reset.
+    useStore.getState().addGlossaryEntry(e('llm', '新译文', { enabled: false }))
+    const list = useStore.getState().glossary
+    expect(list.length).toBe(1)
+    expect(list[0].id).toBe(origId)
+    expect(list[0].createdAt).toBe(origCreated)
+    expect(list[0].target).toBe('新译文')
+    expect(list[0].enabled).toBe(false)
+  })
+
+  it('updateGlossaryEntry patches by id', () => {
+    useStore.getState().addGlossaryEntry(e('LLM', '大语言模型'))
+    const id = useStore.getState().glossary[0].id
+    useStore.getState().updateGlossaryEntry(id, { enabled: false, note: 'paused' })
+    expect(useStore.getState().glossary[0].enabled).toBe(false)
+    expect(useStore.getState().glossary[0].note).toBe('paused')
+  })
+
+  it('removeGlossaryEntry removes by id', () => {
+    useStore.getState().addGlossaryEntry(e('LLM', '大语言模型'))
+    const id = useStore.getState().glossary[0].id
+    useStore.getState().removeGlossaryEntry(id)
+    expect(useStore.getState().glossary.length).toBe(0)
+  })
+
+  it('replaceGlossary dedupes by source (case-insensitive, earliest createdAt wins)', () => {
+    useStore.getState().replaceGlossary([
+      { id: '1', source: 'LLM', target: '旧', enabled: true, createdAt: 500 },
+      { id: '2', source: 'llm', target: '新', enabled: true, createdAt: 100 },
+      { id: '3', source: 'RAG', target: '检索增强生成', enabled: true, createdAt: 300 },
+    ])
+    const list = useStore.getState().glossary
+    expect(list.length).toBe(2)
+    // The earliest createdAt (100) wins.
+    const llm = list.find((x) => x.source === 'llm' || x.source === 'LLM')
+    expect(llm?.target).toBe('新')
+    expect(llm?.id).toBe('2')
+  })
+
+  it('replaceGlossary fully replaces the previous list (not append)', () => {
+    useStore.getState().addGlossaryEntry(e('A', 'a'))
+    useStore.getState().replaceGlossary([
+      { id: 'x', source: 'B', target: 'b', enabled: true, createdAt: 1 },
+    ])
+    const list = useStore.getState().glossary
+    expect(list.length).toBe(1)
+    expect(list[0].source).toBe('B')
   })
 })

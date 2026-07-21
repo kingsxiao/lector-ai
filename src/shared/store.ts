@@ -5,6 +5,7 @@ import type { Highlight } from './highlights'
 import type { VocabEntry } from './vocabulary'
 import type { SrsState } from './srs'
 import { BUILTIN_TEMPLATES, newTemplateId, type PromptTemplate } from './promptTemplates'
+import { newEntryId, type GlossaryEntry } from './glossary'
 
 export interface ChatMessage {
   id: string
@@ -34,6 +35,10 @@ interface AppState {
   // Prompt templates — built-in + user-custom, invoked via "/" in composer.
   templates: PromptTemplate[]
 
+  // Custom glossary — source→target term mappings injected into translation
+  // prompts for consistency (对标沉浸式翻译 AI 术语库).
+  glossary: GlossaryEntry[]
+
   // Actions
   setByok: (patch: Partial<ByokSettings>) => void
   setByokAll: (s: ByokSettings) => void
@@ -55,6 +60,12 @@ interface AppState {
   updateTemplate: (id: string, patch: Partial<PromptTemplate>) => void
   removeTemplate: (id: string) => void
   reorderTemplates: (orderedIds: string[]) => void
+
+  addGlossaryEntry: (e: Omit<GlossaryEntry, 'id' | 'createdAt'>) => void
+  updateGlossaryEntry: (id: string, patch: Partial<GlossaryEntry>) => void
+  removeGlossaryEntry: (id: string) => void
+  /** Replace the entire glossary (used by JSON import). Dedupes by source. */
+  replaceGlossary: (entries: GlossaryEntry[]) => void
 }
 
 export const useStore = create<AppState>()(
@@ -65,6 +76,7 @@ export const useStore = create<AppState>()(
       highlights: [],
       vocab: [],
       templates: BUILTIN_TEMPLATES,
+      glossary: [],
 
       setByok: (patch) => set((s) => ({ byok: { ...s.byok, ...patch } })),
       setByokAll: (next) => set({ byok: next }),
@@ -160,6 +172,62 @@ export const useStore = create<AppState>()(
           reordered.push(...[...map.values()].map((t, i) => ({ ...t, order: orderedIds.length + i })))
           return { templates: reordered }
         }),
+
+      // Glossary: add prepends (newest first); duplicate source (case-insensitive)
+      // updates the existing entry's target/note/enabled but preserves id+createdAt.
+      // Matches the merge-semantics style of addVocab above.
+      addGlossaryEntry: (e) =>
+        set((s) => {
+          const idx = s.glossary.findIndex(
+            (x) => x.source.trim().toLowerCase() === e.source.trim().toLowerCase()
+          )
+          if (idx === -1) {
+            const entry: GlossaryEntry = {
+              ...e,
+              id: newEntryId(),
+              createdAt: Date.now(),
+            }
+            return { glossary: [entry, ...s.glossary].slice(0, 2000) }
+          }
+          const existing = s.glossary[idx]
+          const merged: GlossaryEntry = {
+            ...existing,
+            source: e.source,
+            target: e.target,
+            note: e.note ?? existing.note,
+            enabled: e.enabled,
+          }
+          const next = [...s.glossary]
+          next[idx] = merged
+          return { glossary: next }
+        }),
+      updateGlossaryEntry: (id, patch) =>
+        set((s) => ({
+          glossary: s.glossary.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+        })),
+      removeGlossaryEntry: (id) =>
+        set((s) => ({ glossary: s.glossary.filter((x) => x.id !== id) })),
+      replaceGlossary: (entries) =>
+        set(() => {
+          // Dedupe by source (earliest createdAt wins) to keep import idempotent.
+          const seen = new Map<string, GlossaryEntry>()
+          for (const e of entries) {
+            const key = e.source.trim().toLowerCase()
+            if (!key) continue
+            const prev = seen.get(key)
+            if (!prev || e.createdAt < prev.createdAt) seen.set(key, e)
+          }
+          // Preserve incoming order of first occurrences.
+          const out: GlossaryEntry[] = []
+          const used = new Set<string>()
+          for (const e of entries) {
+            const key = e.source.trim().toLowerCase()
+            if (!key || used.has(key)) continue
+            out.push(seen.get(key)!)
+            used.add(key)
+          }
+          return { glossary: out }
+        }),
     }),
     {
       name: 'lector-ai-storage',
@@ -173,6 +241,7 @@ export const useStore = create<AppState>()(
         highlights: state.highlights,
         vocab: state.vocab,
         templates: state.templates,
+        glossary: state.glossary,
       }),
     }
   )

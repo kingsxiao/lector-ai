@@ -385,6 +385,7 @@ function handleClickOutside(e: MouseEvent) {
 // The content script can import shared modules; vite bundles them in.
 import { getSettings, completeOnce } from './shared/byok'
 import { t, type LocalePref, type StringKey } from './shared/i18n'
+import { renderGlossaryPrompt, type GlossaryEntry } from './shared/glossary'
 
 // --- i18n: content script reads the locale pref from storage once per action ---
 let cachedPref: LocalePref = 'auto'
@@ -399,6 +400,33 @@ async function loadPref(): Promise<LocalePref> {
   return cachedPref
 }
 const tr = (key: StringKey) => t(key, cachedPref)
+
+/**
+ * Read the user's glossary from chrome.storage. The zustand store persists to
+ * the 'lector-ai-storage' key (see store.ts); the content script is bundled
+ * separately and can't share the in-memory store, so we read the serialized
+ * snapshot directly. Returns [] on any error so callers safely no-op.
+ */
+async function loadGlossary(): Promise<GlossaryEntry[]> {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.storage) return []
+    const r = await chrome.storage.local.get('lector-ai-storage')
+    const state = (r['lector-ai-storage'] as { state?: { glossary?: GlossaryEntry[] } } | undefined)?.state
+    return Array.isArray(state?.glossary) ? state!.glossary! : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Build the standard translation system prompt, injecting the glossary block
+ * only when the user has enabled terms. Single source of truth so the inline
+ * translator (划词) and the bilingual mode (双语) stay consistent.
+ */
+function buildTranslationSystemPrompt(targetLang: string, glossaryBlock: string): string {
+  const base = `You are a professional translator. Translate the user text to ${targetLang}. Preserve meaning, tone, and formatting. Output ONLY the translation.`
+  return glossaryBlock ? `${base}\n\n${glossaryBlock}` : base
+}
 
 // ---------------------------------------------------------------------------
 // Highlight capture (Feature ②) and vocabulary save (Feature ③)
@@ -515,7 +543,9 @@ async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: 
   let maxTokens = 1000
   if (kind === 'translate') {
     const target = /[\u4e00-\u9fff]/.test(text) ? 'English' : '中文'
-    systemPrompt = `You are a professional translator. Translate the user text to ${target}. Preserve meaning, tone, and formatting. Output ONLY the translation.`
+    // Inject the user's glossary so translate actions respect term mappings.
+    const glossary = await loadGlossary()
+    systemPrompt = buildTranslationSystemPrompt(target, renderGlossaryPrompt(glossary))
     maxTokens = Math.min(3000, Math.max(500, text.length * 2))
   } else if (kind === 'summarize') {
     systemPrompt = `You are Lector AI. Summarize the user content in 3-5 short bullets plus a one-line takeaway. Clean Markdown, no leading heading.`
@@ -568,7 +598,10 @@ async function toggleBilingual() {
 
   if (blocks.length === 0) return
 
-  const systemPrompt = `You are a professional translator. Translate the user text to ${targetLang}. Preserve meaning, tone, and formatting. Output ONLY the translation.`
+  // Inject the user's glossary once per bilingual toggle. Reading storage
+  // once (rather than per-block) keeps this cheap.
+  const glossary = await loadGlossary()
+  const systemPrompt = buildTranslationSystemPrompt(targetLang, renderGlossaryPrompt(glossary))
 
   // Surface the FIRST provider error to the side panel so a bad key / quota
   // doesn't look like the feature silently did nothing. Subsequent blocks

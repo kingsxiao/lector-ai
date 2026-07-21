@@ -9,6 +9,7 @@ import type { VocabEntry } from '../shared/vocabulary'
 import {
   LibraryIcon, BookmarkIcon, BookOpenIcon, LanguagesIcon,
   SendIcon, XIcon, ClipboardListIcon, PlusIcon, PencilIcon, TrashIcon,
+  BookMarkedIcon, DownloadIcon, UploadIcon,
 } from '../shared/icons'
 import {
   PROVIDERS,
@@ -22,6 +23,10 @@ import {
   fillTemplate, filterTemplates, sortTemplates, validateTemplate,
   type PromptTemplate, type TemplateContext,
 } from '../shared/promptTemplates'
+import {
+  validateEntry, renderGlossaryPrompt, exportGlossary, importGlossary,
+  type GlossaryEntry,
+} from '../shared/glossary'
 
 interface PageContext {
   title: string
@@ -49,6 +54,11 @@ export default function App() {
   const updateTemplate = useStore((s) => s.updateTemplate)
   const removeTemplate = useStore((s) => s.removeTemplate)
   const reorderTemplates = useStore((s) => s.reorderTemplates)
+  const glossary = useStore((s) => s.glossary)
+  const addGlossaryEntry = useStore((s) => s.addGlossaryEntry)
+  const updateGlossaryEntry = useStore((s) => s.updateGlossaryEntry)
+  const removeGlossaryEntry = useStore((s) => s.removeGlossaryEntry)
+  const replaceGlossary = useStore((s) => s.replaceGlossary)
 
   const tr = (key: StringKey) => t(key, byok.locale)
   // Resolve a template's display title (i18n key for built-ins, raw for custom).
@@ -71,6 +81,7 @@ export default function App() {
   const [showHighlights, setShowHighlights] = useState(false)
   const [showVocab, setShowVocab] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
+  const [showGlossary, setShowGlossary] = useState(false)
   const [revealedVocab, setRevealedVocab] = useState<Set<string>>(new Set())
   const [bilingualBusy, setBilingualBusy] = useState(false)
   // "/" menu state
@@ -305,7 +316,8 @@ ${page?.url ? `PAGE URL: ${page.url}` : ''}
 PAGE CONTENT (numbered blocks):
 """
 ${citeContext.slice(0, 12000)}
-"""`
+"""
+${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}`
 
         const history: WireMessage[] = next
           .filter((m) => m.content.trim().length > 0)
@@ -425,6 +437,17 @@ ${citeContext.slice(0, 12000)}
             <BookOpenIcon />
             {vocab.some((v) => isDue(v.srs)) && (
               <span className="lector-due-badge absolute -top-0.5 -right-1">!</span>
+            )}
+          </button>
+          <button
+            onClick={() => setShowGlossary(true)}
+            title={tr('side.glossary.title')}
+            aria-label={tr('side.glossary.title')}
+            className="lector-focus w-8 h-8 rounded-lg hover:bg-surface-muted text-ink-soft flex items-center justify-center relative"
+          >
+            <BookMarkedIcon />
+            {glossary.length > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent" />
             )}
           </button>
           <button
@@ -823,6 +846,19 @@ ${citeContext.slice(0, 12000)}
           onReorder={reorderTemplates}
         />
       )}
+
+      {/* Glossary drawer */}
+      {showGlossary && (
+        <GlossaryDrawer
+          entries={glossary}
+          tr={tr}
+          onClose={() => setShowGlossary(false)}
+          onAdd={(e) => addGlossaryEntry(e)}
+          onUpdate={(id, patch) => updateGlossaryEntry(id, patch)}
+          onRemove={(id) => removeGlossaryEntry(id)}
+          onImport={(entries) => replaceGlossary(entries)}
+        />
+      )}
     </div>
   )
 }
@@ -1112,6 +1148,239 @@ function TemplatesDrawer({
                         <TrashIcon size={14} />
                       </button>
                     )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </>
+      )}
+    </Drawer>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Glossary drawer — list, create, edit, delete, import/export (Feature: 术语表)
+// ---------------------------------------------------------------------------
+interface GlossaryDrawerProps {
+  entries: GlossaryEntry[]
+  tr: (key: StringKey) => string
+  onClose: () => void
+  onAdd: (e: { source: string; target: string; note?: string; enabled: boolean }) => void
+  onUpdate: (id: string, patch: Partial<GlossaryEntry>) => void
+  onRemove: (id: string) => void
+  onImport: (entries: GlossaryEntry[]) => void
+}
+
+function GlossaryDrawer({
+  entries,
+  tr,
+  onClose,
+  onAdd,
+  onUpdate,
+  onRemove,
+  onImport,
+}: GlossaryDrawerProps) {
+  const [editing, setEditing] = useState<{
+    id: string | null
+    source: string
+    target: string
+    note: string
+  } | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [flash, setFlash] = useState<string | null>(null)
+
+  const startNew = () => {
+    setEditing({ id: null, source: '', target: '', note: '' })
+    setErr(null)
+  }
+  const startEdit = (e: GlossaryEntry) => {
+    setEditing({ id: e.id, source: e.source, target: e.target, note: e.note || '' })
+    setErr(null)
+  }
+
+  const save = () => {
+    if (!editing) return
+    const v = validateEntry({ source: editing.source, target: editing.target })
+    if (!v.ok) {
+      setErr(
+        v.reason === 'empty-source'
+          ? tr('side.glossary.errSource')
+          : v.reason === 'empty-target'
+            ? tr('side.glossary.errTarget')
+            : (v.reason ?? '')
+      )
+      return
+    }
+    if (editing.id) {
+      onUpdate(editing.id, {
+        source: editing.source,
+        target: editing.target,
+        note: editing.note || undefined,
+      })
+    } else {
+      onAdd({
+        source: editing.source,
+        target: editing.target,
+        note: editing.note || undefined,
+        enabled: true,
+      })
+    }
+    setEditing(null)
+  }
+
+  const handleExport = () => {
+    const json = exportGlossary(entries)
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `lector-glossary-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleImport = async (file: File) => {
+    const text = await file.text()
+    const res = importGlossary(text)
+    if (!res.ok || !res.entries) {
+      setFlash(tr('side.glossary.importFail').replace('{msg}', res.reason || ''))
+      return
+    }
+    onImport(res.entries)
+    setFlash(tr('side.glossary.importOk').replace('{n}', String(res.entries.length)))
+  }
+
+  return (
+    <Drawer title={tr('side.glossary.title')} onClose={onClose}>
+      {editing ? (
+        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+          <div>
+            <label htmlFor="lector-glos-source" className="block text-[11px] font-semibold text-ink-soft mb-1">
+              {tr('side.glossary.sourceField')}
+            </label>
+            <input
+              id="lector-glos-source"
+              value={editing.source}
+              onChange={(e) => setEditing({ ...editing, source: e.target.value })}
+              placeholder="LLM"
+              className="w-full px-3 py-2 text-[12px] bg-bg border border-line rounded-lg focus:outline-none focus:border-accent focus:bg-surface"
+            />
+          </div>
+          <div>
+            <label htmlFor="lector-glos-target" className="block text-[11px] font-semibold text-ink-soft mb-1">
+              {tr('side.glossary.targetField')}
+            </label>
+            <input
+              id="lector-glos-target"
+              value={editing.target}
+              onChange={(e) => setEditing({ ...editing, target: e.target.value })}
+              placeholder="大语言模型"
+              className="w-full px-3 py-2 text-[12px] bg-bg border border-line rounded-lg focus:outline-none focus:border-accent focus:bg-surface"
+            />
+          </div>
+          <div>
+            <label htmlFor="lector-glos-note" className="block text-[11px] font-semibold text-ink-soft mb-1">
+              {tr('side.glossary.noteField')}
+            </label>
+            <textarea
+              id="lector-glos-note"
+              value={editing.note}
+              onChange={(e) => setEditing({ ...editing, note: e.target.value })}
+              rows={2}
+              className="w-full px-3 py-2 text-[12px] bg-bg border border-line rounded-lg focus:outline-none focus:border-accent focus:bg-surface resize-none"
+            />
+          </div>
+          {err && <div className="text-[11px] text-danger">{err}</div>}
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={save}
+              className="flex-1 py-2 text-[12px] font-medium rounded-lg bg-accent text-accent-on"
+            >
+              {tr('side.glossary.save')}
+            </button>
+            <button
+              onClick={() => setEditing(null)}
+              className="flex-1 py-2 text-[12px] font-medium rounded-lg border border-line text-ink-soft hover:bg-surface-muted"
+            >
+              {tr('side.glossary.cancel')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="px-3 py-2 border-b border-line space-y-2">
+            <button
+              onClick={startNew}
+              className="w-full py-2 text-[12px] font-medium rounded-lg border border-dashed border-line text-accent hover:bg-accent-soft flex items-center justify-center gap-1"
+            >
+              <PlusIcon size={14} />
+              {tr('side.glossary.add')}
+            </button>
+            {entries.length > 0 && (
+              <div className="flex gap-2">
+                <button
+                  onClick={handleExport}
+                  className="flex-1 py-1.5 text-[11px] font-medium rounded-lg border border-line text-ink-soft hover:bg-surface-muted flex items-center justify-center gap-1"
+                >
+                  <DownloadIcon size={12} />
+                  {tr('side.glossary.export')}
+                </button>
+                <label className="flex-1 py-1.5 text-[11px] font-medium rounded-lg border border-line text-ink-soft hover:bg-surface-muted flex items-center justify-center gap-1 cursor-pointer">
+                  <UploadIcon size={12} />
+                  {tr('side.glossary.import')}
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) void handleImport(f)
+                      e.target.value = '' // allow re-importing the same file
+                    }}
+                  />
+                </label>
+              </div>
+            )}
+            {flash && <div className="text-[10px] text-accent text-center">{flash}</div>}
+            <p className="text-[10px] text-ink-faint leading-relaxed">{tr('side.glossary.hint')}</p>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {entries.length === 0 ? (
+              <Empty text={tr('side.glossary.empty')} />
+            ) : (
+              entries.map((e) => (
+                <div key={e.id} className="group px-3 py-2.5 border-b border-line/60">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => onUpdate(e.id, { enabled: !e.enabled })}
+                      title={e.enabled ? tr('side.glossary.enabled') : tr('side.glossary.disabled')}
+                      className={`w-3 h-3 rounded-full border flex-shrink-0 ${
+                        e.enabled
+                          ? 'bg-accent border-accent'
+                          : 'bg-transparent border-line'
+                      }`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[12px] font-medium text-ink truncate">
+                        {e.source} <span className="text-ink-faint">→</span> {e.target}
+                      </div>
+                      {e.note && (
+                        <div className="text-[10px] text-ink-faint truncate">{e.note}</div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => startEdit(e)}
+                      className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent"
+                    >
+                      <PencilIcon size={14} />
+                    </button>
+                    <button
+                      onClick={() => onRemove(e.id)}
+                      className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger"
+                    >
+                      <TrashIcon size={14} />
+                    </button>
                   </div>
                 </div>
               ))

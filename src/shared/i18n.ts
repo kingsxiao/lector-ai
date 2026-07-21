@@ -209,6 +209,64 @@ export const STRINGS = {
   'tpl.email': { en: 'Email reply', zh: '邮件回复' },
   'tpl.extract': { en: 'Extract facts', zh: '提取要点' },
   'tpl.critique': { en: 'Critique', zh: '批判分析' },
+
+  // --- glossary drawer (Feature: Custom Glossary) ---
+  'side.glossary.title': { en: 'Glossary', zh: '术语表' },
+  'side.glossary.empty': {
+    en: 'No terms yet. Add source→target pairs to make translations consistent.',
+    zh: '还没有术语。添加"原文→译文"对，让翻译更一致。',
+  },
+  'side.glossary.add': { en: '+ New term', zh: '+ 新建术语' },
+  'side.glossary.sourceField': { en: 'Source (original)', zh: '原文' },
+  'side.glossary.targetField': { en: 'Target (translation)', zh: '译文' },
+  'side.glossary.noteField': { en: 'Note (optional)', zh: '备注（可选）' },
+  'side.glossary.save': { en: 'Save', zh: '保存' },
+  'side.glossary.cancel': { en: 'Cancel', zh: '取消' },
+  'side.glossary.export': { en: '⬇ Export', zh: '⬇ 导出' },
+  'side.glossary.import': { en: '⬆ Import', zh: '⬆ 导入' },
+  'side.glossary.importFail': {
+    en: 'Import failed: {msg}',
+    zh: '导入失败：{msg}',
+  },
+  'side.glossary.importOk': {
+    en: 'Imported {n} terms',
+    zh: '已导入 {n} 条术语',
+  },
+  'side.glossary.enabled': { en: 'enabled', zh: '启用' },
+  'side.glossary.disabled': { en: 'disabled', zh: '已停用' },
+  'side.glossary.errSource': { en: 'Source is required', zh: '请填写原文' },
+  'side.glossary.errTarget': { en: 'Target is required', zh: '请填写译文' },
+  'side.glossary.hint': {
+    en: 'Enabled terms are injected into translation prompts automatically.',
+    zh: '已启用的术语会自动注入翻译 prompt。',
+  },
+
+  // --- Anki export (Feature: Anki 一键制卡) ---
+  'side.vocab.sendAnki': { en: '📤 Send to Anki', zh: '📤 发送到 Anki' },
+  'side.vocab.ankiTitle': { en: 'Send to Anki', zh: '发送到 Anki' },
+  'side.vocab.ankiUrl': { en: 'AnkiConnect URL', zh: 'AnkiConnect 地址' },
+  'side.vocab.ankiDeck': { en: 'Deck name', zh: '牌组名称' },
+  'side.vocab.ankiModel': { en: 'Note type', zh: '笔记类型' },
+  'side.vocab.ankiTags': { en: 'Tags (comma-separated)', zh: '标签（逗号分隔）' },
+  'side.vocab.ankiCount': {
+    en: '{n} cards will be sent',
+    zh: '将发送 {n} 张卡片',
+  },
+  'side.vocab.ankiSend': { en: 'Send', zh: '发送' },
+  'side.vocab.ankiCancel': { en: 'Cancel', zh: '取消' },
+  'side.vocab.ankiSending': { en: 'Sending…', zh: '发送中…' },
+  'side.vocab.ankiResult': {
+    en: 'Added: {added} · Duplicated: {duplicated} · Failed: {failed}',
+    zh: '新增：{added} · 重复：{duplicated} · 失败：{failed}',
+  },
+  'side.vocab.ankiHelp': {
+    en: 'Need Anki desktop running with the AnkiConnect add-on (code 2058997622).',
+    zh: '需在桌面端 Anki 启动并安装 AnkiConnect 插件（代码 2058997622）。',
+  },
+  'side.vocab.ankiHelpOrigin': {
+    en: 'If connection fails: open AnkiConnect config and add this extension to webApiAllowedOrigins.',
+    zh: '若连接失败：在 AnkiConnect 配置文件的 webApiAllowedOrigins 中添加本扩展。',
+  },
 } as const
 
 export type StringKey = keyof typeof STRINGS
