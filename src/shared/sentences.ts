@@ -101,6 +101,8 @@ export function mergeSentenceCard(existing: SentenceCard, incoming: SentenceCard
     quote: incoming.quote || existing.quote,
     url: incoming.url || existing.url,
     title: incoming.title || existing.title,
+    // incoming.cefr is freshly extracted from the new analysis; null keeps old value if extraction failed.
+    cefr: incoming.cefr ?? existing.cefr,
     createdAt: Math.min(existing.createdAt, incoming.createdAt),
     srs: existing.srs, // never clobber review progress
   }

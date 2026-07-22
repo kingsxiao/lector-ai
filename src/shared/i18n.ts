@@ -149,7 +149,7 @@ export const STRINGS = {
   'stats.due': { en: 'Due', zh: '待复习' },
   'stats.mastered': { en: 'Mastered', zh: '已掌握' },
   'stats.reviews': { en: 'Reviews', zh: '复习次数' },
-  'stats.retention': { en: 'Retention', zh: '掌握度' },
+  'stats.retention': { en: 'Avg ease', zh: '平均难度' },
 
   // --- side panel: sentence library drawer (Feature ④) ---
   'side.sentences.title': { en: 'Sentences', zh: '句库' },

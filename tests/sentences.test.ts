@@ -131,6 +131,20 @@ describe('mergeSentenceCard', () => {
     expect(merged.keywords).toEqual(['hello'])
     expect(merged.srs).toEqual({ due: 9999, interval: 5, ease: 2.5, reps: 3, lapses: 1 })
   })
+
+  it('refreshes cefr from incoming, keeping existing on null', () => {
+    const existing = card('s1', 'Hello world sentence', { createdAt: 500, cefr: 'A1' })
+    const incoming = card('s2', 'Hello world sentence', { createdAt: 1000, cefr: 'B2' })
+    const merged = mergeSentenceCard(existing, incoming)
+    expect(merged.cefr).toBe('B2')
+  })
+
+  it('keeps existing cefr when incoming cefr is null', () => {
+    const existing = card('s1', 'Hello world sentence', { createdAt: 500, cefr: 'B2' })
+    const incoming = card('s2', 'Hello world sentence', { createdAt: 1000, cefr: null })
+    const merged = mergeSentenceCard(existing, incoming)
+    expect(merged.cefr).toBe('B2')
+  })
 })
 
 describe('isDuplicateSentence', () => {
