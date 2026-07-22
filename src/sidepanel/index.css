@@ -62,6 +62,21 @@ body {
 .lector-prose a { color: var(--accent); text-decoration: underline; }
 .lector-prose strong { font-weight: 700; }
 
+/* POS color tags (Feature ④ Phase 2) — 逐词词性标注 */
+.lector-pos {
+  border-radius: 3px;
+  padding: 1px 2px;
+  font-weight: 600;
+}
+.lector-pos-n { color: #2B5FA8; background: #EAF1FB; }
+.lector-pos-v { color: #B4452F; background: #FBEEEA; }
+.lector-pos-a { color: #3E7B47; background: #EAF3EC; }
+.lector-pos-d { color: #7B3E9E; background: #F3EAFA; }
+.lector-pos-p { color: #A85E1E; background: #FBF0E4; }
+.lector-pos-c { color: #6B6155; background: #F5EFE3; }
+.lector-pos-r { color: #1F7A8C; background: #E8F4F6; }
+.lector-pos-t { color: #A8478F; background: #FAEAF4; }
+
 /* Scrollbar polish */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 4px; }
