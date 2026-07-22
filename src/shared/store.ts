@@ -3,9 +3,10 @@ import { persist } from 'zustand/middleware'
 import { DEFAULT_BYOK_SETTINGS, type ByokSettings } from './providers'
 import type { Highlight } from './highlights'
 import type { VocabEntry } from './vocabulary'
-import type { SrsState } from './srs'
+import { newSrs, type SrsState } from './srs'
 import { BUILTIN_TEMPLATES, newTemplateId, type PromptTemplate } from './promptTemplates'
 import { newEntryId, type GlossaryEntry } from './glossary'
+import { newCardId, normalizeSentence, makeSentenceCard, mergeSentenceCard, dedupeCards, type SentenceCard } from './sentences'
 
 export interface ChatMessage {
   id: string
@@ -39,6 +40,9 @@ interface AppState {
   // prompts for consistency (对标沉浸式翻译 AI 术语库).
   glossary: GlossaryEntry[]
 
+  // Sentence library — structured deep-analysis cards (Feature ④).
+  sentences: SentenceCard[]
+
   // Actions
   setByok: (patch: Partial<ByokSettings>) => void
   setByokAll: (s: ByokSettings) => void
@@ -66,6 +70,15 @@ interface AppState {
   removeGlossaryEntry: (id: string) => void
   /** Replace the entire glossary (used by JSON import). Dedupes by source. */
   replaceGlossary: (entries: GlossaryEntry[]) => void
+
+  addSentence: (s: Omit<SentenceCard, 'id' | 'createdAt'> & { createdAt?: number }) => void
+  updateSentence: (id: string, patch: Partial<SentenceCard>) => void
+  removeSentence: (id: string) => void
+  replaceSentences: (cards: SentenceCard[]) => void
+  /** Opt a passive reference card into SRS review: srs null → newSrs(). */
+  promoteSentenceToReview: (id: string) => void
+  /** Advance/punish an already-reviewable card's SRS. No-op if srs is null. */
+  updateSentenceSrs: (id: string, srs: SrsState) => void
 }
 
 export const useStore = create<AppState>()(
@@ -77,6 +90,7 @@ export const useStore = create<AppState>()(
       vocab: [],
       templates: BUILTIN_TEMPLATES,
       glossary: [],
+      sentences: [],
 
       setByok: (patch) => set((s) => ({ byok: { ...s.byok, ...patch } })),
       setByokAll: (next) => set({ byok: next }),
@@ -228,6 +242,45 @@ export const useStore = create<AppState>()(
           }
           return { glossary: out }
         }),
+
+      addSentence: (s) =>
+        set((state) => {
+          const idx = state.sentences.findIndex(
+            (x) => normalizeSentence(x.sentence) === normalizeSentence(s.sentence)
+          )
+          if (idx === -1) {
+            const card: SentenceCard = makeSentenceCard({ ...s, id: newCardId() })
+            return { sentences: [card, ...state.sentences].slice(0, 1000) }
+          }
+          // merge: refresh analysis/translation/keywords/quote, preserve srs + earliest createdAt
+          const existing = state.sentences[idx]
+          const incoming = makeSentenceCard({ ...s, id: existing.id, createdAt: Date.now() })
+          const merged = mergeSentenceCard(existing, incoming)
+          const next = [...state.sentences]
+          next[idx] = merged
+          return { sentences: next }
+        }),
+      updateSentence: (id, patch) =>
+        set((s) => ({
+          sentences: s.sentences.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+        })),
+      removeSentence: (id) =>
+        set((s) => ({ sentences: s.sentences.filter((x) => x.id !== id) })),
+      replaceSentences: (cards) =>
+        set(() => {
+          const deduped = dedupeCards(cards)
+          return { sentences: deduped.slice(0, 1000) }
+        }),
+      promoteSentenceToReview: (id) =>
+        set((s) => ({
+          sentences: s.sentences.map((c) =>
+            c.id === id && c.srs === null ? { ...c, srs: newSrs() } : c
+          ),
+        })),
+      updateSentenceSrs: (id, srs) =>
+        set((s) => ({
+          sentences: s.sentences.map((c) => (c.id === id ? { ...c, srs } : c)),
+        })),
     }),
     {
       name: 'lector-ai-storage',
@@ -242,6 +295,7 @@ export const useStore = create<AppState>()(
         vocab: state.vocab,
         templates: state.templates,
         glossary: state.glossary,
+        sentences: state.sentences,
       }),
     }
   )
