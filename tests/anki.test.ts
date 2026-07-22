@@ -8,10 +8,13 @@ import {
   buildAnkiConnectBody,
   invokeAnkiConnect,
   exportVocabToAnki,
+  exportSentencesToAnki,
+  sentenceToAnkiNote,
   withAnkiDefaults,
   type AnkiConnectAction,
 } from '../src/shared/anki'
 import type { VocabEntry } from '../src/shared/vocabulary'
+import type { SentenceCard } from '../src/shared/sentences'
 
 // Build a VocabEntry with sane defaults; only the interesting fields vary.
 const v = (over: Partial<VocabEntry>): VocabEntry => ({
@@ -345,5 +348,51 @@ describe('exportVocabToAnki', () => {
     expect(result.duplicated).toBe(0)
     expect(result.failed).toBe(0)
     expect(global.fetch).not.toHaveBeenCalled()
+  })
+})
+
+// Build a SentenceCard with sane defaults; only the interesting fields vary.
+const sc = (over: Partial<SentenceCard> = {}): SentenceCard => ({
+  id: 's1',
+  sentence: 'The quick brown fox jumps.',
+  translation: '敏捷的棕色狐狸跳跃。',
+  analysis: '## 译文\n\n敏捷的棕色狐狸跳跃。\n\n## 记忆点\n\n记住 jumps。',
+  keywords: ['fox'],
+  quote: 'context here',
+  url: 'https://example.com/p',
+  title: 'Page',
+  blockId: 'b3',
+  lang: 'en',
+  createdAt: 1000,
+  srs: null,
+  ...over,
+})
+
+describe('sentenceToAnkiNote', () => {
+  it('maps sentence→Front, translation+analysis+source→Back', () => {
+    const note = sentenceToAnkiNote(sc(), { deckName: 'Lector::Sentences', modelName: 'Basic', tags: ['lector'] })
+    expect(note.fields.Front).toBe('The quick brown fox jumps.')
+    expect(note.fields.Back).toContain('敏捷的棕色狐狸跳跃。')
+    expect(note.fields.Back).toContain('## 记忆点')
+    expect(note.fields.Back).toContain('https://example.com/p')
+    expect(note.deckName).toBe('Lector::Sentences')
+    expect(note.tags).toEqual(['lector'])
+  })
+  it('degrades gracefully when translation is empty', () => {
+    const note = sentenceToAnkiNote(sc({ translation: '' }), { deckName: 'D', modelName: 'Basic' })
+    expect(note.fields.Front).toBe('The quick brown fox jumps.')
+    // Back still contains the analysis; no crash.
+    expect(note.fields.Back).toContain('## 记忆点')
+  })
+  it('degrades gracefully when url/title empty', () => {
+    const note = sentenceToAnkiNote(sc({ url: '', title: '' }), { deckName: 'D', modelName: 'Basic' })
+    expect(note.fields.Back).not.toContain('Source:')
+  })
+})
+
+describe('exportSentencesToAnki', () => {
+  it('returns zero-added on empty input without calling fetch', async () => {
+    const r = await exportSentencesToAnki([], { url: 'http://127.0.0.1:8765', deckName: 'D', modelName: 'Basic', tags: [] })
+    expect(r.added).toBe(0)
   })
 })

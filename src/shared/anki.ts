@@ -10,6 +10,7 @@
 // 对标 Saladict v7.13.1 的 Anki 自动制卡：把已有生词本一键送到 Anki 桌面端。
 
 import type { VocabEntry } from './vocabulary'
+import type { SentenceCard } from './sentences'
 
 export const DEFAULT_ANKI_CONNECT_URL = 'http://127.0.0.1:8765'
 export const DEFAULT_DECK_NAME = 'Lector::Vocabulary'
@@ -216,6 +217,87 @@ export async function exportVocabToAnki(
     } else {
       result.failed += 1
       result.errors.push(`"${vocab[i].word}" was rejected by AnkiConnect`)
+    }
+  }
+  return result
+}
+
+/** 句库导出 Anki 默认牌组名（与 Vocab 区分）。 */
+export const DEFAULT_SENTENCE_DECK_NAME = 'Lector::Sentences'
+
+/**
+ * Map a SentenceCard to an AnkiConnect addNote payload. Front = 原句；
+ * Back = 译文 + 完整 analysis Markdown + 来源链接。空字段优雅降级。
+ */
+export function sentenceToAnkiNote(
+  c: SentenceCard,
+  opts: { deckName: string; modelName: string; tags?: string[] }
+): AnkiNote {
+  return {
+    deckName: opts.deckName,
+    modelName: opts.modelName,
+    fields: { Front: c.sentence, Back: renderSentenceBack(c) },
+    tags: opts.tags ?? [],
+  }
+}
+
+/** Render the back-of-card content for a sentence card. */
+function renderSentenceBack(c: SentenceCard): string {
+  const parts: string[] = []
+  if (c.translation?.trim()) {
+    parts.push(c.translation.trim())
+  }
+  if (c.analysis?.trim()) {
+    parts.push('')
+    parts.push(c.analysis.trim())
+  }
+  if (c.url?.trim() || c.title?.trim()) {
+    parts.push('')
+    const title = c.title?.trim() || 'Source'
+    const url = c.url?.trim()
+    parts.push(url ? `Source: [${title}](${url})` : `Source: ${title}`)
+  }
+  // 若译文和分析都空，给占位避免 Anki 拒收空 Back。
+  if (parts.length === 0) parts.push('(no analysis yet)')
+  return parts.join('\n')
+}
+
+/**
+ * Export a batch of sentence cards to Anki. Mirrors exportVocabToAnki:
+ * createDeck + N×addNote as a single multi action, tally added/duplicated/failed.
+ */
+export async function exportSentencesToAnki(
+  cards: SentenceCard[],
+  opts: AnkiConfig
+): Promise<AnkiExportResult> {
+  const result: AnkiExportResult = { added: 0, duplicated: 0, failed: 0, errors: [] }
+  if (cards.length === 0) return result
+
+  const actions: AnkiConnectAction[] = [
+    { action: 'createDeck', params: { deck: opts.deckName } },
+    ...cards.map((c) => ({
+      action: 'addNote',
+      params: { note: sentenceToAnkiNote(c, { deckName: opts.deckName, modelName: opts.modelName, tags: opts.tags }) },
+    })),
+  ]
+
+  const res = await invokeAnkiConnect(opts.url, actions)
+  if (!res.ok) {
+    result.failed = cards.length
+    result.errors.push(res.error || 'Unknown AnkiConnect error')
+    return result
+  }
+
+  const perAction = Array.isArray(res.result) ? (res.result as unknown[]) : []
+  for (let i = 0; i < cards.length; i++) {
+    const addResult = perAction[i + 1]
+    if (addResult === null) {
+      result.duplicated += 1
+    } else if (typeof addResult === 'number' && addResult > 0) {
+      result.added += 1
+    } else {
+      result.failed += 1
+      result.errors.push(`"${cards[i].sentence.slice(0, 30)}…" was rejected by AnkiConnect`)
     }
   }
   return result
