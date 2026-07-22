@@ -121,6 +121,7 @@ export const STRINGS = {
   'toolbar.ask': { en: '🤖 Ask', zh: '🤖 提问' },
   'toolbar.highlight': { en: '🔖 Highlight', zh: '🔖 高亮' },
   'toolbar.saveWord': { en: '📚 Save word', zh: '📚 存词' },
+  'toolbar.explainSentence': { en: '🃏 Explain sentence', zh: '🃏 讲解句子' },
 
   // --- side panel: highlights drawer (Feature ②) ---
   'side.highlights.title': { en: 'Highlights', zh: '高亮收藏' },
@@ -144,11 +145,44 @@ export const STRINGS = {
   'side.vocab.good': { en: 'Good', zh: '良好' },
   'side.vocab.easy': { en: 'Easy', zh: '简单' },
 
+  // --- side panel: sentence library drawer (Feature ④) ---
+  'side.sentences.title': { en: 'Sentences', zh: '句库' },
+  'side.sentences.empty': {
+    en: 'Select a sentence on any page and tap "Explain sentence", or paste one here.',
+    zh: '在页面选中句子点击"讲解句子"，或在此粘贴一句。',
+  },
+  'side.sentences.search': { en: 'Search sentence / word…', zh: '搜索句子或单词…' },
+  'side.sentences.export': { en: '⬇ Export', zh: '⬇ 导出' },
+  'side.sentences.import': { en: '⬆ Import', zh: '⬆ 导入' },
+  'side.sentences.importFail': { en: 'Import failed: {msg}', zh: '导入失败：{msg}' },
+  'side.sentences.importOk': { en: 'Imported {n} cards', zh: '已导入 {n} 张卡片' },
+  'side.sentences.viewSource': { en: 'View source', zh: '查看原文' },
+  'side.sentences.addToReview': { en: 'Add to review', zh: '加入复习' },
+  'side.sentences.inReview': { en: 'Reviewing', zh: '复习中' },
+  'side.sentences.remove': { en: 'Remove', zh: '删除' },
+  'side.sentences.generating': { en: 'Analyzing sentence…', zh: '分析句子中…' },
+  'side.sentences.toAnki': { en: 'Send to Anki', zh: '发送到 Anki' },
+  'side.sentences.due': { en: 'due', zh: '待复习' },
+  'side.sentences.reviews': { en: 'reviews', zh: '次' },
+  'side.sentences.showAnalysis': { en: 'Show analysis', zh: '显示讲解' },
+  'side.sentences.hideAnalysis': { en: 'Hide', zh: '收起' },
+  'side.sentences.pasteTitle': { en: 'Explain a sentence', zh: '讲解一个句子' },
+  'side.sentences.pastePlaceholder': { en: 'Paste an English sentence…', zh: '粘贴一句英文…' },
+  'side.sentences.pasteGenerate': { en: 'Generate card', zh: '生成卡片' },
+  'side.sentences.pasteEmpty': { en: 'Enter a sentence first.', zh: '请先输入一个句子。' },
+  'side.sentences.fromVocab': { en: 'Explain this word', zh: '讲解这个词' },
+  'side.sentences.fromHighlight': { en: 'Explain this sentence', zh: '讲解这句话' },
+  'side.sentences.noContext': {
+    en: 'This word has no saved sentence. Paste one to generate a card.',
+    zh: '该词没有保存的例句，请在句库粘贴一句来生成卡片。',
+  },
+
   // --- content script: popups ---
   'popup.loading': { en: 'AI processing…', zh: 'AI 处理中…' },
   'popup.result.translate': { en: '🌐 Translation', zh: '🌐 翻译结果' },
   'popup.result.summary': { en: '📄 Summary', zh: '📄 摘要结果' },
   'popup.result.explain': { en: '💡 Explanation', zh: '💡 解释' },
+  'popup.result.explainSentence': { en: '🃏 Sentence card', zh: '🃏 讲解卡片' },
   'popup.close': { en: 'Close', zh: '关闭' },
   'popup.copy': { en: '📋 Copy', zh: '📋 复制' },
   'popup.copied': { en: '✅ Copied', zh: '✅ 已复制' },
@@ -267,6 +301,15 @@ export const STRINGS = {
     en: 'If connection fails: open AnkiConnect config and add this extension to webApiAllowedOrigins.',
     zh: '若连接失败：在 AnkiConnect 配置文件的 webApiAllowedOrigins 中添加本扩展。',
   },
+
+  // --- sentence card section labels (optional structured render) ---
+  'sentence.section.translation': { en: 'Translation', zh: '译文' },
+  'sentence.section.syntax': { en: 'Syntax', zh: '句法结构' },
+  'sentence.section.keywords': { en: 'Key words', zh: '关键词与搭配' },
+  'sentence.section.idiom': { en: 'Native expression', zh: '地道表达' },
+  'sentence.section.examples': { en: 'Examples', zh: '举一反三' },
+  'sentence.section.takeaway': { en: 'Memory point', zh: '记忆点' },
+  'sentence.err.emptyResponse': { en: '(empty analysis)', zh: '（分析为空）' },
 } as const
 
 export type StringKey = keyof typeof STRINGS
