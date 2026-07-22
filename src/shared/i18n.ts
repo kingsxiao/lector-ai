@@ -145,6 +145,12 @@ export const STRINGS = {
   'side.vocab.good': { en: 'Good', zh: '良好' },
   'side.vocab.easy': { en: 'Easy', zh: '简单' },
 
+  // --- side panel: review stats bar (Feature ④ Phase 3) ---
+  'stats.due': { en: 'Due', zh: '待复习' },
+  'stats.mastered': { en: 'Mastered', zh: '已掌握' },
+  'stats.reviews': { en: 'Reviews', zh: '复习次数' },
+  'stats.retention': { en: 'Retention', zh: '掌握度' },
+
   // --- side panel: sentence library drawer (Feature ④) ---
   'side.sentences.title': { en: 'Sentences', zh: '句库' },
   'side.sentences.empty': {
