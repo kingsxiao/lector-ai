@@ -57,6 +57,30 @@ function newId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
 }
 
+// Shared core: call AI + build + save a sentence card. Returns success boolean.
+// Callers wrap their own error UX (alert vs inline ImportMsg). Module-level
+// because it has no React closure deps.
+async function runSentenceAnalysis(sentence: string, url: string, title: string): Promise<boolean> {
+  const settings = useStore.getState().byok
+  if (!settings.apiKey) return false
+  const analysis = await completeOnce(settings, SENTENCE_CARD_SYSTEM_PROMPT, sentence, {
+    maxTokens: 1200,
+    temperature: 0.4,
+  })
+  useStore.getState().addSentence({
+    sentence,
+    translation: extractTranslation(analysis),
+    analysis: analysis || '',
+    keywords: extractKeywords(analysis),
+    quote: '',
+    url,
+    title,
+    lang: 'en',
+    srs: null,
+  })
+  return true
+}
+
 export default function App() {
   const { byok, setByok, sessions, addSession, updateSession, removeSession, clearSessions } =
     useStore()
@@ -259,21 +283,7 @@ export default function App() {
       return
     }
     try {
-      const analysis = await completeOnce(settings, SENTENCE_CARD_SYSTEM_PROMPT, sentence, {
-        maxTokens: 1200,
-        temperature: 0.4,
-      })
-      useStore.getState().addSentence({
-        sentence,
-        translation: extractTranslation(analysis),
-        analysis: analysis || '',
-        keywords: extractKeywords(analysis),
-        quote: '',
-        url,
-        title,
-        lang: 'en',
-        srs: null,
-      })
+      await runSentenceAnalysis(sentence, url, title)
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e))
     }
@@ -2064,21 +2074,7 @@ function SentencesDrawer(props: SentencesDrawerProps) {
         setImportMsg({ ok: false, text: tr('err.addKey') })
         return
       }
-      const analysis = await completeOnce(settings, SENTENCE_CARD_SYSTEM_PROMPT, text, {
-        maxTokens: 1200,
-        temperature: 0.4,
-      })
-      useStore.getState().addSentence({
-        sentence: text,
-        translation: extractTranslation(analysis),
-        analysis: analysis || '',
-        keywords: extractKeywords(analysis),
-        quote: '',
-        url: '',
-        title: tr('side.sentences.pasteTitle'),
-        lang: 'en',
-        srs: null,
-      })
+      await runSentenceAnalysis(text, '', tr('side.sentences.pasteTitle'))
       setPasteText('')
     } catch (e) {
       setImportMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
