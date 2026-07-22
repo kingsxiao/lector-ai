@@ -70,3 +70,48 @@ describe('renderMarkdown', () => {
     expect(out).toContain('&lt;script&gt;')
   })
 })
+
+describe('POS color tags', () => {
+  it('renders [n]word[/n] as a colored noun span', () => {
+    const out = renderMarkdown('[n]fox[/n]')
+    expect(out).toContain('<span class="lector-pos lector-pos-n">fox</span>')
+  })
+
+  it('renders all 8 POS types with their class', () => {
+    const tagged = '[n]fox[/n] [v]runs[/v] [a]quick[/a] [d]fast[/d] [p]on[/p] [c]and[/c] [r]she[/r] [t]the[/t]'
+    const out = renderMarkdown(tagged)
+    expect(out).toContain('lector-pos-n">fox')
+    expect(out).toContain('lector-pos-v">runs')
+    expect(out).toContain('lector-pos-a">quick')
+    expect(out).toContain('lector-pos-d">fast')
+    expect(out).toContain('lector-pos-p">on')
+    expect(out).toContain('lector-pos-c">and')
+    expect(out).toContain('lector-pos-r">she')
+    expect(out).toContain('lector-pos-t">the')
+  })
+
+  it('does NOT colorize unknown tag letters (degrades to plain text)', () => {
+    const out = renderMarkdown('[x]unknown[/x]')
+    expect(out).not.toContain('lector-pos')
+    expect(out).toContain('[x]unknown[/x]')
+  })
+
+  it('works inside a sentence with surrounding plain words', () => {
+    const out = renderMarkdown('The [n]fox[/n] jumps.')
+    expect(out).toContain('lector-pos-n">fox')
+    expect(out).toContain('The ')
+    expect(out).toContain(' jumps.')
+  })
+
+  it('escapes HTML inside the tagged word (XSS-safe)', () => {
+    const out = renderMarkdown('[n]<script>[/n]')
+    expect(out).toContain('lector-pos-n">&lt;script&gt;')
+    expect(out).not.toContain('<script>')
+  })
+
+  it('renders correctly when analysis has no POS tags (backward compat)', () => {
+    const out = renderMarkdown('## 句法结构\n\n主谓宾结构清晰。')
+    expect(out).toContain('主谓宾结构清晰。')
+    expect(out).not.toContain('lector-pos')
+  })
+})

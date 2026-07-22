@@ -17,6 +17,12 @@ function escapeHtml(s: string): string {
 
 function renderInline(s: string): string {
   let out = escapeHtml(s)
+  // POS color tags [n]word[/n] → colored span (only the 8 known codes).
+  // Runs before other inline rules; content already escaped above so XSS-safe.
+  out = out.replace(
+    /\[(n|v|a|d|p|c|r|t)\]([^\[]*?)\[\/\1\]/g,
+    (_m, code, text) => `<span class="lector-pos lector-pos-${code}">${text}</span>`
+  )
   // inline code first so its content isn't re-processed
   out = out.replace(/`([^`]+)`/g, (_m, c) => `<code>${c}</code>`)
   // bold
