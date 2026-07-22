@@ -168,6 +168,8 @@ export const STRINGS = {
   'side.sentences.remove': { en: 'Remove', zh: '删除' },
   'side.sentences.generating': { en: 'Analyzing sentence…', zh: '分析句子中…' },
   'side.sentences.toAnki': { en: 'Send to Anki', zh: '发送到 Anki' },
+  'side.sentences.toAnkiOne': { en: 'Send this card to Anki', zh: '这张卡片发送到 Anki' },
+  'anki.result': { en: 'Added {added}, duplicated {dup}, failed {fail}', zh: '新增 {added}，重复 {dup}，失败 {fail}' },
   'side.sentences.due': { en: 'due', zh: '待复习' },
   'side.sentences.reviews': { en: 'reviews', zh: '次' },
   'side.sentences.showAnalysis': { en: 'Show analysis', zh: '显示讲解' },

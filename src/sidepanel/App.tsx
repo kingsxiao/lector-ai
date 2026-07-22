@@ -956,7 +956,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             const deckName = cfg.deckName === DEFAULT_DECK_NAME ? DEFAULT_SENTENCE_DECK_NAME : cfg.deckName
             try {
               const r = await exportSentencesToAnki(cards, { ...cfg, deckName })
-              alert(`Added ${r.added}, duplicated ${r.duplicated}, failed ${r.failed}`)
+              alert(tr('anki.result').replace('{added}', String(r.added)).replace('{dup}', String(r.duplicated)).replace('{fail}', String(r.failed)))
             } catch (e) {
               alert(e instanceof Error ? e.message : String(e))
             }
@@ -2212,6 +2212,13 @@ function SentencesDrawer(props: SentencesDrawerProps) {
                               className={`text-[10px] ${c.srs ? 'text-accent' : 'text-ink-faint hover:text-accent'}`}
                             >
                               {c.srs ? tr('side.sentences.inReview') : tr('side.sentences.addToReview')}
+                            </button>
+                            <button
+                              onClick={() => props.onAnkiExport([c])}
+                              title={tr('side.sentences.toAnkiOne')}
+                              className="text-ink-faint hover:text-accent"
+                            >
+                              <DownloadIcon size={13} />
                             </button>
                             <button
                               onClick={() => props.onRemove(c.id)}
