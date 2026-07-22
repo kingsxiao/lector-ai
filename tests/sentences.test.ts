@@ -12,6 +12,7 @@ import {
   extractTranslation,
   extractKeywords,
   extractCefr,
+  extractExamples,
   exportSentences,
   importSentences,
   SENTENCE_CARD_SYSTEM_PROMPT,
@@ -390,5 +391,45 @@ B2
     expect(SENTENCE_CARD_SYSTEM_PROMPT).toContain('## 难度')
     expect(SENTENCE_CARD_SYSTEM_PROMPT).toContain('A1')
     expect(SENTENCE_CARD_SYSTEM_PROMPT).toContain('C2')
+  })
+})
+
+describe('extractExamples (Phase 6)', () => {
+  const ANALYSIS = `## 译文
+测试。
+
+## 举一反三
+1. This is the first example sentence.
+2. Here is another fresh example to reuse.
+3. A third example rounds it out.
+
+## 记忆点
+记住。`
+
+  it('extracts the 3 numbered examples from 举一反三', () => {
+    const out = extractExamples(ANALYSIS)
+    expect(out).toEqual([
+      'This is the first example sentence.',
+      'Here is another fresh example to reuse.',
+      'A third example rounds it out.',
+    ])
+  })
+
+  it('returns empty array when section missing', () => {
+    expect(extractExamples('## 译文\n\nx')).toEqual([])
+  })
+
+  it('returns empty array when no numbered items', () => {
+    expect(extractExamples('## 举一反三\n\nNo items here.')).toEqual([])
+  })
+
+  it('trims whitespace from each example', () => {
+    const a = `## 举一反三\n\n1.   spaced example  `
+    expect(extractExamples(a)).toEqual(['spaced example'])
+  })
+
+  it('stops at the next H2 section', () => {
+    const a = `## 举一反三\n\n1. First example.\n\n## 记忆点\n\n1. not an example`
+    expect(extractExamples(a)).toEqual(['First example.'])
   })
 })

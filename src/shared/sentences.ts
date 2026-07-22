@@ -206,6 +206,20 @@ export function extractCefr(analysis: string): CefrLevel | null {
   return m ? (m[1] as CefrLevel) : null
 }
 
+/**
+ * 从「## 举一反三」节提取有序列表例句。返回去空白后的例句数组。
+ * 缺节或无有序项返回空数组。节边界是下一个 `## ` 或文末。
+ */
+export function extractExamples(analysis: string): string[] {
+  const section = analysis.match(/##\s*举一反三\s*\n([\s\S]*?)(?=\n##\s|$)/)?.[1] ?? ''
+  const out: string[] = []
+  for (const line of section.split('\n')) {
+    const m = line.match(/^\s*\d+\.\s+(.*)$/)
+    if (m && m[1].trim()) out.push(m[1].trim())
+  }
+  return out
+}
+
 /** 序列化为 pretty JSON（备份/迁移）。 */
 export function exportSentences(cards: SentenceCard[]): string {
   return JSON.stringify(cards, null, 2)
