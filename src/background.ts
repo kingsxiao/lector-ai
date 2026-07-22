@@ -8,6 +8,7 @@
 
 import { t, type StringKey } from './shared/i18n'
 import { getSettings, completeOnce } from './shared/byok'
+import { SENTENCE_CARD_SYSTEM_PROMPT, extractTranslation, extractKeywords, newCardId } from './shared/sentences'
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Lector AI installed')
@@ -55,6 +56,10 @@ chrome.runtime.onMessage.addListener((message) => {
   }
   if (message?.action === 'lector-save-word') {
     handleSaveWordRelay(message).catch(() => {})
+    return false
+  }
+  if (message?.action === 'lector-explain-sentence') {
+    handleExplainSentenceRelay(message).catch(() => {})
     return false
   }
   return false
@@ -125,6 +130,50 @@ async function handleSaveWordRelay(message: {
       }
     }
     chrome.storage.local.set({ lectorVocab: list.slice(0, 2000) })
+  })
+}
+
+async function handleExplainSentenceRelay(message: {
+  sentence: string
+  quote: string
+  url: string
+  title: string
+  blockId?: string
+}) {
+  const settings = await getSettings()
+  if (!settings.apiKey) {
+    // 无 key：不生成卡片，引导用户去侧栏配置（content 已弹提示，此处静默返回）。
+    return
+  }
+  let analysis = ''
+  try {
+    analysis = await completeOnce(
+      settings,
+      SENTENCE_CARD_SYSTEM_PROMPT,
+      message.sentence,
+      { maxTokens: 1200, temperature: 0.4 }
+    )
+  } catch {
+    analysis = '' // 空分析；卡片仍创建，UI 显示占位
+  }
+  const card = {
+    id: newCardId(),
+    sentence: message.sentence,
+    translation: extractTranslation(analysis),
+    analysis,
+    keywords: extractKeywords(analysis),
+    quote: message.quote,
+    url: message.url,
+    title: message.title,
+    blockId: message.blockId,
+    lang: 'en',
+    createdAt: Date.now(),
+    srs: null,
+  }
+  chrome.storage.local.get(['lectorSentences'], (r) => {
+    const list = Array.isArray(r.lectorSentences) ? r.lectorSentences : []
+    list.unshift(card)
+    chrome.storage.local.set({ lectorSentences: list.slice(0, 50) })
   })
 }
 

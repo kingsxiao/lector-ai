@@ -221,6 +221,7 @@ function createToolbar(x: number, y: number, text: string) {
   selectionToolbar.appendChild(mk('t-btn', tr('toolbar.ask'), () => handleAction('ask', text)))
   selectionToolbar.appendChild(mk('t-btn', tr('toolbar.highlight'), () => handleHighlight(text)))
   selectionToolbar.appendChild(mk('t-btn', tr('toolbar.saveWord'), () => handleSaveWord(text)))
+  selectionToolbar.appendChild(mk('t-btn', tr('toolbar.explainSentence'), () => handleExplainSentence(text)))
 
   const closeBtn = document.createElement('button')
   closeBtn.className = 'close-btn'
@@ -503,6 +504,23 @@ function handleSaveWord(word: string) {
     action: 'lector-save-word',
     word,
     context,
+    url: location.href,
+    title: document.title,
+    blockId,
+  })
+  removeToolbar()
+}
+
+function handleExplainSentence(sentence: string) {
+  const sel = window.getSelection()
+  const anchor = sel?.anchorNode?.parentElement
+  const block = anchor?.closest('[data-lector-id]') as HTMLElement | null
+  const blockId = block?.getAttribute('data-lector-id') || undefined
+  const quote = (anchor?.textContent || sentence).slice(0, 200)
+  void relayOrAlert({
+    action: 'lector-explain-sentence',
+    sentence,
+    quote,
     url: location.href,
     title: document.title,
     blockId,
