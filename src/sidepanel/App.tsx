@@ -6,11 +6,20 @@ import { isDue, scheduleSrs, type Grade } from '../shared/srs'
 import { toMarkdown } from '../shared/exporters'
 import type { Highlight } from '../shared/highlights'
 import type { VocabEntry } from '../shared/vocabulary'
-import type { SentenceCard } from '../shared/sentences'
+import {
+  searchSentences,
+  groupSentences,
+  exportSentences,
+  importSentences,
+  extractTranslation,
+  extractKeywords,
+  SENTENCE_CARD_SYSTEM_PROMPT,
+  type SentenceCard,
+} from '../shared/sentences'
 import {
   LibraryIcon, BookmarkIcon, BookOpenIcon, LanguagesIcon,
   SendIcon, XIcon, ClipboardListIcon, PlusIcon, PencilIcon, TrashIcon,
-  BookMarkedIcon, DownloadIcon, UploadIcon,
+  BookMarkedIcon, DownloadIcon, UploadIcon, CardsIcon, SparklesIcon,
 } from '../shared/icons'
 import {
   PROVIDERS,
@@ -18,7 +27,7 @@ import {
   type ProviderId,
   type ByokSettings,
 } from '../shared/providers'
-import { streamChat, getSettings, saveSettings, testConnection, fetchModels, type ChatMessage as WireMessage, type FetchedModel } from '../shared/byok'
+import { streamChat, completeOnce, getSettings, saveSettings, testConnection, fetchModels, type ChatMessage as WireMessage, type FetchedModel } from '../shared/byok'
 import { t, type StringKey, type LocalePref } from '../shared/i18n'
 import {
   fillTemplate, filterTemplates, sortTemplates, validateTemplate,
@@ -65,6 +74,10 @@ export default function App() {
   const updateGlossaryEntry = useStore((s) => s.updateGlossaryEntry)
   const removeGlossaryEntry = useStore((s) => s.removeGlossaryEntry)
   const replaceGlossary = useStore((s) => s.replaceGlossary)
+  const sentences = useStore((s) => s.sentences)
+  const removeSentence = useStore((s) => s.removeSentence)
+  const promoteSentenceToReview = useStore((s) => s.promoteSentenceToReview)
+  const updateSentenceSrs = useStore((s) => s.updateSentenceSrs)
 
   const tr = (key: StringKey) => t(key, byok.locale)
   // Resolve a template's display title (i18n key for built-ins, raw for custom).
@@ -88,7 +101,9 @@ export default function App() {
   const [showVocab, setShowVocab] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
   const [showGlossary, setShowGlossary] = useState(false)
+  const [showSentences, setShowSentences] = useState(false)
   const [revealedVocab, setRevealedVocab] = useState<Set<string>>(new Set())
+  const [revealedSentences, setRevealedSentences] = useState<Set<string>>(new Set())
   const [bilingualBusy, setBilingualBusy] = useState(false)
   // "/" menu state
   const [slashMenu, setSlashMenu] = useState<{ open: boolean; query: string; activeIdx: number }>(
@@ -475,6 +490,17 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             )}
           </button>
           <button
+            onClick={() => setShowSentences(true)}
+            title={tr('side.sentences.title')}
+            aria-label={tr('side.sentences.title')}
+            className="lector-focus w-8 h-8 rounded-lg hover:bg-surface-muted text-ink-soft flex items-center justify-center relative"
+          >
+            <CardsIcon />
+            {sentences.some((c) => c.srs && isDue(c.srs)) && (
+              <span className="lector-due-badge absolute -top-0.5 -right-1">!</span>
+            )}
+          </button>
+          <button
             onClick={() => setShowTemplates(true)}
             title={tr('side.templates.title')}
             aria-label={tr('side.templates.title')}
@@ -832,6 +858,48 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           onUpdate={(id, patch) => updateGlossaryEntry(id, patch)}
           onRemove={(id) => removeGlossaryEntry(id)}
           onImport={(entries) => replaceGlossary(entries)}
+        />
+      )}
+
+      {/* Sentence Library drawer */}
+      {showSentences && (
+        <SentencesDrawer
+          sentences={sentences}
+          revealed={revealedSentences}
+          tr={tr}
+          onClose={() => setShowSentences(false)}
+          onToggleReveal={(id) =>
+            setRevealedSentences((prev) => {
+              const next = new Set(prev)
+              if (next.has(id)) next.delete(id)
+              else next.add(id)
+              return next
+            })
+          }
+          onRemove={(id) => removeSentence(id)}
+          onPromote={(id) => promoteSentenceToReview(id)}
+          onGrade={(c, g) => {
+            if (c.srs) updateSentenceSrs(c.id, scheduleSrs(c.srs, g))
+            setRevealedSentences((prev) => {
+              const next = new Set(prev)
+              next.delete(c.id)
+              return next
+            })
+          }}
+          onViewSource={(blockId, url) => {
+            if (blockId) {
+              chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                const tabId = tabs[0]?.id
+                if (tabId !== undefined) {
+                  chrome.tabs.sendMessage(tabId, { action: 'lector-jump-to', blockId }, () => {
+                    void chrome.runtime.lastError
+                  })
+                }
+              })
+            } else if (url) {
+              window.open(url, '_blank')
+            }
+          }}
         />
       )}
     </div>
@@ -1878,5 +1946,272 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
         </div>
       </div>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Sentence Library drawer — paste-to-generate, search, group, SRS review
+// ---------------------------------------------------------------------------
+interface SentencesDrawerProps {
+  sentences: SentenceCard[]
+  revealed: Set<string>
+  tr: (key: StringKey) => string
+  onClose: () => void
+  onToggleReveal: (id: string) => void
+  onRemove: (id: string) => void
+  onPromote: (id: string) => void
+  onGrade: (c: SentenceCard, grade: Grade) => void
+  onViewSource: (blockId: string | undefined, url: string) => void
+}
+
+function SentencesDrawer(props: SentencesDrawerProps) {
+  const { sentences, revealed, tr, onClose } = props
+  const [query, setQuery] = useState('')
+  const [pasteText, setPasteText] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const filtered = searchSentences(sentences, query)
+  const groups = groupSentences(filtered)
+
+  const handleGenerate = async () => {
+    const text = pasteText.trim()
+    if (!text) {
+      setImportMsg({ ok: false, text: tr('side.sentences.pasteEmpty') })
+      return
+    }
+    setGenerating(true)
+    setImportMsg(null)
+    try {
+      const settings = useStore.getState().byok
+      if (!settings.apiKey) {
+        setImportMsg({ ok: false, text: tr('err.addKey') })
+        return
+      }
+      const analysis = await completeOnce(settings, SENTENCE_CARD_SYSTEM_PROMPT, text, {
+        maxTokens: 1200,
+        temperature: 0.4,
+      })
+      useStore.getState().addSentence({
+        sentence: text,
+        translation: extractTranslation(analysis),
+        analysis: analysis || '',
+        keywords: extractKeywords(analysis),
+        quote: '',
+        url: '',
+        title: tr('side.sentences.pasteTitle'),
+        lang: 'en',
+        srs: null,
+      })
+      setPasteText('')
+    } catch (e) {
+      setImportMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const handleExport = () => {
+    const json = exportSentences(sentences)
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'lector-sentences.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = importSentences(String(reader.result || ''))
+      if (!result.ok) {
+        setImportMsg({ ok: false, text: tr('side.sentences.importFail').replace('{msg}', result.reason || '') })
+        return
+      }
+      useStore.getState().replaceSentences(result.cards || [])
+      setImportMsg({ ok: true, text: tr('side.sentences.importOk').replace('{n}', String(result.cards?.length || 0)) })
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+
+  return (
+    <Drawer title={tr('side.sentences.title')} onClose={onClose}>
+      {sentences.length === 0 && !pasteText ? (
+        <>
+          <div className="px-3 py-2 border-b border-line">
+            <PasteBox
+              value={pasteText}
+              onChange={setPasteText}
+              onGenerate={handleGenerate}
+              generating={generating}
+              tr={tr}
+            />
+            {importMsg && <ImportMsg msg={importMsg} />}
+          </div>
+          <Empty text={tr('side.sentences.empty')} />
+        </>
+      ) : (
+        <>
+          <div className="px-3 py-2 border-b border-line space-y-2">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={tr('side.sentences.search')}
+              className="w-full px-2 py-1.5 text-[12px] bg-bg border border-line rounded-md focus:outline-none focus:border-accent"
+            />
+            <PasteBox
+              value={pasteText}
+              onChange={setPasteText}
+              onGenerate={handleGenerate}
+              generating={generating}
+              tr={tr}
+            />
+            {importMsg && <ImportMsg msg={importMsg} />}
+            <div className="flex gap-2">
+              <button
+                onClick={handleExport}
+                className="flex-1 py-1.5 text-[11px] font-medium rounded-md border border-line text-ink-soft hover:bg-surface-muted flex items-center justify-center gap-1"
+              >
+                <DownloadIcon size={12} /> {tr('side.sentences.export')}
+              </button>
+              <label className="flex-1 py-1.5 text-[11px] font-medium rounded-md border border-line text-ink-soft hover:bg-surface-muted flex items-center justify-center gap-1 cursor-pointer text-center">
+                <UploadIcon size={12} /> {tr('side.sentences.import')}
+                <input type="file" accept="application/json,.json" onChange={handleImport} className="hidden" />
+              </label>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {[...groups.entries()].map(([key, cards]) => {
+              const [title] = key.split('\u0000')
+              return (
+                <div key={key}>
+                  <div className="px-3 py-1.5 bg-surface-muted text-[10px] font-medium text-ink-faint sticky top-0">
+                    {title || tr('side.sentences.pasteTitle')}
+                  </div>
+                  {cards.map((c) => {
+                    const due = c.srs ? isDue(c.srs) : false
+                    const isRevealed = revealed.has(c.id)
+                    return (
+                      <div key={c.id} className="group px-3 py-2.5 border-b border-line/60">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[12px] font-semibold ${due ? 'text-accent' : 'text-ink'}`}>
+                            {c.sentence}
+                          </span>
+                          {due && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
+                              {tr('side.sentences.due')}
+                            </span>
+                          )}
+                          {c.srs && (
+                            <span className="text-[10px] text-ink-faint">
+                              {c.srs.reps} {tr('side.sentences.reviews')}
+                            </span>
+                          )}
+                          <div className="ml-auto flex items-center gap-1">
+                            {c.blockId || c.url ? (
+                              <button
+                                onClick={() => props.onViewSource(c.blockId, c.url)}
+                                title={tr('side.sentences.viewSource')}
+                                className="text-ink-faint hover:text-accent"
+                              >
+                                <SparklesIcon size={13} />
+                              </button>
+                            ) : null}
+                            <button
+                              onClick={() => (c.srs ? undefined : props.onPromote(c.id))}
+                              className={`text-[10px] ${c.srs ? 'text-accent' : 'text-ink-faint hover:text-accent'}`}
+                            >
+                              {c.srs ? tr('side.sentences.inReview') : tr('side.sentences.addToReview')}
+                            </button>
+                            <button
+                              onClick={() => props.onRemove(c.id)}
+                              aria-label={tr('side.sentences.remove')}
+                              className="text-ink-faint hover:text-danger"
+                            >
+                              <XIcon size={15} />
+                            </button>
+                          </div>
+                        </div>
+                        {(c.translation || c.analysis) && (
+                          <button
+                            onClick={() => props.onToggleReveal(c.id)}
+                            className="text-[10px] text-accent hover:underline mt-1"
+                          >
+                            {isRevealed ? tr('side.sentences.hideAnalysis') : tr('side.sentences.showAnalysis')}
+                          </button>
+                        )}
+                        {isRevealed && (c.translation || c.analysis) && (
+                          <div
+                            className="lector-prose mt-2 text-[11px] leading-relaxed"
+                            dangerouslySetInnerHTML={{ __html: renderMarkdown(c.analysis || c.translation) }}
+                          />
+                        )}
+                        {due && c.srs && (
+                          <div className="flex gap-1.5 mt-2">
+                            {(['again', 'hard', 'good', 'easy'] as Grade[]).map((g) => (
+                              <button
+                                key={g}
+                                onClick={() => props.onGrade(c, g)}
+                                className="flex-1 py-1.5 text-[10px] font-medium rounded-md border border-line hover:bg-surface-muted text-ink-soft"
+                              >
+                                {tr(`side.vocab.${g}` as StringKey)}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </Drawer>
+  )
+}
+
+function PasteBox({
+  value,
+  onChange,
+  onGenerate,
+  generating,
+  tr,
+}: {
+  value: string
+  onChange: (v: string) => void
+  onGenerate: () => void
+  generating: boolean
+  tr: (key: StringKey) => string
+}) {
+  return (
+    <div className="space-y-1.5">
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={tr('side.sentences.pastePlaceholder')}
+        rows={2}
+        className="w-full px-2 py-1.5 text-[12px] bg-bg border border-line rounded-md focus:outline-none focus:border-accent resize-none"
+      />
+      <button
+        onClick={onGenerate}
+        disabled={generating}
+        className="w-full py-1.5 text-[11px] font-medium rounded-md bg-accent text-accent-on disabled:opacity-50"
+      >
+        {generating ? tr('side.sentences.generating') : tr('side.sentences.pasteGenerate')}
+      </button>
+    </div>
+  )
+}
+
+function ImportMsg({ msg }: { msg: { ok: boolean; text: string } }) {
+  return (
+    <div className={`text-[10px] ${msg.ok ? 'text-green-600' : 'text-red-500'}`}>{msg.text}</div>
   )
 }
