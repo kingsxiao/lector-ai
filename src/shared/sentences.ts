@@ -13,6 +13,9 @@
 
 import type { SrsState } from './srs'
 
+/** CEFR 难度等级(欧洲语言共同参考框架)。*/
+export type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2'
+
 export interface SentenceCard {
   /** 's' + base36(time) + random — 对齐 vocab('v')/highlight('h') 前缀约定。*/
   id: string
@@ -31,6 +34,8 @@ export interface SentenceCard {
   /** data-lector-id，跳回原文复用 content.ts 现有滚动逻辑。*/
   blockId?: string
   lang: string
+  /** CEFR 难度等级,从「## 难度」节提取。未知/旧卡为 null。*/
+  cefr: CefrLevel | null
   createdAt: number
   /** null = 被动参考；opt-in「加入复习」后 newSrs()。*/
   srs: SrsState | null
@@ -189,6 +194,18 @@ export function extractKeywords(analysis: string): string[] {
   return out
 }
 
+const VALID_CEFR = new Set(['A1', 'A2', 'B1', 'B2', 'C1', 'C2'])
+
+/**
+ * 从「## 难度」节提取 CEFR 等级。容忍节内多余文字(取首个匹配的有效等级)。
+ * 缺节或无有效等级返回 null。
+ */
+export function extractCefr(analysis: string): CefrLevel | null {
+  const section = analysis.match(/##\s*难度\s*\n([\s\S]*?)(?=\n##\s|$)/)?.[1] ?? ''
+  const m = section.match(/\b(A1|A2|B1|B2|C1|C2)\b/)
+  return m ? (m[1] as CefrLevel) : null
+}
+
 /** 序列化为 pretty JSON（备份/迁移）。 */
 export function exportSentences(cards: SentenceCard[]): string {
   return JSON.stringify(cards, null, 2)
@@ -243,7 +260,9 @@ export function importSentences(json: string): {
     const lang = typeof r.lang === 'string' ? r.lang : 'en'
     const createdAt = typeof r.createdAt === 'number' ? r.createdAt : now
     const srs = isValidSrsState(r.srs) ? (r.srs as SrsState) : null
-    cards.push({ id, sentence, translation, analysis, keywords, quote, url, title, blockId, lang, createdAt, srs })
+    const cefrRaw = typeof r.cefr === 'string' ? r.cefr : null
+    const cefr = cefrRaw && VALID_CEFR.has(cefrRaw) ? (cefrRaw as CefrLevel) : null
+    cards.push({ id, sentence, translation, analysis, keywords, quote, url, title, blockId, lang, cefr, createdAt, srs })
   }
   return { ok: true, cards }
 }
@@ -262,6 +281,9 @@ NOTHING before the first "## " or after the last section:
 
 ## 译文
 <faithful Chinese translation, one line>
+
+## 难度
+<output ONE word: the CEFR level of this sentence — one of A1, A2, B1, B2, C1, C2>
 
 ## 句法结构
 First, output ONE line: the sentence with each word wrapped in a POS tag using

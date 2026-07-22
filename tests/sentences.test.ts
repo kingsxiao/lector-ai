@@ -11,6 +11,7 @@ import {
   groupSentences,
   extractTranslation,
   extractKeywords,
+  extractCefr,
   exportSentences,
   importSentences,
   SENTENCE_CARD_SYSTEM_PROMPT,
@@ -32,6 +33,7 @@ const card = (
   title: opts.title ?? 'Title',
   blockId: opts.blockId,
   lang: opts.lang ?? 'en',
+  cefr: opts.cefr ?? null,
   createdAt: opts.createdAt ?? 1000,
   srs: opts.srs ?? null,
 })
@@ -84,6 +86,7 @@ describe('makeSentenceCard', () => {
       url: '',
       title: '',
       lang: 'en',
+      cefr: null,
     })
     expect(c.srs).toBeNull()
     expect(typeof c.createdAt).toBe('number')
@@ -99,6 +102,7 @@ describe('makeSentenceCard', () => {
       url: '',
       title: '',
       lang: 'en',
+      cefr: null,
     })
     expect(c.sentence).toBe('messy spacing')
   })
@@ -345,5 +349,46 @@ describe('importSentences — SrsState validation', () => {
     ]
     const r = importSentences(JSON.stringify(dirty))
     expect(r.cards?.[0].srs).toBeNull()
+  })
+})
+
+describe('CEFR level (Phase 5)', () => {
+  const ANALYSIS_WITH_CEFR = `## 译文
+测试句子。
+
+## 难度
+B2
+
+## 句法结构
+[n]test[/n]`
+
+  it('extractCefr extracts the level from 难度 section', () => {
+    expect(extractCefr(ANALYSIS_WITH_CEFR)).toBe('B2')
+  })
+
+  it('extractCefr returns null when section missing', () => {
+    expect(extractCefr('## 译文\n\nx')).toBeNull()
+  })
+
+  it('extractCefr tolerates extra text around the level', () => {
+    const a = `## 难度\n\nThis sentence is B1 level.`
+    expect(extractCefr(a)).toBe('B1')
+  })
+
+  it('extractCefr returns null for invalid level', () => {
+    const a = `## 难度\n\nXYZ`
+    expect(extractCefr(a)).toBeNull()
+  })
+
+  it('extractCefr handles all 6 valid levels', () => {
+    for (const lvl of ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']) {
+      expect(extractCefr(`## 难度\n\n${lvl}`)).toBe(lvl)
+    }
+  })
+
+  it('SENTENCE_CARD_SYSTEM_PROMPT includes a 难度 section instructing CEFR output', () => {
+    expect(SENTENCE_CARD_SYSTEM_PROMPT).toContain('## 难度')
+    expect(SENTENCE_CARD_SYSTEM_PROMPT).toContain('A1')
+    expect(SENTENCE_CARD_SYSTEM_PROMPT).toContain('C2')
   })
 })

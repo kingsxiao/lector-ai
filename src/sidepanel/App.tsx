@@ -14,6 +14,7 @@ import {
   importSentences,
   extractTranslation,
   extractKeywords,
+  extractCefr,
   SENTENCE_CARD_SYSTEM_PROMPT,
   type SentenceCard,
 } from '../shared/sentences'
@@ -76,6 +77,7 @@ async function runSentenceAnalysis(sentence: string, url: string, title: string)
     url,
     title,
     lang: 'en',
+    cefr: extractCefr(analysis),
     srs: null,
   })
   return true

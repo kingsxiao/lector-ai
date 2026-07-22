@@ -8,7 +8,7 @@
 
 import { t, type StringKey } from './shared/i18n'
 import { getSettings, completeOnce } from './shared/byok'
-import { SENTENCE_CARD_SYSTEM_PROMPT, extractTranslation, extractKeywords, newCardId } from './shared/sentences'
+import { SENTENCE_CARD_SYSTEM_PROMPT, extractTranslation, extractKeywords, extractCefr, newCardId } from './shared/sentences'
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Lector AI installed')
@@ -169,6 +169,7 @@ async function handleExplainSentenceRelay(message: {
     title: message.title,
     blockId: message.blockId,
     lang: 'en',
+    cefr: extractCefr(analysis),
     createdAt: Date.now(),
     srs: null,
   }
