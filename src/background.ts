@@ -142,7 +142,9 @@ async function handleExplainSentenceRelay(message: {
 }) {
   const settings = await getSettings()
   if (!settings.apiKey) {
-    // 无 key：不生成卡片，引导用户去侧栏配置（content 已弹提示，此处静默返回）。
+    // No key: content.ts already surfaces the "add key" UX (result popup +
+    // opens the side panel), so this is a defensive secondary guard for the
+    // case where a relay arrives without a key (e.g. race / direct message).
     return
   }
   let analysis = ''

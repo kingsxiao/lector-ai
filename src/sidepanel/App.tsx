@@ -40,6 +40,7 @@ import {
 import {
   exportVocabToAnki, exportSentencesToAnki, withAnkiDefaults,
   DEFAULT_ANKI_CONNECT_URL, DEFAULT_DECK_NAME, DEFAULT_MODEL_NAME,
+  DEFAULT_SENTENCE_DECK_NAME,
   type AnkiExportResult, type AnkiConfig,
 } from '../shared/anki'
 
@@ -951,7 +952,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           onAnkiExport={async (cards) => {
             const settings = useStore.getState().byok
             const cfg = withAnkiDefaults(settings.anki)
-            const deckName = cfg.deckName === 'Lector::Vocabulary' ? 'Lector::Sentences' : cfg.deckName
+            const deckName = cfg.deckName === DEFAULT_DECK_NAME ? DEFAULT_SENTENCE_DECK_NAME : cfg.deckName
             try {
               const r = await exportSentencesToAnki(cards, { ...cfg, deckName })
               alert(`Added ${r.added}, duplicated ${r.duplicated}, failed ${r.failed}`)

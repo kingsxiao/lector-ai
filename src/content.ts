@@ -511,12 +511,26 @@ function handleSaveWord(word: string) {
   removeToolbar()
 }
 
-function handleExplainSentence(sentence: string) {
+async function handleExplainSentence(sentence: string) {
   const sel = window.getSelection()
   const anchor = sel?.anchorNode?.parentElement
   const block = anchor?.closest('[data-lector-id]') as HTMLElement | null
   const blockId = block?.getAttribute('data-lector-id') || undefined
   const quote = (anchor?.textContent || sentence).slice(0, 200)
+
+  // No API key: mirror the runByokAction no-key UX — surface an "add key"
+  // result popup at the toolbar and open the side panel, instead of silently
+  // relaying (which background.ts would drop on the floor). Checklist §14.12.
+  const settings = await getSettings()
+  cachedPref = settings.locale ?? 'auto'
+  if (!settings.apiKey) {
+    const r = () => selectionToolbar?.getBoundingClientRect()
+    showResult(r()?.left || 100, r()?.top || 100, tr('err.addKey'), 'explain')
+    chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
+    removeToolbar()
+    return
+  }
+
   void relayOrAlert({
     action: 'lector-explain-sentence',
     sentence,
