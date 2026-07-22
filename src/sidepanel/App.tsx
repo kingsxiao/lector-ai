@@ -38,7 +38,7 @@ import {
   type GlossaryEntry,
 } from '../shared/glossary'
 import {
-  exportVocabToAnki, withAnkiDefaults,
+  exportVocabToAnki, exportSentencesToAnki, withAnkiDefaults,
   DEFAULT_ANKI_CONNECT_URL, DEFAULT_DECK_NAME, DEFAULT_MODEL_NAME,
   type AnkiExportResult, type AnkiConfig,
 } from '../shared/anki'
@@ -243,6 +243,38 @@ export default function App() {
       else next.add(id)
       return next
     })
+  }
+
+  // Shared sentence-card generator. Lives at App scope so VocabDrawer and the
+  // Highlights drawer (sibling components, not children of SentencesDrawer) can
+  // fire it from their own item-level "explain this" buttons. Mirrors the
+  // core of SentencesDrawer.handleGenerate but parameterizes the inputs
+  // (sentence / url / title) so callers don't need their own closure.
+  const generateSentenceCard = async (sentence: string, url: string, title: string) => {
+    const settings = useStore.getState().byok
+    if (!settings.apiKey) {
+      alert(tr('err.addKey'))
+      return
+    }
+    try {
+      const analysis = await completeOnce(settings, SENTENCE_CARD_SYSTEM_PROMPT, sentence, {
+        maxTokens: 1200,
+        temperature: 0.4,
+      })
+      useStore.getState().addSentence({
+        sentence,
+        translation: extractTranslation(analysis),
+        analysis: analysis || '',
+        keywords: extractKeywords(analysis),
+        quote: '',
+        url,
+        title,
+        lang: 'en',
+        srs: null,
+      })
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e))
+    }
   }
 
   // Inline bilingual translation — ask the active tab's content script to
@@ -797,13 +829,22 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                         {h.note && <div className="text-[11px] text-ink-faint mt-1">{h.note}</div>}
                         <div className="text-[10px] text-ink-faint mt-1 truncate">{h.title}</div>
                       </div>
-                      <button
-                        onClick={() => removeHighlight(h.id)}
-                        aria-label="Delete highlight"
-                        className="opacity-0 group-hover:opacity-100 text-meta text-ink-faint hover:text-danger"
-                      >
-                        <XIcon size={15} />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => generateSentenceCard(h.text, h.url, h.title)}
+                          title={tr('side.sentences.fromHighlight')}
+                          className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent"
+                        >
+                          <SparklesIcon size={13} />
+                        </button>
+                        <button
+                          onClick={() => removeHighlight(h.id)}
+                          aria-label="Delete highlight"
+                          className="opacity-0 group-hover:opacity-100 text-meta text-ink-faint hover:text-danger"
+                        >
+                          <XIcon size={15} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -831,6 +872,13 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           onRemoveVocab={removeVocab}
           onGradeVocab={(v, g) => gradeVocab(v, g)}
           onSaveAnkiConfig={(cfg) => setByok({ anki: cfg })}
+          onExplainVocab={(v) => {
+            if (!v.context?.trim()) {
+              alert(tr('side.sentences.noContext'))
+              return
+            }
+            void generateSentenceCard(v.context, v.url, v.title)
+          }}
         />
       )}
 
@@ -898,6 +946,17 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               })
             } else if (url) {
               window.open(url, '_blank')
+            }
+          }}
+          onAnkiExport={async (cards) => {
+            const settings = useStore.getState().byok
+            const cfg = withAnkiDefaults(settings.anki)
+            const deckName = cfg.deckName === 'Lector::Vocabulary' ? 'Lector::Sentences' : cfg.deckName
+            try {
+              const r = await exportSentencesToAnki(cards, { ...cfg, deckName })
+              alert(`Added ${r.added}, duplicated ${r.duplicated}, failed ${r.failed}`)
+            } catch (e) {
+              alert(e instanceof Error ? e.message : String(e))
             }
           }}
         />
@@ -1026,6 +1085,8 @@ interface VocabDrawerProps {
   onGradeVocab: (v: VocabEntry, grade: Grade) => void
   /** Persist the user-edited Anki config back into settings. */
   onSaveAnkiConfig: (cfg: { url: string; deckName: string; modelName: string; tags: string[] }) => void
+  /** Generate a sentence card from this vocab entry's context sentence. */
+  onExplainVocab: (v: VocabEntry) => void
 }
 
 function VocabDrawer({
@@ -1038,6 +1099,7 @@ function VocabDrawer({
   onRemoveVocab,
   onGradeVocab,
   onSaveAnkiConfig,
+  onExplainVocab,
 }: VocabDrawerProps) {
   // Anki export sub-panel state. `showPanel` toggles the form; `sending` and
   // `result` drive the UX during/after the POST.
@@ -1192,6 +1254,15 @@ function VocabDrawer({
                     <span className="text-[10px] text-ink-faint ml-auto">
                       {v.srs.reps} {tr('side.vocab.reviews')}
                     </span>
+                    {v.context?.trim() && (
+                      <button
+                        onClick={() => onExplainVocab(v)}
+                        title={tr('side.sentences.fromVocab')}
+                        className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent"
+                      >
+                        <SparklesIcon size={13} />
+                      </button>
+                    )}
                     <button
                       onClick={() => onRemoveVocab(v.id)}
                       aria-label="Delete word"
@@ -1962,6 +2033,8 @@ interface SentencesDrawerProps {
   onPromote: (id: string) => void
   onGrade: (c: SentenceCard, grade: Grade) => void
   onViewSource: (blockId: string | undefined, url: string) => void
+  /** Batch-export the given cards to Anki (caller resolves config + deck). */
+  onAnkiExport: (cards: SentenceCard[]) => void
 }
 
 function SentencesDrawer(props: SentencesDrawerProps) {
@@ -2083,6 +2156,12 @@ function SentencesDrawer(props: SentencesDrawerProps) {
                 <UploadIcon size={12} /> {tr('side.sentences.import')}
                 <input type="file" accept="application/json,.json" onChange={handleImport} className="hidden" />
               </label>
+              <button
+                onClick={() => props.onAnkiExport(filtered)}
+                className="flex-1 py-1.5 text-[11px] font-medium rounded-md border border-line text-ink-soft hover:bg-surface-muted flex items-center justify-center gap-1"
+              >
+                {tr('side.sentences.toAnki')}
+              </button>
             </div>
           </div>
           <div className="flex-1 overflow-y-auto">
