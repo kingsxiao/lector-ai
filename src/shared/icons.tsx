@@ -73,3 +73,15 @@ export function UploadIcon({ size = 18, ...p }: IconProps) {
 export function CardsIcon({ size = 18, ...p }: IconProps) {
   return (<svg {...svgProps(size)} {...p}><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></svg>)
 }
+export function GripVerticalIcon({ size = 18, ...p }: IconProps) {
+  return (<svg {...svgProps(size)} {...p}><circle cx="9" cy="6" r="1" /><circle cx="9" cy="12" r="1" /><circle cx="9" cy="18" r="1" /><circle cx="15" cy="6" r="1" /><circle cx="15" cy="12" r="1" /><circle cx="15" cy="18" r="1" /></svg>)
+}
+export function CheckIcon({ size = 18, ...p }: IconProps) {
+  return (<svg {...svgProps(size)} {...p}><path d="M20 6 9 17l-5-5" /></svg>)
+}
+export function SearchIcon({ size = 18, ...p }: IconProps) {
+  return (<svg {...svgProps(size)} {...p}><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>)
+}
+export function GlobeIcon({ size = 18, ...p }: IconProps) {
+  return (<svg {...svgProps(size)} {...p}><circle cx="12" cy="12" r="10" /><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /><path d="M2 12h20" /></svg>)
+}

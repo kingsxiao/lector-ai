@@ -8,3 +8,5 @@ dist
 .DS_Store
 .superpowers/
 .zcode
+# Playwright MCP tool artifacts
+.playwright-mcp/

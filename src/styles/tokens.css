@@ -3,33 +3,64 @@
    content.css 不 import：content script 注入到任意网页，禁用全局 :root，
    其样式就地引用下列色值常量，避免污染宿主页面。 */
 :root {
-  /* 色板 - 暖中性 */
+  /* 色板 - 暖中性（纸感） */
   --bg: #FBF8F2;
   --surface: #FFFFFF;
   --surface-muted: #F5EFE3;
+  --surface-sunken: #F1E9D8;
   --line: #E8DECC;
   --line-strong: #D9CBB0;
   --ink: #2B2620;
   --ink-soft: #6B6155;
   --ink-faint: #9A8E7A;
+
   --accent: #9C6B3C;
   --accent-hover: #875A2F;
   --accent-soft: #F2E6D2;
-  --danger: #B4452F;
+  --accent-softer: #F8F0E2;
   --on-accent: #FFF8EE;
+
+  /* 语义色（克制的暖调变体，与棕色基调和谐） */
+  --danger: #B4452F;
+  --danger-soft: #FAEEE9;
+  --success: #4E7A4A;
+  --success-soft: #EDF3EB;
+  --warn: #B07D2B;
+  --warn-soft: #F7EFDD;
 
   /* 字体 */
   --font-serif: Georgia, 'Iowan Old Style', 'Source Serif Pro', 'Songti SC', serif;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'PingFang SC', sans-serif;
   --font-mono: 'SF Mono', Menlo, Consolas, monospace;
 
+  /* 字号阶梯（紧凑工具型 UI） */
+  --t-xs: 10px;
+  --t-sm: 11px;
+  --t-body: 13px;
+  --t-md: 15px;
+  --t-lg: 18px;
+
+  /* 间距阶梯 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+
   /* 圆角 */
   --r-sm: 6px;
   --r: 10px;
   --r-lg: 14px;
+  --r-xl: 18px;
   --r-pill: 999px;
 
-  /* 阴影 */
-  --shadow-sm: 0 1px 2px rgba(60, 40, 15, 0.04);
-  --shadow-lg: 0 10px 30px rgba(60, 40, 15, 0.12);
+  /* 阴影（暖灰，不是冷黑） */
+  --shadow-sm: 0 1px 2px rgba(60, 40, 15, 0.05);
+  --shadow-md: 0 4px 14px rgba(60, 40, 15, 0.08);
+  --shadow-lg: 0 12px 32px rgba(60, 40, 15, 0.14);
+  --shadow-pop: 0 20px 50px -12px rgba(60, 40, 15, 0.22);
+
+  /* 过渡 */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
 }

@@ -23,6 +23,7 @@ import {
   LibraryIcon, BookmarkIcon, BookOpenIcon, LanguagesIcon,
   SendIcon, XIcon, ClipboardListIcon, PlusIcon, PencilIcon, TrashIcon,
   BookMarkedIcon, DownloadIcon, UploadIcon, CardsIcon, SparklesIcon,
+  SettingsIcon, GripVerticalIcon, CheckIcon,
 } from '../shared/icons'
 import {
   PROVIDERS,
@@ -478,84 +479,84 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
   return (
     <div className="flex flex-col h-screen bg-bg">
       {/* Header */}
-      <header className="flex items-center justify-between px-3 py-2.5 bg-surface border-b border-line">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="w-7 h-7 rounded-lg bg-accent text-accent-on font-bold flex items-center justify-center text-sm flex-shrink-0">
+      <header className="flex items-center justify-between gap-2 px-3.5 py-2.5 bg-surface border-b border-line">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-accent text-accent-on font-bold flex items-center justify-center text-[15px] flex-shrink-0 shadow-sm font-serif">
             L
           </div>
           <div className="min-w-0">
-            <div className="text-[13px] font-semibold text-slate-800 truncate">
+            <div className="text-[13px] font-semibold text-ink truncate leading-tight">
               {page?.title || tr('side.header.defaultTitle')}
             </div>
-            <div className="text-[10px] text-slate-400 truncate max-w-[200px]">
+            <div className="text-[10px] text-ink-faint truncate max-w-[200px] mt-0.5">
               {providerConfigured
                 ? `${getProvider(byok.provider).label} · ${byok.model || 'model'}`
                 : tr('side.header.noKey')}
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
+        <div className="flex items-center gap-0.5 flex-shrink-0">
           <button
             onClick={() => setShowLibrary(true)}
             title={tr('side.library.title')}
             aria-label={tr('side.library.title')}
-            className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center text-sm"
+            className="icon-btn"
           >
-            <LibraryIcon />
+            <LibraryIcon size={17} />
           </button>
           <button
             onClick={() => setShowHighlights(true)}
             title="Highlights"
             aria-label={tr('side.highlights.title')}
-            className="lector-focus w-8 h-8 rounded-lg hover:bg-surface-muted text-ink-soft flex items-center justify-center relative"
+            className="icon-btn relative"
           >
-            <BookmarkIcon />
+            <BookmarkIcon size={17} />
             {highlights.length > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent" />
+              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-accent" />
             )}
           </button>
           <button
             onClick={() => setShowVocab(true)}
             title="Vocabulary"
             aria-label={tr('side.vocab.title')}
-            className="lector-focus w-8 h-8 rounded-lg hover:bg-surface-muted text-ink-soft flex items-center justify-center relative"
+            className="icon-btn relative"
           >
-            <BookOpenIcon />
+            <BookOpenIcon size={17} />
             {vocab.some((v) => isDue(v.srs)) && (
-              <span className="lector-due-badge absolute -top-0.5 -right-1">!</span>
+              <span className="lector-due-badge absolute top-0 right-0">!</span>
             )}
           </button>
           <button
             onClick={() => setShowGlossary(true)}
             title={tr('side.glossary.title')}
             aria-label={tr('side.glossary.title')}
-            className="lector-focus w-8 h-8 rounded-lg hover:bg-surface-muted text-ink-soft flex items-center justify-center relative"
+            className="icon-btn relative"
           >
-            <BookMarkedIcon />
+            <BookMarkedIcon size={17} />
             {glossary.length > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent" />
+              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-accent" />
             )}
           </button>
           <button
             onClick={() => setShowSentences(true)}
             title={tr('side.sentences.title')}
             aria-label={tr('side.sentences.title')}
-            className="lector-focus w-8 h-8 rounded-lg hover:bg-surface-muted text-ink-soft flex items-center justify-center relative"
+            className="icon-btn relative"
           >
-            <CardsIcon />
+            <CardsIcon size={17} />
             {sentences.some((c) => c.srs && isDue(c.srs)) && (
-              <span className="lector-due-badge absolute -top-0.5 -right-1">!</span>
+              <span className="lector-due-badge absolute top-0 right-0">!</span>
             )}
           </button>
           <button
             onClick={() => setShowTemplates(true)}
             title={tr('side.templates.title')}
             aria-label={tr('side.templates.title')}
-            className="lector-focus w-8 h-8 rounded-lg hover:bg-surface-muted text-ink-soft flex items-center justify-center relative"
+            className="icon-btn relative"
           >
-            <ClipboardListIcon />
+            <ClipboardListIcon size={17} />
             {templates.filter((t) => !t.builtIn).length > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent" />
+              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-accent" />
             )}
           </button>
           <button
@@ -563,29 +564,29 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             disabled={!page || bilingualBusy}
             title={page ? 'Translate page paragraphs (bilingual)' : 'Open a page first'}
             aria-label={page ? 'Translate page paragraphs (bilingual)' : 'Open a page first'}
-            className="lector-focus w-8 h-8 rounded-lg hover:bg-surface-muted text-ink-soft flex items-center justify-center disabled:opacity-40"
+            className="icon-btn"
           >
             {bilingualBusy ? (
-              <span className="block w-3 h-3 border-2 border-line border-t-accent rounded-full animate-spin" />
+              <span className="block w-3.5 h-3.5 border-2 border-line border-t-accent rounded-full animate-spin" />
             ) : (
-              <LanguagesIcon />
+              <LanguagesIcon size={17} />
             )}
           </button>
           <button
             onClick={() => setShowSettings(true)}
             title={tr('settings.title')}
             aria-label={tr('settings.title')}
-            className="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 flex items-center justify-center text-sm"
+            className="icon-btn"
           >
-            ⚙️
+            <SettingsIcon size={17} />
           </button>
         </div>
       </header>
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3.5 py-4 space-y-3.5">
         {!providerConfigured && (
-          <div className="mx-1 p-3 rounded-xl bg-accent-soft border border-accent-soft text-[12px] text-accent">
+          <div className="p-3 rounded-xl bg-accent-softer border border-accent-soft text-[12px] text-accent-hover leading-relaxed">
             <div className="font-semibold mb-1">{tr('side.onboard.title')}</div>
             {(() => {
               const body = tr('side.onboard.body')
@@ -593,7 +594,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               return (
                 <>
                   {before}
-                  <button onClick={() => setShowSettings(true)} className="underline font-medium">
+                  <button onClick={() => setShowSettings(true)} className="underline font-medium hover:text-accent">
                     {tr('side.onboard.settingsLink')}
                   </button>
                   {after}
@@ -604,28 +605,28 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         )}
 
         {messages.length === 0 && (
-          <div className="text-center py-8">
-            <div className="w-12 h-12 rounded-lg bg-accent text-accent-on font-bold flex items-center justify-center text-xl mx-auto mb-3">
+          <div className="text-center pt-6 pb-2">
+            <div className="w-14 h-14 rounded-2xl bg-accent text-accent-on font-bold flex items-center justify-center text-2xl mx-auto mb-4 shadow-md font-serif">
               L
             </div>
-            <h2 className="text-sm font-semibold text-slate-700 mb-1">{tr('side.empty.title')}</h2>
-            <p className="text-xs text-slate-400 mb-5 px-6">
+            <h2 className="text-[15px] font-semibold text-ink mb-1 font-serif tracking-tight">{tr('side.empty.title')}</h2>
+            <p className="text-xs text-ink-faint mb-6 px-8 leading-relaxed">
               {tr('side.empty.subtitle')}
             </p>
-            <div className="grid grid-cols-2 gap-2 px-2">
+            <div className="grid grid-cols-2 gap-2 px-1">
               {suggestions.map((tpl) => (
                 <button
                   key={tpl.id}
                   onClick={() => sendTemplate(tpl)}
                   disabled={!page || !providerConfigured}
-                  className="px-3 py-2.5 text-left text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:border-accent hover:bg-accent-soft transition-colors disabled:opacity-50"
+                  className="px-3 py-2.5 text-left text-[12px] font-medium text-ink-soft bg-surface border border-line rounded-xl hover:border-accent hover:bg-accent-softer hover:text-accent transition-colors duration-150 ease-out disabled:opacity-40 disabled:hover:border-line disabled:hover:bg-surface disabled:hover:text-ink-soft"
                 >
                   {tplTitle(tpl)}
                 </button>
               ))}
             </div>
             {!page && (
-              <p className="text-[11px] text-amber-600 mt-4 px-6">
+              <p className="text-[11px] text-warn mt-5 px-6">
                 {tr('side.empty.noPage')}
               </p>
             )}
@@ -635,11 +636,11 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         {messages.map((m) => (
           <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             {m.role === 'user' ? (
-              <div className="max-w-[85%] px-3 py-2 bg-accent text-accent-on text-body rounded-lg rounded-br-sm whitespace-pre-wrap break-words">
+              <div className="max-w-[85%] px-3.5 py-2 bg-accent text-accent-on text-body rounded-2xl rounded-br-md whitespace-pre-wrap break-words shadow-sm">
                 {m.content}
               </div>
             ) : (
-              <div className="max-w-[92%] px-3.5 py-2.5 bg-surface border border-line rounded-lg rounded-bl-sm shadow-sm">
+              <div className="max-w-[92%] px-3.5 py-2.5 bg-surface border border-line rounded-2xl rounded-bl-md shadow-sm">
                 {m.content ? (
                   <CitationContent
                     html={renderCitations(
@@ -648,8 +649,8 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                     )}
                   />
                 ) : (
-                  <div className="flex items-center gap-2 text-[12px] text-slate-400">
-                    <div className="w-3 h-3 border-2 border-slate-200 border-t-accent rounded-full animate-spin" />
+                  <div className="flex items-center gap-2 text-[12px] text-ink-faint">
+                    <div className="w-3.5 h-3.5 border-2 border-line border-t-accent rounded-full animate-spin" />
                     {tr('side.thinking')}
                   </div>
                 )}
@@ -660,8 +661,13 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
       </div>
 
       {/* Composer */}
-      <div className="px-3 py-2.5 bg-white border-t border-slate-200">
-        {error && <div className="text-[11px] text-red-500 mb-1.5 px-1">{error}</div>}
+      <div className="px-3.5 py-2.5 bg-surface border-t border-line">
+        {error && (
+          <div className="text-[11px] text-danger mb-1.5 px-1 flex items-center gap-1">
+            <span className="inline-block w-1 h-1 rounded-full bg-danger" />
+            {error}
+          </div>
+        )}
 
         {/* "/" template menu — floats above the textarea */}
         {slashMenu.open && (
@@ -726,27 +732,27 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             }}
             placeholder={providerConfigured ? tr('side.composer.placeholder.ready') : tr('side.composer.placeholder.noKey')}
             rows={1}
-            className="flex-1 max-h-32 resize-none px-3 py-2 text-body bg-bg border border-transparent rounded-xl lector-focus focus:outline-none focus:bg-surface"
+            className="flex-1 max-h-32 resize-none px-3.5 py-2.5 text-body bg-bg border border-line rounded-2xl leading-relaxed focus:outline-none focus:border-accent focus:bg-surface focus:ring-2 focus:ring-accent-soft transition-colors duration-150 ease-out"
           />
           <button
             onClick={() => handleSend()}
             disabled={streaming || !input.trim() || !providerConfigured}
             aria-label={tr('side.composer.hint')}
-            className="w-9 h-9 flex-shrink-0 rounded-xl bg-accent text-accent-on flex items-center justify-center disabled:opacity-40"
+            className="btn-primary w-10 h-10 flex-shrink-0 rounded-2xl !p-0"
           >
             {streaming ? (
-              <div className="w-3.5 h-3.5 border-2 border-accent-on/40 border-t-accent-on rounded-full animate-spin" />
+              <div className="w-4 h-4 border-2 border-accent-on/40 border-t-accent-on rounded-full animate-spin" />
             ) : (
-              <SendIcon size={16} />
+              <SendIcon size={17} />
             )}
           </button>
         </div>
         <div className="flex items-center justify-between mt-1.5 px-1">
-          <span className="text-[10px] text-slate-400">
+          <span className="text-[10px] text-ink-faint">
             {tr('side.composer.hint')} · {tr('composer.templates.hint')}
           </span>
           {messages.length > 0 && (
-            <button onClick={startNewChat} className="text-[10px] text-slate-400 hover:text-slate-600">
+            <button onClick={startNewChat} className="text-[10px] text-ink-faint hover:text-ink-soft transition-colors">
               {tr('side.composer.newChat')}
             </button>
           )}
@@ -768,34 +774,32 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
       {/* Library drawer */}
       {showLibrary && (
         <div
-          className="absolute inset-0 bg-ink/30 z-40 lector-anim-fade"
+          className="absolute inset-0 bg-ink/30 backdrop-blur-[1px] z-40 lector-anim-fade"
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowLibrary(false)
           }}
         >
-          <div className="absolute right-0 top-0 bottom-0 w-[300px] bg-white shadow-2xl flex flex-col">
-            <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200">
-              <h3 className="text-[13px] font-semibold text-slate-800">{tr('side.library.title')}</h3>
-              <button onClick={() => setShowLibrary(false)} aria-label={tr('popup.close')} className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500">
-                ✕
+          <div className="absolute right-0 top-0 bottom-0 w-[310px] bg-surface shadow-pop flex flex-col lector-anim-slide">
+            <div className="drawer-head">
+              <h3 className="drawer-title">{tr('side.library.title')}</h3>
+              <button onClick={() => setShowLibrary(false)} aria-label={tr('popup.close')} className="icon-btn">
+                <XIcon size={16} />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto">
               {sessions.length === 0 ? (
-                <div className="text-center text-[12px] text-slate-400 py-8 px-4">
-                  {tr('side.library.empty')}
-                </div>
+                <Empty text={tr('side.library.empty')} />
               ) : (
                 sessions.map((s) => (
                   <div
                     key={s.id}
-                    className="group px-3 py-2.5 border-b border-line/60 hover:bg-surface-muted cursor-pointer"
+                    className="group row row-hover"
                     onClick={() => openSession(s)}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <div className="text-[12px] font-medium text-slate-700 truncate">{s.title}</div>
-                        <div className="text-[10px] text-slate-400">{new Date(s.createdAt).toLocaleString()}</div>
+                        <div className="text-[12px] font-medium text-ink truncate">{s.title}</div>
+                        <div className="text-[10px] text-ink-faint mt-0.5">{new Date(s.createdAt).toLocaleString()}</div>
                       </div>
                       <button
                         onClick={(e) => {
@@ -804,7 +808,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                           if (activeSessionId === s.id) startNewChat()
                         }}
                         aria-label="Delete conversation"
-                        className="opacity-0 group-hover:opacity-100 text-meta text-ink-faint hover:text-danger"
+                        className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
                       >
                         <XIcon size={15} />
                       </button>
@@ -819,7 +823,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                   clearSessions()
                   startNewChat()
                 }}
-                className="px-3 py-2 text-meta text-ink-faint hover:text-danger border-t border-line"
+                className="px-4 py-2.5 text-meta text-ink-faint hover:text-danger hover:bg-danger-soft/40 border-t border-line transition-colors text-left"
               >
                 {tr('side.library.clearAll')}
               </button>
@@ -837,25 +841,25 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             <>
               <div className="flex-1 overflow-y-auto">
                 {highlights.map((h) => (
-                  <div key={h.id} className="group px-3 py-2.5 border-b border-line/60">
+                  <div key={h.id} className="group row">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <div className="text-[12px] text-ink leading-relaxed">{h.text}</div>
-                        {h.note && <div className="text-[11px] text-ink-faint mt-1">{h.note}</div>}
-                        <div className="text-[10px] text-ink-faint mt-1 truncate">{h.title}</div>
+                        <div className="text-[12px] text-ink leading-relaxed border-l-2 border-accent/40 pl-2.5">{h.text}</div>
+                        {h.note && <div className="text-[11px] text-ink-soft mt-1.5 pl-2.5">{h.note}</div>}
+                        <div className="text-[10px] text-ink-faint mt-1.5 pl-2.5 truncate">{h.title}</div>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 flex-shrink-0">
                         <button
                           onClick={() => generateSentenceCard(h.text, h.url, h.title)}
                           title={tr('side.sentences.fromHighlight')}
-                          className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent"
+                          className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                         >
-                          <SparklesIcon size={13} />
+                          <SparklesIcon size={14} />
                         </button>
                         <button
                           onClick={() => removeHighlight(h.id)}
                           aria-label="Delete highlight"
-                          className="opacity-0 group-hover:opacity-100 text-meta text-ink-faint hover:text-danger"
+                          className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
                         >
                           <XIcon size={15} />
                         </button>
@@ -866,8 +870,9 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               </div>
               <button
                 onClick={() => downloadMarkdown(highlights)}
-                className="px-3 py-2 text-meta text-ink-soft hover:text-ink border-t border-line"
+                className="px-4 py-2.5 text-meta text-ink-soft hover:text-accent hover:bg-accent-softer border-t border-line transition-colors text-left flex items-center gap-1.5"
               >
+                <DownloadIcon size={13} />
                 {tr('side.highlights.export')}
               </button>
             </>
@@ -991,15 +996,15 @@ function Drawer({
 }) {
   return (
     <div
-      className="absolute inset-0 bg-ink/30 z-40 lector-anim-fade"
+      className="absolute inset-0 bg-ink/30 backdrop-blur-[1px] z-40 lector-anim-fade"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="absolute right-0 top-0 bottom-0 w-[300px] bg-white shadow-2xl flex flex-col lector-anim-slide">
-        <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200">
-          <h3 className="text-[13px] font-semibold text-slate-800">{title}</h3>
-          <button onClick={onClose} aria-label="Close" className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500">
+      <div className="absolute right-0 top-0 bottom-0 w-[310px] bg-surface shadow-pop flex flex-col lector-anim-slide">
+        <div className="drawer-head">
+          <h3 className="drawer-title">{title}</h3>
+          <button onClick={onClose} aria-label="Close" className="icon-btn">
             <XIcon size={16} />
           </button>
         </div>
@@ -1010,7 +1015,14 @@ function Drawer({
 }
 
 function Empty({ text }: { text: string }) {
-  return <div className="text-center text-[12px] text-slate-400 py-8 px-4">{text}</div>
+  return (
+    <div className="flex flex-col items-center justify-center text-center py-12 px-6">
+      <div className="w-10 h-10 rounded-full bg-surface-muted flex items-center justify-center mb-3">
+        <span className="block w-1.5 h-1.5 rounded-full bg-line-strong" />
+      </div>
+      <p className="text-[12px] text-ink-faint leading-relaxed max-w-[200px]">{text}</p>
+    </div>
+  )
 }
 
 // Renders assistant HTML and wires citation chips to jump back to the source
@@ -1056,7 +1068,7 @@ function SlashMenu({
   onHover: (idx: number) => void
 }) {
   return (
-    <div className="mb-1 max-h-60 overflow-y-auto rounded-xl border border-line bg-surface shadow-lg lector-anim-fade">
+    <div className="mb-2 max-h-60 overflow-y-auto rounded-xl border border-line bg-surface shadow-md lector-anim-pop">
       {templates.length === 0 ? (
         <div className="px-3 py-3 text-[12px] text-ink-faint">{emptyText}</div>
       ) : (
@@ -1065,16 +1077,14 @@ function SlashMenu({
             key={tpl.id}
             onMouseEnter={() => onHover(i)}
             onClick={() => onPick(tpl)}
-            className={`w-full text-left px-3 py-2 flex flex-col gap-0.5 transition-colors ${
-              i === activeIdx ? 'bg-accent-soft' : 'hover:bg-surface-muted'
-            }`}
+            className={`w-full text-left px-3 py-2.5 flex flex-col gap-0.5 transition-colors ${
+              i === activeIdx ? 'bg-accent-softer' : 'hover:bg-surface-muted'
+            } ${i === 0 ? '' : 'border-t border-line/50'}`}
           >
             <span className="text-[12px] font-medium text-ink flex items-center gap-1.5">
               {titleFor(tpl)}
               {tpl.builtIn && (
-                <span className="text-[9px] px-1 py-0.5 rounded-full bg-surface-muted text-ink-faint">
-                  built-in
-                </span>
+                <span className="chip-builtIn">built-in</span>
               )}
             </span>
             <span className="text-[10px] text-ink-faint truncate">
@@ -1159,62 +1169,62 @@ function VocabDrawer({
       ) : (
         <>
           {/* Anki export action bar */}
-          <div className="px-3 py-2 border-b border-line">
+          <div className="px-4 py-3 border-b border-line">
             {!showPanel ? (
               <button
                 onClick={() => setShowPanel(true)}
-                className="w-full py-2 text-[12px] font-medium rounded-lg border border-dashed border-line text-accent hover:bg-accent-soft flex items-center justify-center gap-1"
+                className="btn-add py-2 text-[12px]"
               >
                 {tr('side.vocab.sendAnki')}
               </button>
             ) : (
-              <div className="space-y-2 py-1">
+              <div className="space-y-2.5 py-0.5">
                 <div>
-                  <label className="block text-[10px] font-semibold text-ink-soft mb-0.5">
+                  <label className="label text-[10px] mb-1">
                     {tr('side.vocab.ankiUrl')}
                   </label>
                   <input
                     value={cfgUrl}
                     onChange={(e) => setCfgUrl(e.target.value)}
-                    className="w-full px-2 py-1.5 text-[11px] bg-bg border border-line rounded-md focus:outline-none focus:border-accent"
+                    className="field-sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-semibold text-ink-soft mb-0.5">
+                  <label className="label text-[10px] mb-1">
                     {tr('side.vocab.ankiDeck')}
                   </label>
                   <input
                     value={cfgDeck}
                     onChange={(e) => setCfgDeck(e.target.value)}
-                    className="w-full px-2 py-1.5 text-[11px] bg-bg border border-line rounded-md focus:outline-none focus:border-accent"
+                    className="field-sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-semibold text-ink-soft mb-0.5">
+                  <label className="label text-[10px] mb-1">
                     {tr('side.vocab.ankiModel')}
                   </label>
                   <input
                     value={cfgModel}
                     onChange={(e) => setCfgModel(e.target.value)}
-                    className="w-full px-2 py-1.5 text-[11px] bg-bg border border-line rounded-md focus:outline-none focus:border-accent"
+                    className="field-sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-semibold text-ink-soft mb-0.5">
+                  <label className="label text-[10px] mb-1">
                     {tr('side.vocab.ankiTags')}
                   </label>
                   <input
                     value={cfgTags}
                     onChange={(e) => setCfgTags(e.target.value)}
                     placeholder="lector"
-                    className="w-full px-2 py-1.5 text-[11px] bg-bg border border-line rounded-md focus:outline-none focus:border-accent"
+                    className="field-sm"
                   />
                 </div>
-                <div className="text-[10px] text-ink-faint">
+                <div className="text-[10px] text-ink-faint pt-0.5">
                   {tr('side.vocab.ankiCount').replace('{n}', String(vocab.length))}
                 </div>
                 {result && (
-                  <div className="text-[10px] text-accent leading-relaxed">
+                  <div className="text-[10px] text-success leading-relaxed bg-success-soft/50 rounded-md px-2 py-1.5">
                     {tr('side.vocab.ankiResult')
                       .replace('{added}', String(result.added))
                       .replace('{duplicated}', String(result.duplicated))
@@ -1230,7 +1240,7 @@ function VocabDrawer({
                   <button
                     onClick={handleSend}
                     disabled={sending}
-                    className="flex-1 py-1.5 text-[11px] font-medium rounded-md bg-accent text-accent-on disabled:opacity-50"
+                    className="btn-primary flex-1 py-1.5 text-[11px]"
                   >
                     {sending ? tr('side.vocab.ankiSending') : tr('side.vocab.ankiSend')}
                   </button>
@@ -1239,7 +1249,7 @@ function VocabDrawer({
                       setShowPanel(false)
                       setResult(null)
                     }}
-                    className="flex-1 py-1.5 text-[11px] font-medium rounded-md border border-line text-ink-soft hover:bg-surface-muted"
+                    className="btn-outline flex-1 py-1.5 text-[11px]"
                   >
                     {tr('side.vocab.ankiCancel')}
                   </button>
@@ -1258,13 +1268,13 @@ function VocabDrawer({
               const due = isDue(v.srs)
               const revealed = revealedVocab.has(v.id)
               return (
-                <div key={v.id} className="group px-3 py-2.5 border-b border-line/60">
+                <div key={v.id} className="group row">
                   <div className="flex items-center gap-2">
                     <span className={`text-[12px] font-semibold ${due ? 'text-accent' : 'text-ink'}`}>
                       {v.word}
                     </span>
                     {due && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
+                      <span className="chip-accent">
                         {tr('side.vocab.due')}
                       </span>
                     )}
@@ -1275,42 +1285,36 @@ function VocabDrawer({
                       <button
                         onClick={() => onExplainVocab(v)}
                         title={tr('side.sentences.fromVocab')}
-                        className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent"
+                        className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                       >
-                        <SparklesIcon size={13} />
+                        <SparklesIcon size={14} />
                       </button>
                     )}
                     <button
                       onClick={() => onRemoveVocab(v.id)}
                       aria-label="Delete word"
-                      className="opacity-0 group-hover:opacity-100 text-meta text-ink-faint hover:text-danger"
+                      className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
                     >
                       <XIcon size={15} />
                     </button>
                   </div>
                   {v.context && (
-                    <div className="text-[11px] text-ink-faint mt-1 leading-relaxed">{v.context}</div>
+                    <div className="text-[11px] text-ink-soft mt-1.5 leading-relaxed">{v.context}</div>
                   )}
                   {v.translation && (
                     <button
                       onClick={() => onToggleReveal(v.id)}
-                      className="text-[10px] text-accent hover:underline mt-1"
+                      className="text-[10px] text-accent hover:text-accent-hover hover:underline mt-1.5 transition-colors"
                     >
                       {revealed ? v.translation : tr('side.vocab.showTranslation')}
                     </button>
                   )}
                   {due && (
-                    <div className="flex gap-1.5 mt-2">
-                      {(['again', 'hard', 'good', 'easy'] as Grade[]).map((g) => (
-                        <button
-                          key={g}
-                          onClick={() => onGradeVocab(v, g)}
-                          className="flex-1 py-1.5 text-[10px] font-medium rounded-md border border-line hover:bg-surface-muted text-ink-soft"
-                        >
-                          {tr(`side.vocab.${g}` as StringKey)}
-                        </button>
-                      ))}
-                    </div>
+                    <SrsGradeButtons
+                      grades={['again', 'hard', 'good', 'easy']}
+                      tr={tr}
+                      onGrade={(g) => onGradeVocab(v, g)}
+                    />
                   )}
                 </div>
               )
@@ -1406,20 +1410,20 @@ function TemplatesDrawer({
   return (
     <Drawer title={tr('side.templates.title')} onClose={onClose}>
       {editing ? (
-        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3.5">
           <div>
-            <label htmlFor="lector-tpl-title" className="block text-[11px] font-semibold text-ink-soft mb-1">
+            <label htmlFor="lector-tpl-title" className="label mb-1.5">
               {tr('side.templates.titleField')}
             </label>
             <input
               id="lector-tpl-title"
               value={editing.title}
               onChange={(e) => setEditing({ ...editing, title: e.target.value })}
-              className="w-full px-3 py-2 text-[12px] bg-bg border border-line rounded-lg focus:outline-none focus:border-accent focus:bg-surface"
+              className="field"
             />
           </div>
           <div>
-            <label htmlFor="lector-tpl-content" className="block text-[11px] font-semibold text-ink-soft mb-1">
+            <label htmlFor="lector-tpl-content" className="label mb-1.5">
               {tr('side.templates.contentField')}
             </label>
             <textarea
@@ -1428,21 +1432,21 @@ function TemplatesDrawer({
               onChange={(e) => setEditing({ ...editing, content: e.target.value })}
               rows={6}
               disabled={editing.id ? templates.find((t) => t.id === editing.id)?.builtIn : false}
-              className="w-full px-3 py-2 text-[12px] bg-bg border border-line rounded-lg focus:outline-none focus:border-accent focus:bg-surface font-mono resize-none disabled:opacity-60"
+              className="field font-mono resize-none disabled:opacity-60"
             />
-            <p className="text-[10px] text-ink-faint mt-1">{tr('side.templates.hint')}</p>
+            <p className="text-[10px] text-ink-faint mt-1.5">{tr('side.templates.hint')}</p>
           </div>
-          {err && <div className="text-[11px] text-danger">{err}</div>}
+          {err && <div className="text-[11px] text-danger bg-danger-soft/50 rounded-md px-2 py-1.5">{err}</div>}
           <div className="flex gap-2 pt-1">
             <button
               onClick={save}
-              className="flex-1 py-2 text-[12px] font-medium rounded-lg bg-accent text-accent-on"
+              className="btn-primary flex-1 py-2 text-[12px]"
             >
               {tr('side.templates.save')}
             </button>
             <button
               onClick={() => setEditing(null)}
-              className="flex-1 py-2 text-[12px] font-medium rounded-lg border border-line text-ink-soft hover:bg-surface-muted"
+              className="btn-outline flex-1 py-2 text-[12px]"
             >
               {tr('side.templates.cancel')}
             </button>
@@ -1450,10 +1454,10 @@ function TemplatesDrawer({
         </div>
       ) : (
         <>
-          <div className="px-3 py-2 border-b border-line">
+          <div className="px-4 py-3 border-b border-line">
             <button
               onClick={startNew}
-              className="w-full py-2 text-[12px] font-medium rounded-lg border border-dashed border-line text-accent hover:bg-accent-soft flex items-center justify-center gap-1"
+              className="btn-add py-2 text-[12px]"
             >
               <PlusIcon size={14} />
               {tr('side.templates.add')}
@@ -1470,33 +1474,35 @@ function TemplatesDrawer({
                   onDragStart={onDragStart(tpl.id)}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={onDrop(tpl.id)}
-                  className="group px-3 py-2.5 border-b border-line/60 cursor-grab active:cursor-grabbing"
+                  className="group row cursor-grab active:cursor-grabbing hover:bg-surface-muted/60"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-ink-faint text-[12px] select-none">⋮⋮</span>
+                    <span className="text-ink-faint hover:text-ink-soft select-none flex-shrink-0">
+                      <GripVerticalIcon size={14} />
+                    </span>
                     <div className="min-w-0 flex-1">
                       <div className="text-[12px] font-medium text-ink flex items-center gap-1.5">
                         {titleFor(tpl)}
                         {tpl.builtIn && (
-                          <span className="text-[9px] px-1 py-0.5 rounded-full bg-surface-muted text-ink-faint">
+                          <span className="chip-builtIn">
                             {tr('side.templates.builtIn')}
                           </span>
                         )}
                       </div>
-                      <div className="text-[10px] text-ink-faint truncate">
+                      <div className="text-[10px] text-ink-faint truncate mt-0.5">
                         {tpl.content.replace(/\n/g, ' ').slice(0, 60)}
                       </div>
                     </div>
                     <button
                       onClick={() => startEdit(tpl)}
-                      className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent"
+                      className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                     >
                       <PencilIcon size={14} />
                     </button>
                     {!tpl.builtIn && (
                       <button
                         onClick={() => onRemove(tpl.id)}
-                        className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger"
+                        className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
                       >
                         <TrashIcon size={14} />
                       </button>
@@ -1607,9 +1613,9 @@ function GlossaryDrawer({
   return (
     <Drawer title={tr('side.glossary.title')} onClose={onClose}>
       {editing ? (
-        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3.5">
           <div>
-            <label htmlFor="lector-glos-source" className="block text-[11px] font-semibold text-ink-soft mb-1">
+            <label htmlFor="lector-glos-source" className="label mb-1.5">
               {tr('side.glossary.sourceField')}
             </label>
             <input
@@ -1617,11 +1623,11 @@ function GlossaryDrawer({
               value={editing.source}
               onChange={(e) => setEditing({ ...editing, source: e.target.value })}
               placeholder="LLM"
-              className="w-full px-3 py-2 text-[12px] bg-bg border border-line rounded-lg focus:outline-none focus:border-accent focus:bg-surface"
+              className="field"
             />
           </div>
           <div>
-            <label htmlFor="lector-glos-target" className="block text-[11px] font-semibold text-ink-soft mb-1">
+            <label htmlFor="lector-glos-target" className="label mb-1.5">
               {tr('side.glossary.targetField')}
             </label>
             <input
@@ -1629,11 +1635,11 @@ function GlossaryDrawer({
               value={editing.target}
               onChange={(e) => setEditing({ ...editing, target: e.target.value })}
               placeholder="大语言模型"
-              className="w-full px-3 py-2 text-[12px] bg-bg border border-line rounded-lg focus:outline-none focus:border-accent focus:bg-surface"
+              className="field"
             />
           </div>
           <div>
-            <label htmlFor="lector-glos-note" className="block text-[11px] font-semibold text-ink-soft mb-1">
+            <label htmlFor="lector-glos-note" className="label mb-1.5">
               {tr('side.glossary.noteField')}
             </label>
             <textarea
@@ -1641,20 +1647,20 @@ function GlossaryDrawer({
               value={editing.note}
               onChange={(e) => setEditing({ ...editing, note: e.target.value })}
               rows={2}
-              className="w-full px-3 py-2 text-[12px] bg-bg border border-line rounded-lg focus:outline-none focus:border-accent focus:bg-surface resize-none"
+              className="field resize-none"
             />
           </div>
-          {err && <div className="text-[11px] text-danger">{err}</div>}
+          {err && <div className="text-[11px] text-danger bg-danger-soft/50 rounded-md px-2 py-1.5">{err}</div>}
           <div className="flex gap-2 pt-1">
             <button
               onClick={save}
-              className="flex-1 py-2 text-[12px] font-medium rounded-lg bg-accent text-accent-on"
+              className="btn-primary flex-1 py-2 text-[12px]"
             >
               {tr('side.glossary.save')}
             </button>
             <button
               onClick={() => setEditing(null)}
-              className="flex-1 py-2 text-[12px] font-medium rounded-lg border border-line text-ink-soft hover:bg-surface-muted"
+              className="btn-outline flex-1 py-2 text-[12px]"
             >
               {tr('side.glossary.cancel')}
             </button>
@@ -1662,10 +1668,10 @@ function GlossaryDrawer({
         </div>
       ) : (
         <>
-          <div className="px-3 py-2 border-b border-line space-y-2">
+          <div className="px-4 py-3 border-b border-line space-y-2">
             <button
               onClick={startNew}
-              className="w-full py-2 text-[12px] font-medium rounded-lg border border-dashed border-line text-accent hover:bg-accent-soft flex items-center justify-center gap-1"
+              className="btn-add py-2 text-[12px]"
             >
               <PlusIcon size={14} />
               {tr('side.glossary.add')}
@@ -1674,12 +1680,12 @@ function GlossaryDrawer({
               <div className="flex gap-2">
                 <button
                   onClick={handleExport}
-                  className="flex-1 py-1.5 text-[11px] font-medium rounded-lg border border-line text-ink-soft hover:bg-surface-muted flex items-center justify-center gap-1"
+                  className="btn-outline flex-1 py-1.5 text-[11px]"
                 >
                   <DownloadIcon size={12} />
                   {tr('side.glossary.export')}
                 </button>
-                <label className="flex-1 py-1.5 text-[11px] font-medium rounded-lg border border-line text-ink-soft hover:bg-surface-muted flex items-center justify-center gap-1 cursor-pointer">
+                <label className="btn-outline flex-1 py-1.5 text-[11px] cursor-pointer">
                   <UploadIcon size={12} />
                   {tr('side.glossary.import')}
                   <input
@@ -1695,7 +1701,7 @@ function GlossaryDrawer({
                 </label>
               </div>
             )}
-            {flash && <div className="text-[10px] text-accent text-center">{flash}</div>}
+            {flash && <div className="text-[10px] text-accent text-center bg-accent-softer rounded-md py-1">{flash}</div>}
             <p className="text-[10px] text-ink-faint leading-relaxed">{tr('side.glossary.hint')}</p>
           </div>
           <div className="flex-1 overflow-y-auto">
@@ -1703,34 +1709,34 @@ function GlossaryDrawer({
               <Empty text={tr('side.glossary.empty')} />
             ) : (
               entries.map((e) => (
-                <div key={e.id} className="group px-3 py-2.5 border-b border-line/60">
-                  <div className="flex items-center gap-2">
+                <div key={e.id} className={`group row ${e.enabled ? '' : 'opacity-50'}`}>
+                  <div className="flex items-center gap-2.5">
                     <button
                       onClick={() => onUpdate(e.id, { enabled: !e.enabled })}
                       title={e.enabled ? tr('side.glossary.enabled') : tr('side.glossary.disabled')}
-                      className={`w-3 h-3 rounded-full border flex-shrink-0 ${
+                      className={`w-3.5 h-3.5 rounded-full border flex-shrink-0 transition-colors ${
                         e.enabled
                           ? 'bg-accent border-accent'
-                          : 'bg-transparent border-line'
+                          : 'bg-transparent border-line-strong'
                       }`}
                     />
                     <div className="min-w-0 flex-1">
                       <div className="text-[12px] font-medium text-ink truncate">
-                        {e.source} <span className="text-ink-faint">→</span> {e.target}
+                        {e.source} <span className="text-ink-faint mx-0.5">→</span> {e.target}
                       </div>
                       {e.note && (
-                        <div className="text-[10px] text-ink-faint truncate">{e.note}</div>
+                        <div className="text-[10px] text-ink-faint truncate mt-0.5">{e.note}</div>
                       )}
                     </div>
                     <button
                       onClick={() => startEdit(e)}
-                      className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent"
+                      className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                     >
                       <PencilIcon size={14} />
                     </button>
                     <button
                       onClick={() => onRemove(e.id)}
-                      className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger"
+                      className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
                     >
                       <TrashIcon size={14} />
                     </button>
@@ -1815,27 +1821,27 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
 
   return (
     <div
-      className="absolute inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+      className="absolute inset-0 bg-ink/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 lector-anim-fade"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="bg-white w-full max-w-[340px] rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-          <h2 className="text-sm font-bold text-slate-800">{t('settings.title', byok.locale)}</h2>
-          <button onClick={onClose} aria-label={t('popup.close', byok.locale)} className="w-7 h-7 rounded-lg hover:bg-slate-100 text-slate-500">
-            ✕
+      <div className="bg-surface w-full max-w-[340px] rounded-2xl shadow-pop flex flex-col max-h-[92vh] overflow-hidden lector-anim-pop">
+        <div className="flex items-center justify-between px-4 py-3.5 border-b border-line">
+          <h2 className="text-[14px] font-bold text-ink font-serif tracking-tight">{t('settings.title', byok.locale)}</h2>
+          <button onClick={onClose} aria-label={t('popup.close', byok.locale)} className="icon-btn">
+            <XIcon size={16} />
           </button>
         </div>
 
-        <div className="overflow-y-auto px-4 py-3 space-y-3">
-          <p className="text-[11px] text-slate-500 leading-relaxed">
+        <div className="overflow-y-auto px-4 py-3.5 space-y-3.5">
+          <p className="text-[11px] text-ink-soft leading-relaxed bg-surface-muted/50 rounded-lg px-3 py-2">
             {t('settings.privacyNote', byok.locale)}
           </p>
 
           {/* Language */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">
+            <label className="label mb-1.5">
               {t('settings.language', byok.locale)}
             </label>
             <div className="grid grid-cols-3 gap-1.5">
@@ -1843,10 +1849,10 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
                 <button
                   key={opt}
                   onClick={() => onChange({ locale: opt })}
-                  className={`px-2 py-2 text-[11px] font-medium rounded-lg border transition-colors ${
+                  className={`px-2 py-2 text-[11px] font-medium rounded-lg border transition-colors duration-150 ease-out ${
                     byok.locale === opt
-                      ? 'border-accent bg-accent-soft text-accent'
-                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                      ? 'border-accent bg-accent-softer text-accent'
+                      : 'border-line text-ink-soft hover:bg-surface-muted hover:text-ink'
                   }`}
                 >
                   {opt === 'auto'
@@ -1861,30 +1867,30 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
 
           {/* Provider picker */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">{t('settings.provider', byok.locale)}</label>
-            <div className="grid grid-cols-2 gap-1.5">
+            <label className="label mb-1.5">{t('settings.provider', byok.locale)}</label>
+            <div className="grid grid-cols-3 gap-1.5">
               {Object.values(PROVIDERS).map((p) => (
                 <button
                   key={p.id}
                   onClick={() => handleProviderChange(p.id)}
-                  className={`px-2 py-2 text-[11px] font-medium rounded-lg border transition-colors ${
+                  className={`px-1.5 py-2 text-[10.5px] font-medium rounded-lg border transition-colors duration-150 ease-out leading-tight ${
                     byok.provider === p.id
-                      ? 'border-accent bg-accent-soft text-accent'
-                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                      ? 'border-accent bg-accent-softer text-accent'
+                      : 'border-line text-ink-soft hover:bg-surface-muted hover:text-ink'
                   }`}
                 >
                   {p.label}
                 </button>
               ))}
             </div>
-            <p className="text-[10px] text-slate-400 mt-1.5">{def.description}</p>
+            <p className="text-[10px] text-ink-faint mt-1.5 leading-relaxed">{def.description}</p>
           </div>
 
           {/* Custom base URL */}
           {(byok.provider === 'custom' || byok.provider === 'openrouter-custom') && (
             <div>
-              <label htmlFor="lector-base-url" className="block text-[11px] font-semibold text-slate-600 mb-1.5">
-                {t('settings.baseUrl', byok.locale)} <span className="text-slate-400 font-normal">{t('settings.baseUrl.hint', byok.locale)}</span>
+              <label htmlFor="lector-base-url" className="label mb-1.5">
+                {t('settings.baseUrl', byok.locale)} <span className="text-ink-faint font-normal">{t('settings.baseUrl.hint', byok.locale)}</span>
               </label>
               <input
                 id="lector-base-url"
@@ -1892,14 +1898,14 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
                 value={byok.baseUrl}
                 onChange={(e) => onChange({ baseUrl: e.target.value })}
                 placeholder="https://api.deepseek.com/v1"
-                className="w-full px-3 py-2 text-[12px] bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-accent focus:bg-white"
+                className="field"
               />
             </div>
           )}
 
           {/* API key */}
           <div>
-            <label htmlFor="lector-api-key" className="block text-[11px] font-semibold text-slate-600 mb-1.5">{t('settings.apiKey', byok.locale)}</label>
+            <label htmlFor="lector-api-key" className="label mb-1.5">{t('settings.apiKey', byok.locale)}</label>
             <div className="relative">
               <input
                 id="lector-api-key"
@@ -1912,11 +1918,11 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
                 placeholder={t('settings.apiKey.placeholder', byok.locale)}
                 autoComplete="off"
                 spellCheck={false}
-                className="w-full px-3 py-2 pr-16 text-[12px] bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-accent focus:bg-white font-mono"
+                className="field pr-16 font-mono"
               />
               <button
                 onClick={() => setShowKey((v) => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 hover:text-slate-600 px-1.5 py-0.5"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-ink-faint hover:text-ink-soft px-1.5 py-0.5 transition-colors"
               >
                 {showKey ? t('settings.apiKey.hide', byok.locale) : t('settings.apiKey.show', byok.locale)}
               </button>
@@ -1926,7 +1932,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
                 href={def.keyUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-block mt-1 text-[10px] text-accent hover:underline"
+                className="inline-block mt-1.5 text-[10px] text-accent hover:text-accent-hover hover:underline"
               >
                 {t('settings.apiKey.getKey', byok.locale).replace('{label}', def.label)}
               </a>
@@ -1936,12 +1942,12 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
           {/* Model picker */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="lector-model" className="block text-[11px] font-semibold text-slate-600">{t('settings.model', byok.locale)}</label>
+              <label htmlFor="lector-model" className="label">{t('settings.model', byok.locale)}</label>
               <button
                 onClick={runFetch}
                 disabled={fetching || !byok.apiKey || ((byok.provider === 'custom' || byok.provider === 'openrouter-custom') && !byok.baseUrl)}
                 title={t('settings.model.fetch', byok.locale)}
-                className="text-[10px] text-accent hover:text-accent-hover disabled:opacity-40"
+                className="text-[10px] text-accent hover:text-accent-hover disabled:opacity-40 transition-colors"
               >
                 {fetching ? t('settings.model.fetching', byok.locale) : fetchedModels ? t('settings.model.refetch', byok.locale) : t('settings.model.fetch', byok.locale)}
               </button>
@@ -1966,7 +1972,7 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
                         onChange({ model: e.target.value })
                       }
                     }}
-                    className="w-full px-3 py-2 text-[12px] bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-accent focus:bg-white"
+                    className="field"
                   >
                     {list.map((m) => (
                       <option key={m.id} value={m.id}>
@@ -1981,10 +1987,10 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
             })()}
 
             {fetchError && (
-              <div className="mt-1 text-[10px] text-amber-600">{fetchError}</div>
+              <div className="mt-1.5 text-[10px] text-warn bg-warn-soft/50 rounded-md px-2 py-1">{fetchError}</div>
             )}
             {fetchedModels && fetchedModels.length > 0 && (
-              <div className="mt-1 text-[10px] text-slate-400">{t('settings.model.fetchedCount', byok.locale).replace('{n}', String(fetchedModels.length))}</div>
+              <div className="mt-1 text-[10px] text-ink-faint">{t('settings.model.fetchedCount', byok.locale).replace('{n}', String(fetchedModels.length))}</div>
             )}
 
             {/* Free-text input: when custom selected, or no list matches. */}
@@ -1997,37 +2003,39 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
                 value={byok.model}
                 onChange={(e) => onChange({ model: e.target.value })}
                 placeholder={def.defaultModel || 'model id, e.g. gpt-4o-mini'}
-                className="w-full mt-1.5 px-3 py-2 text-[12px] bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-accent focus:bg-white font-mono"
+                className="field mt-1.5 font-mono"
               />
             )}
           </div>
 
           {/* Test connection */}
-          <div className="pt-1">
+          <div className="pt-0.5">
             <button
               onClick={runTest}
               disabled={testing || !byok.apiKey || ((byok.provider === 'custom' || byok.provider === 'openrouter-custom') && !byok.baseUrl)}
-              className="w-full py-2 text-[12px] font-medium rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40"
+              className="btn-outline w-full py-2 text-[12px]"
             >
               {testing ? t('settings.testing', byok.locale) : t('settings.test', byok.locale)}
             </button>
             {testResult && (
               <div
-                className={`mt-1.5 text-[11px] px-2 py-1.5 rounded-lg ${
-                  testResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'
+                className={`mt-2 text-[11px] px-2.5 py-2 rounded-lg flex items-start gap-1.5 leading-relaxed ${
+                  testResult.ok ? 'bg-success-soft/60 text-success' : 'bg-danger-soft/60 text-danger'
                 }`}
               >
-                {testResult.ok ? '✓ ' : '✕ '}
-                {testResult.message}
+                <span className="mt-px flex-shrink-0">
+                  {testResult.ok ? <CheckIcon size={13} /> : <XIcon size={13} />}
+                </span>
+                <span>{testResult.message}</span>
               </div>
             )}
           </div>
         </div>
 
-        <div className="px-4 py-3 border-t border-slate-200">
+        <div className="px-4 py-3.5 border-t border-line bg-surface-muted/30">
           <button
             onClick={onClose}
-            className="w-full py-2.5 bg-accent text-accent-on rounded-lg text-[13px] font-semibold"
+            className="btn-primary w-full py-2.5 text-[13px]"
           >
             {t('settings.done', byok.locale)}
           </button>
@@ -2125,7 +2133,7 @@ function SentencesDrawer(props: SentencesDrawerProps) {
       )}
       {sentences.length === 0 && !pasteText ? (
         <>
-          <div className="px-3 py-2 border-b border-line">
+          <div className="px-4 py-3 border-b border-line">
             <PasteBox
               value={pasteText}
               onChange={setPasteText}
@@ -2139,24 +2147,26 @@ function SentencesDrawer(props: SentencesDrawerProps) {
         </>
       ) : (
         <>
-          <div className="px-3 py-2 border-b border-line space-y-2">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={tr('side.sentences.search')}
-              className="w-full px-2 py-1.5 text-[12px] bg-bg border border-line rounded-md focus:outline-none focus:border-accent"
-            />
-            <select
-              value={cefrFilter}
-              onChange={(e) => setCefrFilter(e.target.value)}
-              className="w-full px-2 py-1.5 text-[12px] bg-bg border border-line rounded-md focus:outline-none focus:border-accent"
-              aria-label={tr('side.sentences.filterAll')}
-            >
-              <option value="">{tr('side.sentences.filterAll')}</option>
-              {(['A1', 'A2', 'B1', 'B2', 'C1', 'C2'] as const).map((lvl) => (
-                <option key={lvl} value={lvl}>{lvl}</option>
-              ))}
-            </select>
+          <div className="px-4 py-3 border-b border-line space-y-2">
+            <div className="flex gap-2">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={tr('side.sentences.search')}
+                className="field-sm flex-1"
+              />
+              <select
+                value={cefrFilter}
+                onChange={(e) => setCefrFilter(e.target.value)}
+                className="field-sm w-auto flex-shrink-0"
+                aria-label={tr('side.sentences.filterAll')}
+              >
+                <option value="">{tr('side.sentences.filterAll')}</option>
+                {(['A1', 'A2', 'B1', 'B2', 'C1', 'C2'] as const).map((lvl) => (
+                  <option key={lvl} value={lvl}>{lvl}</option>
+                ))}
+              </select>
+            </div>
             <PasteBox
               value={pasteText}
               onChange={setPasteText}
@@ -2165,20 +2175,20 @@ function SentencesDrawer(props: SentencesDrawerProps) {
               tr={tr}
             />
             {importMsg && <ImportMsg msg={importMsg} />}
-            <div className="flex gap-2">
+            <div className="grid grid-cols-3 gap-1.5">
               <button
                 onClick={handleExport}
-                className="flex-1 py-1.5 text-[11px] font-medium rounded-md border border-line text-ink-soft hover:bg-surface-muted flex items-center justify-center gap-1"
+                className="btn-outline py-1.5 text-[11px]"
               >
                 <DownloadIcon size={12} /> {tr('side.sentences.export')}
               </button>
-              <label className="flex-1 py-1.5 text-[11px] font-medium rounded-md border border-line text-ink-soft hover:bg-surface-muted flex items-center justify-center gap-1 cursor-pointer text-center">
+              <label className="btn-outline py-1.5 text-[11px] cursor-pointer text-center">
                 <UploadIcon size={12} /> {tr('side.sentences.import')}
                 <input type="file" accept="application/json,.json" onChange={handleImport} className="hidden" />
               </label>
               <button
                 onClick={() => props.onAnkiExport(filtered)}
-                className="flex-1 py-1.5 text-[11px] font-medium rounded-md border border-line text-ink-soft hover:bg-surface-muted flex items-center justify-center gap-1"
+                className="btn-outline py-1.5 text-[11px]"
               >
                 {tr('side.sentences.toAnki')}
               </button>
@@ -2189,25 +2199,52 @@ function SentencesDrawer(props: SentencesDrawerProps) {
               const [title] = key.split('\u0000')
               return (
                 <div key={key}>
-                  <div className="px-3 py-1.5 bg-surface-muted text-[10px] font-medium text-ink-faint sticky top-0">
+                  <div className="px-4 py-1.5 bg-surface-muted/70 text-[10px] font-semibold text-ink-faint sticky top-0 uppercase tracking-wide backdrop-blur-sm">
                     {title || tr('side.sentences.pasteTitle')}
                   </div>
                   {cards.map((c) => {
                     const due = c.srs ? isDue(c.srs) : false
                     const isRevealed = revealed.has(c.id)
                     return (
-                      <div key={c.id} className="group px-3 py-2.5 border-b border-line/60">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[12px] font-semibold ${due ? 'text-accent' : 'text-ink'}`}>
+                      <div key={c.id} className="group row">
+                        <div className="flex items-start gap-2">
+                          <span className={`text-[12px] font-semibold leading-relaxed flex-1 ${due ? 'text-accent' : 'text-ink'}`}>
                             {c.sentence}
                           </span>
+                          <div className="flex items-center gap-0.5 flex-shrink-0 -mr-1">
+                            {c.blockId || c.url ? (
+                              <button
+                                onClick={() => props.onViewSource(c.blockId, c.url)}
+                                title={tr('side.sentences.viewSource')}
+                                className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
+                              >
+                                <SparklesIcon size={13} />
+                              </button>
+                            ) : null}
+                            <button
+                              onClick={() => props.onAnkiExport([c])}
+                              title={tr('side.sentences.toAnkiOne')}
+                              className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
+                            >
+                              <DownloadIcon size={13} />
+                            </button>
+                            <button
+                              onClick={() => props.onRemove(c.id)}
+                              aria-label={tr('side.sentences.remove')}
+                              className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
+                            >
+                              <XIcon size={15} />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
                           {due && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
+                            <span className="chip-accent">
                               {tr('side.sentences.due')}
                             </span>
                           )}
                           {c.cefr && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-ink/10 text-ink-soft font-medium">
+                            <span className="chip-muted">
                               {c.cefr}
                             </span>
                           )}
@@ -2216,61 +2253,36 @@ function SentencesDrawer(props: SentencesDrawerProps) {
                               {c.srs.reps} {tr('side.sentences.reviews')}
                             </span>
                           )}
-                          <div className="ml-auto flex items-center gap-1">
-                            {c.blockId || c.url ? (
-                              <button
-                                onClick={() => props.onViewSource(c.blockId, c.url)}
-                                title={tr('side.sentences.viewSource')}
-                                className="text-ink-faint hover:text-accent"
-                              >
-                                <SparklesIcon size={13} />
-                              </button>
-                            ) : null}
-                            <button
-                              onClick={() => (c.srs ? undefined : props.onPromote(c.id))}
-                              className={`text-[10px] ${c.srs ? 'text-accent' : 'text-ink-faint hover:text-accent'}`}
-                            >
-                              {c.srs ? tr('side.sentences.inReview') : tr('side.sentences.addToReview')}
-                            </button>
-                            <button
-                              onClick={() => props.onAnkiExport([c])}
-                              title={tr('side.sentences.toAnkiOne')}
-                              className="text-ink-faint hover:text-accent"
-                            >
-                              <DownloadIcon size={13} />
-                            </button>
-                            <button
-                              onClick={() => props.onRemove(c.id)}
-                              aria-label={tr('side.sentences.remove')}
-                              className="text-ink-faint hover:text-danger"
-                            >
-                              <XIcon size={15} />
-                            </button>
-                          </div>
+                          <button
+                            onClick={() => (c.srs ? undefined : props.onPromote(c.id))}
+                            className={`text-[10px] ml-auto ${c.srs ? 'text-accent' : 'text-ink-faint hover:text-accent'} transition-colors`}
+                          >
+                            {c.srs ? tr('side.sentences.inReview') : tr('side.sentences.addToReview')}
+                          </button>
                         </div>
                         {(c.translation || c.analysis) && (
                           <button
                             onClick={() => props.onToggleReveal(c.id)}
-                            className="text-[10px] text-accent hover:underline mt-1"
+                            className="text-[10px] text-accent hover:text-accent-hover hover:underline mt-1.5 transition-colors"
                           >
                             {isRevealed ? tr('side.sentences.hideAnalysis') : tr('side.sentences.showAnalysis')}
                           </button>
                         )}
                         {isRevealed && (c.translation || c.analysis) && (
                           <div
-                            className="lector-prose mt-2 text-[11px] leading-relaxed"
+                            className="lector-prose mt-2 text-[11px] leading-relaxed bg-surface-muted/40 rounded-lg p-2.5"
                             dangerouslySetInnerHTML={{ __html: renderMarkdown(c.analysis || c.translation) }}
                           />
                         )}
                         {isRevealed && extractExamples(c.analysis).length > 0 && (
                           <div className="mt-2 space-y-1">
                             {extractExamples(c.analysis).map((ex, i) => (
-                              <div key={i} className="flex items-center gap-2 text-[11px]">
+                              <div key={i} className="flex items-center gap-2 text-[11px] bg-surface-muted/40 rounded-md px-2 py-1">
                                 <span className="text-ink-soft flex-1">{ex}</span>
                                 <button
                                   onClick={() => props.onMakeCard(ex, c.title)}
                                   title={tr('side.sentences.makeCard')}
-                                  className="text-accent hover:underline text-[10px] flex-shrink-0"
+                                  className="text-accent hover:text-accent-hover text-[10px] flex-shrink-0 font-medium"
                                 >
                                   {tr('side.sentences.makeCard')}
                                 </button>
@@ -2279,17 +2291,11 @@ function SentencesDrawer(props: SentencesDrawerProps) {
                           </div>
                         )}
                         {due && c.srs && (
-                          <div className="flex gap-1.5 mt-2">
-                            {(['again', 'hard', 'good', 'easy'] as Grade[]).map((g) => (
-                              <button
-                                key={g}
-                                onClick={() => props.onGrade(c, g)}
-                                className="flex-1 py-1.5 text-[10px] font-medium rounded-md border border-line hover:bg-surface-muted text-ink-soft"
-                              >
-                                {tr(`side.vocab.${g}` as StringKey)}
-                              </button>
-                            ))}
-                          </div>
+                          <SrsGradeButtons
+                            grades={['again', 'hard', 'good', 'easy']}
+                            tr={tr}
+                            onGrade={(g) => props.onGrade(c, g)}
+                          />
                         )}
                       </div>
                     )
@@ -2324,12 +2330,12 @@ function PasteBox({
         onChange={(e) => onChange(e.target.value)}
         placeholder={tr('side.sentences.pastePlaceholder')}
         rows={2}
-        className="w-full px-2 py-1.5 text-[12px] bg-bg border border-line rounded-md focus:outline-none focus:border-accent resize-none"
+        className="field-sm resize-none"
       />
       <button
         onClick={onGenerate}
         disabled={generating}
-        className="w-full py-1.5 text-[11px] font-medium rounded-md bg-accent text-accent-on disabled:opacity-50"
+        className="btn-primary w-full py-1.5 text-[11px]"
       >
         {generating ? tr('side.sentences.generating') : tr('side.sentences.pasteGenerate')}
       </button>
@@ -2339,7 +2345,43 @@ function PasteBox({
 
 function ImportMsg({ msg }: { msg: { ok: boolean; text: string } }) {
   return (
-    <div className={`text-[10px] ${msg.ok ? 'text-green-600' : 'text-red-500'}`}>{msg.text}</div>
+    <div className={`text-[10px] px-2 py-1 rounded-md ${msg.ok ? 'text-success bg-success-soft/50' : 'text-danger bg-danger-soft/50'}`}>
+      {msg.text}
+    </div>
+  )
+}
+
+// Shared SRS grade buttons (Again / Hard / Good / Easy). Used by the Vocab
+// and Sentence review drawers. "easy" is subtly emphasized as the positive
+// path; "again" tinted toward danger since it resets the card.
+function SrsGradeButtons({
+  grades,
+  tr,
+  onGrade,
+}: {
+  grades: Grade[]
+  tr: (key: StringKey) => string
+  onGrade: (g: Grade) => void
+}) {
+  return (
+    <div className="grid grid-cols-4 gap-1.5 mt-2.5">
+      {grades.map((g) => (
+        <button
+          key={g}
+          onClick={() => onGrade(g)}
+          className={
+            'py-1.5 text-[10px] font-semibold rounded-md border transition-colors duration-150 ease-out ' +
+            (g === 'again'
+              ? 'border-line text-danger hover:bg-danger-soft/50 hover:border-danger/40'
+              : g === 'easy'
+                ? 'border-line text-success hover:bg-success-soft/50 hover:border-success/40'
+                : 'border-line text-ink-soft hover:bg-surface-muted hover:text-ink')
+          }
+        >
+          {tr(`side.vocab.${g}` as StringKey)}
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -2349,15 +2391,18 @@ function ImportMsg({ msg }: { msg: { ok: boolean; text: string } }) {
 function StatsBar({ stats, tr }: { stats: ReviewStats; tr: (key: StringKey) => string }) {
   const Cell = ({ label, value }: { label: string; value: string | number }) => (
     <div className="flex flex-col items-center">
-      <span className="text-[15px] font-bold text-accent leading-tight">{value}</span>
-      <span className="text-[9px] text-ink-faint">{label}</span>
+      <span className="text-[16px] font-bold text-accent leading-none font-serif">{value}</span>
+      <span className="text-[9px] text-ink-faint mt-1 uppercase tracking-wide">{label}</span>
     </div>
   )
   return (
-    <div className="flex justify-around px-3 py-2 border-b border-line">
+    <div className="flex justify-around px-4 py-3 border-b border-line bg-surface-muted/40">
       <Cell label={tr('stats.due')} value={stats.due} />
+      <span className="w-px bg-line" />
       <Cell label={tr('stats.mastered')} value={stats.mastered} />
+      <span className="w-px bg-line" />
       <Cell label={tr('stats.reviews')} value={stats.totalReviews} />
+      <span className="w-px bg-line" />
       <Cell label={tr('stats.retention')} value={stats.avgEase.toFixed(1)} />
     </div>
   )

@@ -10,13 +10,97 @@ html, body, #root {
 
 body {
   font-family: var(--font-sans);
+  font-size: var(--t-body);
   color: var(--ink);
   background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+@layer components {
+  /* —— 图标按钮（header 工具栏） —— */
+  .icon-btn {
+    @apply w-8 h-8 rounded-lg flex items-center justify-center text-ink-faint
+           transition-colors duration-150 ease-out hover:bg-surface-muted hover:text-ink-soft
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-soft;
+  }
+  .icon-btn:disabled { @apply opacity-40 cursor-not-allowed; }
+
+  /* —— 主要按钮 —— */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 font-medium rounded-lg
+           transition-all duration-150 ease-out focus-visible:outline-none
+           focus-visible:ring-2 focus-visible:ring-accent-soft disabled:opacity-50
+           disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-accent-on hover:bg-accent-hover
+           shadow-sm hover:shadow-md active:translate-y-px;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-ink-soft hover:bg-surface-muted hover:text-ink;
+  }
+  .btn-outline {
+    @apply btn bg-surface text-ink-soft border border-line hover:bg-surface-muted hover:text-ink;
+  }
+  /* 虚线"添加"动作按钮 */
+  .btn-add {
+    @apply btn w-full border border-dashed border-line-strong text-accent
+           hover:border-accent;
+    background-color: var(--accent-softer);
+  }
+  .btn-add:hover { background-color: var(--accent-soft); }
+
+  /* —— 表单控件 —— */
+  .field {
+    @apply w-full px-3 py-2 text-body bg-bg text-ink placeholder:text-ink-faint
+           border border-line rounded-lg transition-colors duration-150 ease-out
+           focus:outline-none focus:border-accent focus:bg-surface
+           focus:ring-2 focus:ring-accent-soft;
+  }
+  .field-sm {
+    @apply w-full px-2.5 py-1.5 text-meta bg-bg text-ink placeholder:text-ink-faint
+           border border-line rounded-md transition-colors duration-150 ease-out
+           focus:outline-none focus:border-accent focus:bg-surface;
+  }
+  .label {
+    @apply block text-meta font-semibold text-ink-soft;
+  }
+
+  /* —— 卡片 / 列表行 —— */
+  .row {
+    @apply px-3.5 py-3 transition-colors duration-150;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  }
+  .row-hover { @apply cursor-pointer; }
+  .row-hover:hover { background-color: color-mix(in srgb, var(--surface-muted) 60%, transparent); }
+
+  /* —— 小徽章 —— */
+  .chip {
+    @apply inline-flex items-center text-[9px] leading-none font-semibold
+           px-1.5 py-1 rounded-pill;
+  }
+  .chip-accent {
+    @apply chip text-accent;
+    background-color: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .chip-muted { @apply chip bg-surface-sunken text-ink-soft; }
+  .chip-builtIn { @apply chip bg-surface-muted text-ink-faint; }
+
+  /* 抽屉头 */
+  .drawer-head {
+    @apply flex items-center justify-between px-4 py-3 border-b border-line;
+    background-color: color-mix(in srgb, var(--surface) 85%, transparent);
+    backdrop-filter: blur(6px);
+  }
+  .drawer-title {
+    @apply text-body font-semibold text-ink tracking-tight;
+  }
 }
 
 /* Prose styling for streamed Markdown assistant replies — 暖色版. */
 .lector-prose {
-  font-size: 13px;
+  font-size: var(--t-body);
   line-height: 1.65;
   color: var(--ink);
   word-wrap: break-word;
@@ -26,15 +110,16 @@ body {
 .lector-prose h1, .lector-prose h2, .lector-prose h3 {
   font-family: var(--font-serif);
   font-weight: 700;
-  margin: 14px 0 6px;
+  margin: 16px 0 6px;
   line-height: 1.3;
   color: var(--ink);
+  letter-spacing: -0.01em;
 }
-.lector-prose h1 { font-size: 16px; }
+.lector-prose h1 { font-size: 17px; }
 .lector-prose h2 { font-size: 15px; }
 .lector-prose h3 { font-size: 14px; }
 .lector-prose ul, .lector-prose ol { margin: 0 0 8px; padding-left: 20px; }
-.lector-prose li { margin: 2px 0; }
+.lector-prose li { margin: 3px 0; }
 .lector-prose li::marker { color: var(--accent); }
 .lector-prose code {
   font-family: var(--font-mono);
@@ -47,20 +132,22 @@ body {
 .lector-prose pre {
   background: var(--ink);
   color: #F2E6D2;
-  padding: 10px 12px;
-  border-radius: 8px;
+  padding: 11px 13px;
+  border-radius: var(--r);
   overflow-x: auto;
   margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.55;
 }
 .lector-prose pre code { background: transparent; color: inherit; padding: 0; }
 .lector-prose blockquote {
   border-left: 3px solid var(--accent);
-  padding-left: 10px;
+  padding: 2px 0 2px 12px;
   color: var(--ink-soft);
   margin: 0 0 8px;
 }
-.lector-prose a { color: var(--accent); text-decoration: underline; }
-.lector-prose strong { font-weight: 700; }
+.lector-prose a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.lector-prose strong { font-weight: 700; color: var(--ink); }
 
 /* POS color tags (Feature ④ Phase 2) — 逐词词性标注 */
 .lector-pos {
@@ -79,7 +166,12 @@ body {
 
 /* Scrollbar polish */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 4px;
+  border: 2px solid var(--bg);
+}
 ::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
 
 /* Citation chips (Feature ①) */
@@ -92,7 +184,7 @@ body {
   font-size: 0.75em;
   vertical-align: super;
 }
-.lector-cite:hover { text-decoration: underline; }
+.lector-cite:hover { text-decoration: underline; text-underline-offset: 2px; }
 
 /* Due badge (Feature ③) */
 .lector-due-badge {
@@ -106,19 +198,13 @@ body {
   margin-left: 4px;
 }
 
-/* Focus ring — 补足可访问性 */
-.lector-focus:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
 /* 抽屉 / 弹窗入场（克制的位移+淡入） */
 @keyframes lectorSlideIn {
-  from { opacity: 0; transform: translateX(8px); }
+  from { opacity: 0; transform: translateX(12px); }
   to { opacity: 1; transform: translateX(0); }
 }
 .lector-anim-slide {
-  animation: lectorSlideIn 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: lectorSlideIn 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes lectorFadeIn {
   from { opacity: 0; }
@@ -127,7 +213,14 @@ body {
 .lector-anim-fade {
   animation: lectorFadeIn 180ms ease-out;
 }
+@keyframes lectorPopIn {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.lector-anim-pop {
+  animation: lectorPopIn 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .lector-anim-slide, .lector-anim-fade { animation: none; }
+  .lector-anim-slide, .lector-anim-fade, .lector-anim-pop { animation: none; }
 }
