@@ -307,3 +307,43 @@ describe('SENTENCE_CARD_SYSTEM_PROMPT — POS tags (Phase 2)', () => {
     expect(yi).toBeLessThan(ju)
   })
 })
+
+describe('importSentences — SrsState validation', () => {
+  it('rejects srs with non-numeric fields (falls back to null)', () => {
+    const dirty = [
+      {
+        id: 's1', sentence: 'A valid sentence here.', translation: '', analysis: '',
+        keywords: [], quote: '', url: '', title: '', lang: 'en',
+        srs: { due: 'not-a-number', interval: 1, ease: 2.5, reps: 0, lapses: 0 },
+      },
+    ]
+    const r = importSentences(JSON.stringify(dirty))
+    expect(r.ok).toBe(true)
+    expect(r.cards?.[0].srs).toBeNull()
+  })
+
+  it('keeps valid srs intact', () => {
+    const valid = [
+      {
+        id: 's1', sentence: 'A valid sentence here.', translation: '', analysis: '',
+        keywords: [], quote: '', url: '', title: '', lang: 'en',
+        srs: { due: 123456, interval: 5, ease: 2.5, reps: 3, lapses: 1 },
+      },
+    ]
+    const r = importSentences(JSON.stringify(valid))
+    expect(r.ok).toBe(true)
+    expect(r.cards?.[0].srs).toEqual({ due: 123456, interval: 5, ease: 2.5, reps: 3, lapses: 1 })
+  })
+
+  it('rejects srs missing required numeric fields', () => {
+    const dirty = [
+      {
+        id: 's1', sentence: 'A valid sentence here.', translation: '', analysis: '',
+        keywords: [], quote: '', url: '', title: '', lang: 'en',
+        srs: { due: 123, interval: 1 },
+      },
+    ]
+    const r = importSentences(JSON.stringify(dirty))
+    expect(r.cards?.[0].srs).toBeNull()
+  })
+})

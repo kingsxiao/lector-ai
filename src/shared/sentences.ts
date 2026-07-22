@@ -194,6 +194,19 @@ export function exportSentences(cards: SentenceCard[]): string {
   return JSON.stringify(cards, null, 2)
 }
 
+/** 校验导入的 srs 对象是否所有数值字段都是数字。损坏的降级为 null。*/
+function isValidSrsState(v: unknown): v is SrsState {
+  if (!v || typeof v !== 'object') return false
+  const s = v as Record<string, unknown>
+  return (
+    typeof s.due === 'number' &&
+    typeof s.interval === 'number' &&
+    typeof s.ease === 'number' &&
+    typeof s.reps === 'number' &&
+    typeof s.lapses === 'number'
+  )
+}
+
 /**
  * 从 JSON 导入，容忍脏数据：非法 JSON / 非数组顶层返回 { ok:false }；
  * 缺必填字段的行静默跳过。镜像 importGlossary。
@@ -229,7 +242,7 @@ export function importSentences(json: string): {
     const blockId = typeof r.blockId === 'string' ? r.blockId : undefined
     const lang = typeof r.lang === 'string' ? r.lang : 'en'
     const createdAt = typeof r.createdAt === 'number' ? r.createdAt : now
-    const srs = r.srs && typeof r.srs === 'object' ? (r.srs as SrsState) : null
+    const srs = isValidSrsState(r.srs) ? (r.srs as SrsState) : null
     cards.push({ id, sentence, translation, analysis, keywords, quote, url, title, blockId, lang, createdAt, srs })
   }
   return { ok: true, cards }
