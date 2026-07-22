@@ -289,3 +289,21 @@ describe('SENTENCE_CARD_SYSTEM_PROMPT', () => {
     expect(SENTENCE_CARD_SYSTEM_PROMPT).toContain('## 记忆点')
   })
 })
+
+describe('SENTENCE_CARD_SYSTEM_PROMPT — POS tags (Phase 2)', () => {
+  it('instructs the model to output a POS-tagged sentence in 句法结构', () => {
+    expect(SENTENCE_CARD_SYSTEM_PROMPT).toContain('[n]')
+    expect(SENTENCE_CARD_SYSTEM_PROMPT).toContain('[/n]')
+    expect(SENTENCE_CARD_SYSTEM_PROMPT).toContain('[v]')
+    for (const code of ['n', 'v', 'a', 'd', 'p', 'c', 'r', 't']) {
+      expect(SENTENCE_CARD_SYSTEM_PROMPT).toContain(`[${code}]`)
+    }
+  })
+
+  it('keeps 句法结构 as the second H2 section (after 译文)', () => {
+    expect(SENTENCE_CARD_SYSTEM_PROMPT).toContain('## 句法结构')
+    const yi = SENTENCE_CARD_SYSTEM_PROMPT.indexOf('## 译文')
+    const ju = SENTENCE_CARD_SYSTEM_PROMPT.indexOf('## 句法结构')
+    expect(yi).toBeLessThan(ju)
+  })
+})

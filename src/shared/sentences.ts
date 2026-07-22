@@ -251,7 +251,10 @@ NOTHING before the first "## " or after the last section:
 <faithful Chinese translation, one line>
 
 ## 句法结构
-<break down 主谓宾 / clause structure / grammar points; 2-4 short lines or bullets>
+First, output ONE line: the sentence with each word wrapped in a POS tag using
+this format: [n]noun[/n] [v]verb[/v] [a]adjective[/a] [d]adverb[/d] [p]preposition[/p]
+[c]conjunction[/c] [r]pronoun[/r] [t]article[/t]. Tag every content word. Then
+break down 主谓宾 / clause structure / grammar points in 2-4 short lines or bullets.
 
 ## 关键词与搭配
 - **<word>** — 搭配：<collocations>；辨析：<nuance vs near-synonyms>
