@@ -15,6 +15,7 @@ import {
   extractTranslation,
   extractKeywords,
   extractCefr,
+  extractExamples,
   SENTENCE_CARD_SYSTEM_PROMPT,
   type SentenceCard,
 } from '../shared/sentences'
@@ -973,6 +974,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               alert(e instanceof Error ? e.message : String(e))
             }
           }}
+          onMakeCard={(sentence, title) => generateSentenceCard(sentence, '', title)}
         />
       )}
     </div>
@@ -2050,6 +2052,7 @@ interface SentencesDrawerProps {
   onViewSource: (blockId: string | undefined, url: string) => void
   /** Batch-export the given cards to Anki (caller resolves config + deck). */
   onAnkiExport: (cards: SentenceCard[]) => void
+  onMakeCard: (sentence: string, title: string) => void
 }
 
 function SentencesDrawer(props: SentencesDrawerProps) {
@@ -2258,6 +2261,22 @@ function SentencesDrawer(props: SentencesDrawerProps) {
                             className="lector-prose mt-2 text-[11px] leading-relaxed"
                             dangerouslySetInnerHTML={{ __html: renderMarkdown(c.analysis || c.translation) }}
                           />
+                        )}
+                        {isRevealed && extractExamples(c.analysis).length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {extractExamples(c.analysis).map((ex, i) => (
+                              <div key={i} className="flex items-center gap-2 text-[11px]">
+                                <span className="text-ink-soft flex-1">{ex}</span>
+                                <button
+                                  onClick={() => props.onMakeCard(ex, c.title)}
+                                  title={tr('side.sentences.makeCard')}
+                                  className="text-accent hover:underline text-[10px] flex-shrink-0"
+                                >
+                                  {tr('side.sentences.makeCard')}
+                                </button>
+                              </div>
+                            ))}
+                          </div>
                         )}
                         {due && c.srs && (
                           <div className="flex gap-1.5 mt-2">

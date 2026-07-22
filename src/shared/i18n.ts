@@ -181,6 +181,8 @@ export const STRINGS = {
   'side.sentences.pasteEmpty': { en: 'Enter a sentence first.', zh: '请先输入一个句子。' },
   'side.sentences.fromVocab': { en: 'Explain this word', zh: '讲解这个词' },
   'side.sentences.fromHighlight': { en: 'Explain this sentence', zh: '讲解这句话' },
+  'side.sentences.makeCard': { en: 'Make card', zh: '生成卡片' },
+  'side.sentences.examples': { en: 'Examples', zh: '举一反三' },
   'side.sentences.noContext': {
     en: 'This word has no saved sentence. Paste one to generate a card.',
     zh: '该词没有保存的例句，请在句库粘贴一句来生成卡片。',
