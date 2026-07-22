@@ -3,6 +3,7 @@ import { useStore, type ChatMessage, type ChatSession } from '../shared/store'
 import { renderMarkdown } from './markdown'
 import { renderCitations, type PageBlock } from '../shared/citations'
 import { isDue, scheduleSrs, type Grade } from '../shared/srs'
+import { computeReviewStats, type ReviewStats } from '../shared/stats'
 import { toMarkdown } from '../shared/exporters'
 import type { Highlight } from '../shared/highlights'
 import type { VocabEntry } from '../shared/vocabulary'
@@ -1138,6 +1139,7 @@ function VocabDrawer({
 
   return (
     <Drawer title={tr('side.vocab.title')} onClose={onClose}>
+      {vocab.length > 0 && <StatsBar stats={computeReviewStats(vocab)} tr={tr} />}
       {vocab.length === 0 ? (
         <Empty text={tr('side.vocab.empty')} />
       ) : (
@@ -2115,6 +2117,9 @@ function SentencesDrawer(props: SentencesDrawerProps) {
 
   return (
     <Drawer title={tr('side.sentences.title')} onClose={onClose}>
+      {sentences.filter((c) => c.srs).length > 0 && (
+        <StatsBar stats={computeReviewStats(sentences)} tr={tr} />
+      )}
       {sentences.length === 0 && !pasteText ? (
         <>
           <div className="px-3 py-2 border-b border-line">
@@ -2293,5 +2298,25 @@ function PasteBox({
 function ImportMsg({ msg }: { msg: { ok: boolean; text: string } }) {
   return (
     <div className={`text-[10px] ${msg.ok ? 'text-green-600' : 'text-red-500'}`}>{msg.text}</div>
+  )
+}
+
+// Compact 4-metric stats bar shown at the top of the SentencesDrawer and
+// VocabDrawer. Renders the aggregated review stats (due / mastered / reviews /
+// retention) computed from the drawer's items.
+function StatsBar({ stats, tr }: { stats: ReviewStats; tr: (key: StringKey) => string }) {
+  const Cell = ({ label, value }: { label: string; value: string | number }) => (
+    <div className="flex flex-col items-center">
+      <span className="text-[15px] font-bold text-accent leading-tight">{value}</span>
+      <span className="text-[9px] text-ink-faint">{label}</span>
+    </div>
+  )
+  return (
+    <div className="flex justify-around px-3 py-2 border-b border-line">
+      <Cell label={tr('stats.due')} value={stats.due} />
+      <Cell label={tr('stats.mastered')} value={stats.mastered} />
+      <Cell label={tr('stats.reviews')} value={stats.totalReviews} />
+      <Cell label={tr('stats.retention')} value={stats.avgEase.toFixed(1)} />
+    </div>
   )
 }
