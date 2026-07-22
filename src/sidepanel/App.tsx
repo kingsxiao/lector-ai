@@ -6,6 +6,7 @@ import { isDue, scheduleSrs, type Grade } from '../shared/srs'
 import { toMarkdown } from '../shared/exporters'
 import type { Highlight } from '../shared/highlights'
 import type { VocabEntry } from '../shared/vocabulary'
+import type { SentenceCard } from '../shared/sentences'
 import {
   LibraryIcon, BookmarkIcon, BookOpenIcon, LanguagesIcon,
   SendIcon, XIcon, ClipboardListIcon, PlusIcon, PencilIcon, TrashIcon,
@@ -154,6 +155,12 @@ export default function App() {
         const addVocab = useStore.getState().addVocab
         for (const v of list) addVocab(v)
         chrome.storage.local.remove('lectorVocab')
+      }
+      if (changes.lectorSentences) {
+        const list = (changes.lectorSentences.newValue as unknown as SentenceCard[]) || []
+        const addSentence = useStore.getState().addSentence
+        for (const c of list) addSentence(c)
+        chrome.storage.local.remove('lectorSentences')
       }
     }
     chrome.storage.onChanged.addListener(onStorage)
