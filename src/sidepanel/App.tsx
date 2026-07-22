@@ -2055,11 +2055,13 @@ interface SentencesDrawerProps {
 function SentencesDrawer(props: SentencesDrawerProps) {
   const { sentences, revealed, tr, onClose } = props
   const [query, setQuery] = useState('')
+  const [cefrFilter, setCefrFilter] = useState<string>('')
   const [pasteText, setPasteText] = useState('')
   const [generating, setGenerating] = useState(false)
   const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
-  const filtered = searchSentences(sentences, query)
+  const searched = searchSentences(sentences, query)
+  const filtered = cefrFilter ? searched.filter((c) => c.cefr === cefrFilter) : searched
   const groups = groupSentences(filtered)
 
   const handleGenerate = async () => {
@@ -2141,6 +2143,17 @@ function SentencesDrawer(props: SentencesDrawerProps) {
               placeholder={tr('side.sentences.search')}
               className="w-full px-2 py-1.5 text-[12px] bg-bg border border-line rounded-md focus:outline-none focus:border-accent"
             />
+            <select
+              value={cefrFilter}
+              onChange={(e) => setCefrFilter(e.target.value)}
+              className="w-full px-2 py-1.5 text-[12px] bg-bg border border-line rounded-md focus:outline-none focus:border-accent"
+              aria-label={tr('side.sentences.filterAll')}
+            >
+              <option value="">{tr('side.sentences.filterAll')}</option>
+              {(['A1', 'A2', 'B1', 'B2', 'C1', 'C2'] as const).map((lvl) => (
+                <option key={lvl} value={lvl}>{lvl}</option>
+              ))}
+            </select>
             <PasteBox
               value={pasteText}
               onChange={setPasteText}
@@ -2188,6 +2201,11 @@ function SentencesDrawer(props: SentencesDrawerProps) {
                           {due && (
                             <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
                               {tr('side.sentences.due')}
+                            </span>
+                          )}
+                          {c.cefr && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-ink/10 text-ink-soft font-medium">
+                              {c.cefr}
                             </span>
                           )}
                           {c.srs && (

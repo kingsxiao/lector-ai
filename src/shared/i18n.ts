@@ -158,6 +158,7 @@ export const STRINGS = {
     zh: '在页面选中句子点击"讲解句子"，或在此粘贴一句。',
   },
   'side.sentences.search': { en: 'Search sentence / word…', zh: '搜索句子或单词…' },
+  'side.sentences.filterAll': { en: 'All levels', zh: '全部难度' },
   'side.sentences.export': { en: '⬇ Export', zh: '⬇ 导出' },
   'side.sentences.import': { en: '⬆ Import', zh: '⬆ 导入' },
   'side.sentences.importFail': { en: 'Import failed: {msg}', zh: '导入失败：{msg}' },
