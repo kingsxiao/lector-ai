@@ -634,6 +634,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             <div className="absolute right-0 top-full mt-1 w-48 bg-surface border border-line rounded-xl shadow-pop z-30 py-1 lector-anim-fade">
               <button
                 onClick={() => { setActiveView('library'); setShowTools(false) }}
+                aria-label="Library"
                 className="tools-item"
               >
                 <LibraryIcon size={16} />
@@ -641,6 +642,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               </button>
               <button
                 onClick={() => { setActiveView('glossary'); setShowTools(false) }}
+                aria-label="Glossary"
                 className="tools-item relative"
               >
                 <BookMarkedIcon size={16} />
@@ -649,6 +651,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               </button>
               <button
                 onClick={() => { setActiveView('templates'); setShowTools(false) }}
+                aria-label="Templates"
                 className="tools-item relative"
               >
                 <ClipboardListIcon size={16} />
