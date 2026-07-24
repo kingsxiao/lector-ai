@@ -85,6 +85,17 @@ async function runSentenceAnalysis(sentence: string, url: string, title: string)
   return true
 }
 
+/** Flat, mutually-exclusive side-panel views (replaces overlay drawers). */
+type View =
+  | 'chat'
+  | 'sentences'
+  | 'highlights'
+  | 'vocab'
+  | 'settings'
+  | 'templates'
+  | 'glossary'
+  | 'library'
+
 export default function App() {
   const { byok, setByok, sessions, addSession, updateSession, removeSession, clearSessions } =
     useStore()
@@ -125,14 +136,17 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
-  const [showSettings, setShowSettings] = useState(false)
-  const [showLibrary, setShowLibrary] = useState(false)
-  const [showHighlights, setShowHighlights] = useState(false)
-  const [showVocab, setShowVocab] = useState(false)
-  const [showTemplates, setShowTemplates] = useState(false)
-  const [showGlossary, setShowGlossary] = useState(false)
-  const [showSentences, setShowSentences] = useState(false)
-  const [showTools, setShowTools] = useState(false)
+  // Flat view model: a single mutually-exclusive view replaces the 8 show*
+  // booleans. Opening a view = setActiveView(...); only one can be active,
+  // so stacked overlays are physically impossible. See
+  // docs/superpowers/specs/2026-07-24-tab-navigation-redesign.md
+  const [activeView, setActiveView] = useState<View>('chat')
+  const [showTools, setShowTools] = useState(false) // MoreMenu 下拉开关（局部）
+  const [errorBanner, setErrorBanner] = useState<string | null>(null)
+  // Inline loading for the 举一反三 → make-card action: tracks the exact
+  // example sentence currently being turned into a card, so its row shows a
+  // spinner and the others stay clickable. Null when nothing is generating.
+  const [busyExample, setBusyExample] = useState<string | null>(null)
   const [revealedVocab, setRevealedVocab] = useState<Set<string>>(new Set())
   const [revealedSentences, setRevealedSentences] = useState<Set<string>>(new Set())
   const [bilingualBusy, setBilingualBusy] = useState(false)
@@ -253,9 +267,10 @@ export default function App() {
     const onMessage = (message: { action?: string; message?: string }) => {
       if (message?.action === 'lector-bilingual-error' && message.message) {
         setError(message.message)
-        // Key/quota errors mean the user should revisit settings.
+        // Key/quota errors surface in a top banner (no auto-opening Settings
+        // on top of the current view — the user jumps to Settings themselves).
         if (/401|key|quota|429|credit/i.test(message.message)) {
-          setShowSettings(true)
+          setErrorBanner(message.message)
         }
       }
     }
@@ -296,10 +311,10 @@ export default function App() {
     })
   }
 
-  // Shared sentence-card generator. Lives at App scope so VocabDrawer and the
-  // Highlights drawer (sibling components, not children of SentencesDrawer) can
+  // Shared sentence-card generator. Lives at App scope so VocabView and the
+  // Highlights view (sibling components, not children of SentencesView) can
   // fire it from their own item-level "explain this" buttons. Mirrors the
-  // core of SentencesDrawer.handleGenerate but parameterizes the inputs
+  // core of SentencesView.handleGenerate but parameterizes the inputs
   // (sentence / url / title) so callers don't need their own closure.
   const generateSentenceCard = async (sentence: string, url: string, title: string) => {
     const settings = useStore.getState().byok
@@ -311,6 +326,30 @@ export default function App() {
       await runSentenceAnalysis(sentence, url, title)
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  // make-card from a 举一反三 example sentence (inside SentencesView).
+  // Wraps generateSentenceCard with per-example busy state so the row shows
+  // a spinner; the new card appears at the top of the list via the store.
+  const handleMakeCardFromExample = async (sentence: string, title: string) => {
+    setBusyExample(sentence)
+    try {
+      await generateSentenceCard(sentence, '', title)
+    } finally {
+      setBusyExample(null)
+    }
+  }
+
+  // make-card from a Highlight's "explain" (Sparkles) button. No per-row busy
+  // state here (highlights list is short and the action is secondary); we just
+  // surface a lightweight inline state by reusing busyExample keyed on text.
+  const handleMakeCardFromHighlight = async (h: { text: string; url: string; title: string }) => {
+    setBusyExample(h.text)
+    try {
+      await generateSentenceCard(h.text, h.url, h.title)
+    } finally {
+      setBusyExample(null)
     }
   }
 
@@ -384,7 +423,7 @@ export default function App() {
 
       if (!byok.apiKey) {
         setError(t('side.error.addKey', byok.locale))
-        setShowSettings(true)
+        setErrorBanner(t('side.error.addKey', byok.locale))
         return
       }
 
@@ -492,14 +531,14 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
   const openSession = (s: ChatSession) => {
     setMessages(s.messages)
     setActiveSessionId(s.id)
-    setShowLibrary(false)
+    setActiveView('chat')
   }
 
   const providerConfigured = Boolean(byok.apiKey)
 
   return (
     <div className="flex flex-col h-screen bg-bg">
-      {/* Header */}
+      {/* Header: app identity + page-bilingual toggle + settings */}
       <header className="flex items-center justify-between gap-2 px-3.5 py-2.5 bg-surface border-b border-line">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-xl bg-accent text-accent-on font-bold flex items-center justify-center text-[15px] flex-shrink-0 shadow-sm font-serif">
@@ -531,88 +570,130 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             )}
           </button>
           <button
-            onClick={() => setShowSettings(true)}
+            onClick={() => setActiveView('settings')}
             title={tr('settings.title')}
             aria-label={tr('settings.title')}
-            className="icon-btn"
+            className={`icon-btn ${activeView === 'settings' ? 'text-accent' : ''}`}
           >
             <SettingsIcon size={17} />
           </button>
-          <div className="relative" ref={toolsRef}>
-            <button
-              onClick={() => setShowTools((v) => !v)}
-              title={tr('side.tools.title')}
-              aria-label={tr('side.tools.title')}
-              aria-expanded={showTools}
-              className="icon-btn relative"
-            >
-              <GridIcon size={17} />
-              {(vocab.some((v) => isDue(v.srs)) ||
-                sentences.some((c) => c.srs && isDue(c.srs))) && (
-                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-accent" />
-              )}
-            </button>
-            {showTools && (
-              <div className="absolute right-0 top-full mt-1 w-48 bg-surface border border-line rounded-xl shadow-pop z-30 py-1 lector-anim-fade">
-                <button
-                  onClick={() => { setShowLibrary(true); setShowTools(false) }}
-                  className="tools-item"
-                >
-                  <LibraryIcon size={16} />
-                  <span className="flex-1 text-left">{tr('side.library.title')}</span>
-                </button>
-                <button
-                  onClick={() => { setShowHighlights(true); setShowTools(false) }}
-                  className="tools-item relative"
-                >
-                  <BookmarkIcon size={16} />
-                  <span className="flex-1 text-left">{tr('side.highlights.title')}</span>
-                  {highlights.length > 0 && <span className="dot-badge" />}
-                </button>
-                <button
-                  onClick={() => { setShowVocab(true); setShowTools(false) }}
-                  className="tools-item relative"
-                >
-                  <BookOpenIcon size={16} />
-                  <span className="flex-1 text-left">{tr('side.vocab.title')}</span>
-                  {vocab.some((v) => isDue(v.srs)) && (
-                    <span className="lector-due-badge">!</span>
-                  )}
-                </button>
-                <button
-                  onClick={() => { setShowGlossary(true); setShowTools(false) }}
-                  className="tools-item relative"
-                >
-                  <BookMarkedIcon size={16} />
-                  <span className="flex-1 text-left">{tr('side.glossary.title')}</span>
-                  {glossary.length > 0 && <span className="dot-badge" />}
-                </button>
-                <button
-                  onClick={() => { setShowSentences(true); setShowTools(false) }}
-                  className="tools-item relative"
-                >
-                  <CardsIcon size={16} />
-                  <span className="flex-1 text-left">{tr('side.sentences.title')}</span>
-                  {sentences.some((c) => c.srs && isDue(c.srs)) && (
-                    <span className="lector-due-badge">!</span>
-                  )}
-                </button>
-                <button
-                  onClick={() => { setShowTemplates(true); setShowTools(false) }}
-                  className="tools-item relative"
-                >
-                  <ClipboardListIcon size={16} />
-                  <span className="flex-1 text-left">{tr('side.templates.title')}</span>
-                  {templates.filter((t) => !t.builtIn).length > 0 && (
-                    <span className="dot-badge" />
-                  )}
-                </button>
-              </div>
-            )}
-          </div>
         </div>
       </header>
 
+      {/* TabBar: flat view switching (high-frequency tabs + MoreMenu). */}
+      <nav className="tab-bar" aria-label="Views">
+        <button
+          onClick={() => setActiveView('chat')}
+          className={`tab-item ${activeView === 'chat' ? 'tab-item-active' : ''}`}
+          aria-label={tr('side.tab.chat')}
+        >
+          <SendIcon size={14} />
+          <span>{tr('side.tab.chat')}</span>
+        </button>
+        <button
+          onClick={() => setActiveView('sentences')}
+          className={`tab-item relative ${activeView === 'sentences' ? 'tab-item-active' : ''}`}
+          aria-label={tr('side.tab.sentences')}
+        >
+          <CardsIcon size={14} />
+          <span>{tr('side.tab.sentences')}</span>
+          {sentences.some((c) => c.srs && isDue(c.srs)) && (
+            <span className="lector-due-badge">!</span>
+          )}
+        </button>
+        <button
+          onClick={() => setActiveView('highlights')}
+          className={`tab-item relative ${activeView === 'highlights' ? 'tab-item-active' : ''}`}
+          aria-label={tr('side.tab.highlights')}
+        >
+          <BookmarkIcon size={14} />
+          <span>{tr('side.tab.highlights')}</span>
+          {highlights.length > 0 && <span className="dot-badge" />}
+        </button>
+        <button
+          onClick={() => setActiveView('vocab')}
+          className={`tab-item relative ${activeView === 'vocab' ? 'tab-item-active' : ''}`}
+          aria-label={tr('side.tab.vocab')}
+        >
+          <BookOpenIcon size={14} />
+          <span>{tr('side.tab.vocab')}</span>
+          {vocab.some((v) => isDue(v.srs)) && <span className="lector-due-badge">!</span>}
+        </button>
+        {/* ⋯ MoreMenu: low-frequency views (Templates / Glossary / Library) */}
+        <div className="relative" ref={toolsRef}>
+          <button
+            onClick={() => setShowTools((v) => !v)}
+            className={`tab-item ${activeView === 'templates' || activeView === 'glossary' || activeView === 'library' ? 'tab-item-active' : ''}`}
+            aria-label={tr('side.tab.more')}
+            aria-expanded={showTools}
+          >
+            <GridIcon size={14} />
+            <span>{tr('side.tab.more')}</span>
+          </button>
+          {showTools && (
+            <div className="absolute right-0 top-full mt-1 w-48 bg-surface border border-line rounded-xl shadow-pop z-30 py-1 lector-anim-fade">
+              <button
+                onClick={() => { setActiveView('library'); setShowTools(false) }}
+                className="tools-item"
+              >
+                <LibraryIcon size={16} />
+                <span className="flex-1 text-left">{tr('side.tab.more.library')}</span>
+              </button>
+              <button
+                onClick={() => { setActiveView('glossary'); setShowTools(false) }}
+                className="tools-item relative"
+              >
+                <BookMarkedIcon size={16} />
+                <span className="flex-1 text-left">{tr('side.tab.more.glossary')}</span>
+                {glossary.length > 0 && <span className="dot-badge" />}
+              </button>
+              <button
+                onClick={() => { setActiveView('templates'); setShowTools(false) }}
+                className="tools-item relative"
+              >
+                <ClipboardListIcon size={16} />
+                <span className="flex-1 text-left">{tr('side.tab.more.templates')}</span>
+                {templates.filter((tpl) => !tpl.builtIn).length > 0 && (
+                  <span className="dot-badge" />
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+      </nav>
+
+      {/* ErrorBanner: API/key errors show here instead of auto-opening Settings.
+          Styles are inlined as JSX utilities rather than consumed from the
+          shared banner class, because that class's @apply of an opacity
+          utility on a non-configured soft color fails the Tailwind production
+          build (the equivalent JSX utility resolves fine via JIT). */}
+      {errorBanner && (
+        <div
+          className="flex items-center gap-2 px-3.5 py-2 bg-danger-soft/50 border-b border-danger/30 text-[11px] text-danger"
+          role="alert"
+        >
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-danger flex-shrink-0" />
+          <span className="flex-1 leading-relaxed">{errorBanner}</span>
+          <div className="flex items-center gap-2 ml-auto">
+            <button
+              onClick={() => { setActiveView('settings'); setErrorBanner(null) }}
+              className="font-medium underline hover:no-underline"
+            >
+              {tr('side.error.goSettings')}
+            </button>
+            <button
+              onClick={() => setErrorBanner(null)}
+              className="text-ink-faint hover:text-ink"
+              aria-label={tr('side.error.dismiss')}
+            >
+              <XIcon size={13} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {activeView === 'chat' && (
+        <>
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3.5 py-4 space-y-3.5">
         {!providerConfigured && (
@@ -624,7 +705,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               return (
                 <>
                   {before}
-                  <button onClick={() => setShowSettings(true)} className="underline font-medium hover:text-accent">
+                  <button onClick={() => setActiveView('settings')} className="underline font-medium hover:text-accent">
                     {tr('side.onboard.settingsLink')}
                   </button>
                   {after}
@@ -788,83 +869,73 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           )}
         </div>
       </div>
+        </>
+      )}
 
-      <SettingsDrawer
-        open={showSettings}
-        onClose={() => setShowSettings(false)}
-        byok={byok}
-        onChange={async (next) => {
-          setByok(next)
-          // Read the latest store state rather than the render-captured `byok`,
-          // so rapid sequential edits don't persist a stale snapshot.
-          await saveSettings({ ...useStore.getState().byok, ...next })
-        }}
-      />
-
-      {/* Library drawer */}
-      {showLibrary && (
-        <div
-          className="absolute inset-0 bg-ink/30 backdrop-blur-[1px] z-40 lector-anim-fade"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowLibrary(false)
+      {activeView === 'settings' && (
+        <SettingsView
+          byok={byok}
+          onChange={async (next) => {
+            setByok(next)
+            await saveSettings({ ...useStore.getState().byok, ...next })
           }}
-        >
-          <div className="absolute right-0 top-0 bottom-0 w-[310px] bg-surface shadow-pop flex flex-col lector-anim-slide">
-            <div className="drawer-head">
-              <h3 className="drawer-title">{tr('side.library.title')}</h3>
-              <button onClick={() => setShowLibrary(false)} aria-label={tr('popup.close')} className="icon-btn">
-                <XIcon size={16} />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {sessions.length === 0 ? (
-                <Empty text={tr('side.library.empty')} />
-              ) : (
-                sessions.map((s) => (
-                  <div
-                    key={s.id}
-                    className="group row row-hover"
-                    onClick={() => openSession(s)}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[12px] font-medium text-ink truncate">{s.title}</div>
-                        <div className="text-[10px] text-ink-faint mt-0.5">{new Date(s.createdAt).toLocaleString()}</div>
-                      </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          removeSession(s.id)
-                          if (activeSessionId === s.id) startNewChat()
-                        }}
-                        aria-label="Delete conversation"
-                        className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
-                      >
-                        <XIcon size={15} />
-                      </button>
+        />
+      )}
+
+      {/* Library view (flat — replaces the overlay drawer) */}
+      {activeView === 'library' && (
+        <div className="flex-1 overflow-y-auto flex flex-col">
+          <div className="drawer-head">
+            <h3 className="drawer-title">{tr('side.library.title')}</h3>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {sessions.length === 0 ? (
+              <Empty text={tr('side.library.empty')} />
+            ) : (
+              sessions.map((s) => (
+                <div
+                  key={s.id}
+                  className="group row row-hover"
+                  onClick={() => openSession(s)}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[12px] font-medium text-ink truncate">{s.title}</div>
+                      <div className="text-[10px] text-ink-faint mt-0.5">{new Date(s.createdAt).toLocaleString()}</div>
                     </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        removeSession(s.id)
+                        if (activeSessionId === s.id) startNewChat()
+                      }}
+                      aria-label="Delete conversation"
+                      className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
+                    >
+                      <XIcon size={15} />
+                    </button>
                   </div>
-                ))
-              )}
-            </div>
-            {sessions.length > 0 && (
-              <button
-                onClick={() => {
-                  clearSessions()
-                  startNewChat()
-                }}
-                className="px-4 py-2.5 text-meta text-ink-faint hover:text-danger hover:bg-danger-soft/40 border-t border-line transition-colors text-left"
-              >
-                {tr('side.library.clearAll')}
-              </button>
+                </div>
+              ))
             )}
           </div>
+          {sessions.length > 0 && (
+            <button
+              onClick={() => {
+                clearSessions()
+                startNewChat()
+              }}
+              className="px-4 py-2.5 text-meta text-ink-faint hover:text-danger hover:bg-danger-soft/40 border-t border-line transition-colors text-left"
+            >
+              {tr('side.library.clearAll')}
+            </button>
+          )}
         </div>
       )}
 
-      {/* Highlights drawer */}
-      {showHighlights && (
-        <Drawer title={tr('side.highlights.title')} onClose={() => setShowHighlights(false)}>
+      {/* Highlights view (flat) */}
+      {activeView === 'highlights' && (
+        <ViewShell title={tr('side.highlights.title')}>
           {highlights.length === 0 ? (
             <Empty text={tr('side.highlights.empty')} />
           ) : (
@@ -880,7 +951,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <button
-                          onClick={() => generateSentenceCard(h.text, h.url, h.title)}
+                          onClick={() => void handleMakeCardFromHighlight(h)}
                           title={tr('side.sentences.fromHighlight')}
                           className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                         >
@@ -907,17 +978,16 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               </button>
             </>
           )}
-        </Drawer>
+        </ViewShell>
       )}
 
-      {/* Vocabulary review drawer */}
-      {showVocab && (
-        <VocabDrawer
+      {/* Vocabulary view (flat) */}
+      {activeView === 'vocab' && (
+        <VocabView
           vocab={vocab}
           revealedVocab={revealedVocab}
           ankiConfig={byok.anki}
           tr={tr}
-          onClose={() => setShowVocab(false)}
           onToggleReveal={(id) => toggleReveal(id)}
           onRemoveVocab={removeVocab}
           onGradeVocab={(v, g) => gradeVocab(v, g)}
@@ -932,26 +1002,24 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         />
       )}
 
-      {/* Templates drawer */}
-      {showTemplates && (
-        <TemplatesDrawer
+      {/* Templates view (flat) */}
+      {activeView === 'templates' && (
+        <TemplatesView
           templates={sortedTemplates}
           titleFor={tplTitle}
           tr={tr}
-          onClose={() => setShowTemplates(false)}
-          onAdd={(t) => addTemplate(t)}
+          onAdd={(tpl) => addTemplate(tpl)}
           onUpdate={(id, patch) => updateTemplate(id, patch)}
           onRemove={(id) => removeTemplate(id)}
           onReorder={reorderTemplates}
         />
       )}
 
-      {/* Glossary drawer */}
-      {showGlossary && (
-        <GlossaryDrawer
+      {/* Glossary view (flat) */}
+      {activeView === 'glossary' && (
+        <GlossaryView
           entries={glossary}
           tr={tr}
-          onClose={() => setShowGlossary(false)}
           onAdd={(e) => addGlossaryEntry(e)}
           onUpdate={(id, patch) => updateGlossaryEntry(id, patch)}
           onRemove={(id) => removeGlossaryEntry(id)}
@@ -959,13 +1027,13 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         />
       )}
 
-      {/* Sentence Library drawer */}
-      {showSentences && (
-        <SentencesDrawer
+      {/* Sentence Library view (flat) */}
+      {activeView === 'sentences' && (
+        <SentencesView
           sentences={sentences}
           revealed={revealedSentences}
+          busyExample={busyExample}
           tr={tr}
-          onClose={() => setShowSentences(false)}
           onToggleReveal={(id) =>
             setRevealedSentences((prev) => {
               const next = new Set(prev)
@@ -1009,37 +1077,19 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               alert(e instanceof Error ? e.message : String(e))
             }
           }}
-          onMakeCard={(sentence, title) => generateSentenceCard(sentence, '', title)}
+          onMakeCard={(sentence, title) => handleMakeCardFromExample(sentence, title)}
         />
       )}
     </div>
   )
 }
-function Drawer({
-  title,
-  onClose,
-  children,
-}: {
-  title: string
-  onClose: () => void
-  children: ReactNode
-}) {
+function ViewShell({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div
-      className="absolute inset-0 bg-ink/30 backdrop-blur-[1px] z-40 lector-anim-fade"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
-      <div className="absolute right-0 top-0 bottom-0 w-[310px] bg-surface shadow-pop flex flex-col lector-anim-slide">
-        <div className="drawer-head">
-          <h3 className="drawer-title">{title}</h3>
-          <button onClick={onClose} aria-label="Close" className="icon-btn">
-            <XIcon size={16} />
-          </button>
-        </div>
-        {children}
+    <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="drawer-head">
+        <h3 className="drawer-title">{title}</h3>
       </div>
+      {children}
     </div>
   )
 }
@@ -1130,12 +1180,11 @@ function SlashMenu({
 // ---------------------------------------------------------------------------
 // Vocabulary review drawer — list + SRS review + Anki export
 // ---------------------------------------------------------------------------
-interface VocabDrawerProps {
+interface VocabViewProps {
   vocab: VocabEntry[]
   revealedVocab: Set<string>
   ankiConfig?: { url: string; deckName: string; modelName: string; tags: string[] }
   tr: (key: StringKey) => string
-  onClose: () => void
   onToggleReveal: (id: string) => void
   onRemoveVocab: (id: string) => void
   onGradeVocab: (v: VocabEntry, grade: Grade) => void
@@ -1145,18 +1194,17 @@ interface VocabDrawerProps {
   onExplainVocab: (v: VocabEntry) => void
 }
 
-function VocabDrawer({
+function VocabView({
   vocab,
   revealedVocab,
   ankiConfig,
   tr,
-  onClose,
   onToggleReveal,
   onRemoveVocab,
   onGradeVocab,
   onSaveAnkiConfig,
   onExplainVocab,
-}: VocabDrawerProps) {
+}: VocabViewProps) {
   // Anki export sub-panel state. `showPanel` toggles the form; `sending` and
   // `result` drive the UX during/after the POST.
   const [showPanel, setShowPanel] = useState(false)
@@ -1192,7 +1240,7 @@ function VocabDrawer({
   }
 
   return (
-    <Drawer title={tr('side.vocab.title')} onClose={onClose}>
+    <ViewShell title={tr('side.vocab.title')}>
       {vocab.length > 0 && <StatsBar stats={computeReviewStats(vocab)} tr={tr} />}
       {vocab.length === 0 ? (
         <Empty text={tr('side.vocab.empty')} />
@@ -1352,34 +1400,32 @@ function VocabDrawer({
           </div>
         </>
       )}
-    </Drawer>
+    </ViewShell>
   )
 }
 
 // ---------------------------------------------------------------------------
 // Templates drawer — list, create, edit, delete, drag-reorder
 // ---------------------------------------------------------------------------
-interface TemplatesDrawerProps {
+interface TemplatesViewProps {
   templates: PromptTemplate[]
   titleFor: (t: PromptTemplate) => string
   tr: (key: StringKey) => string
-  onClose: () => void
   onAdd: (t: { title: string; content: string; titleKey?: StringKey }) => void
   onUpdate: (id: string, patch: Partial<PromptTemplate>) => void
   onRemove: (id: string) => void
   onReorder: (orderedIds: string[]) => void
 }
 
-function TemplatesDrawer({
+function TemplatesView({
   templates,
   titleFor,
   tr,
-  onClose,
   onAdd,
   onUpdate,
   onRemove,
   onReorder,
-}: TemplatesDrawerProps) {
+}: TemplatesViewProps) {
   const [editing, setEditing] = useState<{ id: string | null; title: string; content: string } | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const dragId = useRef<string | null>(null)
@@ -1438,7 +1484,7 @@ function TemplatesDrawer({
   }
 
   return (
-    <Drawer title={tr('side.templates.title')} onClose={onClose}>
+    <ViewShell title={tr('side.templates.title')}>
       {editing ? (
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3.5">
           <div>
@@ -1544,32 +1590,30 @@ function TemplatesDrawer({
           </div>
         </>
       )}
-    </Drawer>
+    </ViewShell>
   )
 }
 
 // ---------------------------------------------------------------------------
 // Glossary drawer — list, create, edit, delete, import/export (Feature: 术语表)
 // ---------------------------------------------------------------------------
-interface GlossaryDrawerProps {
+interface GlossaryViewProps {
   entries: GlossaryEntry[]
   tr: (key: StringKey) => string
-  onClose: () => void
   onAdd: (e: { source: string; target: string; note?: string; enabled: boolean }) => void
   onUpdate: (id: string, patch: Partial<GlossaryEntry>) => void
   onRemove: (id: string) => void
   onImport: (entries: GlossaryEntry[]) => void
 }
 
-function GlossaryDrawer({
+function GlossaryView({
   entries,
   tr,
-  onClose,
   onAdd,
   onUpdate,
   onRemove,
   onImport,
-}: GlossaryDrawerProps) {
+}: GlossaryViewProps) {
   const [editing, setEditing] = useState<{
     id: string | null
     source: string
@@ -1641,7 +1685,7 @@ function GlossaryDrawer({
   }
 
   return (
-    <Drawer title={tr('side.glossary.title')} onClose={onClose}>
+    <ViewShell title={tr('side.glossary.title')}>
       {editing ? (
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3.5">
           <div>
@@ -1777,21 +1821,19 @@ function GlossaryDrawer({
           </div>
         </>
       )}
-    </Drawer>
+    </ViewShell>
   )
 }
 
 // ---------------------------------------------------------------------------
 // BYOK Settings drawer
 // ---------------------------------------------------------------------------
-interface SettingsDrawerProps {
-  open: boolean
-  onClose: () => void
+type SettingsViewProps = {
   byok: ByokSettings
-  onChange: (patch: Partial<ByokSettings>) => void
+  onChange: (next: Partial<ByokSettings>) => void
 }
 
-function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) {
+function SettingsView({ byok, onChange }: SettingsViewProps) {
   const [showKey, setShowKey] = useState(false)
   const [customModel, setCustomModel] = useState('')
   const [testing, setTesting] = useState(false)
@@ -1847,24 +1889,13 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
     }
   }
 
-  if (!open) return null
-
   return (
-    <div
-      className="absolute inset-0 bg-ink/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 lector-anim-fade"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
-      <div className="bg-surface w-full max-w-[340px] rounded-2xl shadow-pop flex flex-col max-h-[92vh] overflow-hidden lector-anim-pop">
-        <div className="flex items-center justify-between px-4 py-3.5 border-b border-line">
-          <h2 className="text-[14px] font-bold text-ink font-serif tracking-tight">{t('settings.title', byok.locale)}</h2>
-          <button onClick={onClose} aria-label={t('popup.close', byok.locale)} className="icon-btn">
-            <XIcon size={16} />
-          </button>
-        </div>
+    <div className="flex-1 overflow-y-auto flex flex-col">
+      <div className="drawer-head">
+        <h3 className="drawer-title">{t('settings.title', byok.locale)}</h3>
+      </div>
 
-        <div className="overflow-y-auto px-4 py-3.5 space-y-3.5">
+      <div className="overflow-y-auto px-4 py-3.5 space-y-3.5">
           <p className="text-[11px] text-ink-soft leading-relaxed bg-surface-muted/50 rounded-lg px-3 py-2">
             {t('settings.privacyNote', byok.locale)}
           </p>
@@ -2061,16 +2092,6 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
             )}
           </div>
         </div>
-
-        <div className="px-4 py-3.5 border-t border-line bg-surface-muted/30">
-          <button
-            onClick={onClose}
-            className="btn-primary w-full py-2.5 text-[13px]"
-          >
-            {t('settings.done', byok.locale)}
-          </button>
-        </div>
-      </div>
     </div>
   )
 }
@@ -2078,11 +2099,11 @@ function SettingsDrawer({ open, onClose, byok, onChange }: SettingsDrawerProps) 
 // ---------------------------------------------------------------------------
 // Sentence Library drawer — paste-to-generate, search, group, SRS review
 // ---------------------------------------------------------------------------
-interface SentencesDrawerProps {
+interface SentencesViewProps {
   sentences: SentenceCard[]
   revealed: Set<string>
+  busyExample: string | null
   tr: (key: StringKey) => string
-  onClose: () => void
   onToggleReveal: (id: string) => void
   onRemove: (id: string) => void
   onPromote: (id: string) => void
@@ -2093,8 +2114,8 @@ interface SentencesDrawerProps {
   onMakeCard: (sentence: string, title: string) => void
 }
 
-function SentencesDrawer(props: SentencesDrawerProps) {
-  const { sentences, revealed, tr, onClose } = props
+function SentencesView(props: SentencesViewProps) {
+  const { sentences, revealed, tr } = props
   const [query, setQuery] = useState('')
   const [cefrFilter, setCefrFilter] = useState<string>('')
   const [pasteText, setPasteText] = useState('')
@@ -2157,7 +2178,7 @@ function SentencesDrawer(props: SentencesDrawerProps) {
   }
 
   return (
-    <Drawer title={tr('side.sentences.title')} onClose={onClose}>
+    <ViewShell title={tr('side.sentences.title')}>
       {sentences.filter((c) => c.srs).length > 0 && (
         <StatsBar stats={computeReviewStats(sentences)} tr={tr} />
       )}
@@ -2306,18 +2327,29 @@ function SentencesDrawer(props: SentencesDrawerProps) {
                         )}
                         {isRevealed && extractExamples(c.analysis).length > 0 && (
                           <div className="mt-2 space-y-1">
-                            {extractExamples(c.analysis).map((ex, i) => (
-                              <div key={i} className="flex items-center gap-2 text-[11px] bg-surface-muted/40 rounded-md px-2 py-1">
-                                <span className="text-ink-soft flex-1">{ex}</span>
-                                <button
-                                  onClick={() => props.onMakeCard(ex, c.title)}
-                                  title={tr('side.sentences.makeCard')}
-                                  className="text-accent hover:text-accent-hover text-[10px] flex-shrink-0 font-medium"
-                                >
-                                  {tr('side.sentences.makeCard')}
-                                </button>
-                              </div>
-                            ))}
+                            {extractExamples(c.analysis).map((ex, i) => {
+                              const busy = props.busyExample === ex
+                              return (
+                                <div key={i} className="flex items-center gap-2 text-[11px] bg-surface-muted/40 rounded-md px-2 py-1">
+                                  <span className="text-ink-soft flex-1">{ex}</span>
+                                  <button
+                                    onClick={() => props.onMakeCard(ex, c.title)}
+                                    disabled={busy}
+                                    title={tr('side.sentences.makeCard')}
+                                    className="text-accent hover:text-accent-hover text-[10px] flex-shrink-0 font-medium flex items-center gap-1 disabled:opacity-60"
+                                  >
+                                    {busy ? (
+                                      <>
+                                        <span className="w-2.5 h-2.5 border-[1.5px] border-line border-t-accent rounded-full animate-spin" />
+                                        {tr('side.sentences.makingCard')}
+                                      </>
+                                    ) : (
+                                      tr('side.sentences.makeCard')
+                                    )}
+                                  </button>
+                                </div>
+                              )
+                            })}
                           </div>
                         )}
                         {due && c.srs && (
@@ -2336,7 +2368,7 @@ function SentencesDrawer(props: SentencesDrawerProps) {
           </div>
         </>
       )}
-    </Drawer>
+    </ViewShell>
   )
 }
 
@@ -2415,9 +2447,9 @@ function SrsGradeButtons({
   )
 }
 
-// Compact 4-metric stats bar shown at the top of the SentencesDrawer and
-// VocabDrawer. Renders the aggregated review stats (due / mastered / reviews /
-// retention) computed from the drawer's items.
+// Compact 4-metric stats bar shown at the top of the SentencesView and
+// VocabView. Renders the aggregated review stats (due / mastered / reviews /
+// retention) computed from the view's items.
 function StatsBar({ stats, tr }: { stats: ReviewStats; tr: (key: StringKey) => string }) {
   const Cell = ({ label, value }: { label: string; value: string | number }) => (
     <div className="flex flex-col items-center">
