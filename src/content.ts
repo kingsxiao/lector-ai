@@ -28,14 +28,15 @@ function injectStyles() {
     @keyframes lectorFabPulse { 0%,100%{ box-shadow: 0 6px 20px rgba(156,107,60,.32);} 50%{ box-shadow: 0 8px 28px rgba(135,90,47,.5);} }
     #lector-ai-fab { position: fixed; right: 20px; bottom: 24px; width: 48px; height: 48px; border-radius: 50%; background: #9C6B3C; color: #FFF8EE; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 20px; font-family: Georgia, 'Iowan Old Style', 'Source Serif Pro', serif; cursor: pointer; z-index: 2147483646; box-shadow: 0 6px 20px rgba(156,107,60,.32); animation: lectorFabPulse 3s ease-in-out infinite; transition: transform .18s cubic-bezier(0.16,1,0.3,1), background-color .15s ease; user-select: none; }
     #lector-ai-fab:hover { transform: scale(1.08); background: #875A2F; }
-    #lector-ai-toolbar button { padding: 6px 12px; border: none; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background-color .15s ease, transform .1s ease; display: flex; align-items: center; gap: 4px; }
-    #lector-ai-toolbar button:active { transform: translateY(1px); }
-    #lector-ai-toolbar .t-btn { background: #fff; color: #9C6B3C; }
-    #lector-ai-toolbar .t-btn:hover { background: #F5EFE3; }
-    #lector-ai-toolbar .summary-btn { background: rgba(255,255,255,.2); color: #fff; }
-    #lector-ai-toolbar .summary-btn:hover { background: rgba(255,255,255,.3); }
-    #lector-ai-toolbar .close-btn { background: rgba(255,255,255,.1); color: #fff; padding: 6px 8px; }
-    #lector-ai-toolbar .close-btn:hover { background: rgba(255,255,255,.25); }
+    #lector-ai-toolbar { display: flex; align-items: center; gap: 2px; padding: 5px 8px; border-radius: 999px; }
+    #lector-ai-toolbar.is-dark { }
+    #lector-ai-toolbar .t-btn { width: 28px; height: 28px; padding: 0; border: none; border-radius: 999px; background: transparent; color: #6B6155; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: background-color .15s ease, color .15s ease, transform .1s ease; }
+    #lector-ai-toolbar .t-btn svg { width: 16px; height: 16px; display: block; }
+    #lector-ai-toolbar .t-btn:hover { background: rgba(156,107,60,.12); color: #9C6B3C; }
+    #lector-ai-toolbar .t-btn:active { transform: translateY(1px); }
+    #lector-ai-toolbar .t-divider { width: 1px; height: 18px; margin: 0 3px; background: currentColor; opacity: .15; flex: none; }
+    #lector-ai-toolbar.is-dark .t-btn { color: rgba(255,255,255,.8); }
+    #lector-ai-toolbar.is-dark .t-btn:hover { background: rgba(255,255,255,.12); color: #FFF8EE; }
     #lector-ai-result .result-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #E8DECC; }
     #lector-ai-result .result-title { font-size:13px; font-weight:700; color:#9C6B3C; display:flex; align-items:center; gap:6px; }
     #lector-ai-result .result-content { font-size:13px; line-height:1.7; color:#2B2620; white-space:pre-wrap; word-break:break-word; }
@@ -183,30 +184,66 @@ ensureFab()
 // ---------------------------------------------------------------------------
 // Selection toolbar
 // ---------------------------------------------------------------------------
+// Inline SVG icons for the selection toolbar. stroke=currentColor so the
+// icon inherits the button's text color; 16px rendered (set on the <svg> in markup).
+const TOOLBAR_ICONS: Record<string, string> = {
+  translate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18Z"/></svg>',
+  explain: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.2 7.3L4 20l1-4.5A8 8 0 1 1 21 12Z"/></svg>',
+  summarize: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg>',
+  ask: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.6 4.8L18 9l-4.4 1.2L12 15l-1.6-4.8L6 9l4.4-1.2z"/><path d="M19 14l.7 2 .3.7 2 .3-2 .3-.3.7-.7 2-.7-2-.3-.7-2-.3 2-.3.3-.7z"/></svg>',
+  highlight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l-4 4v3h3l4-4"/><path d="M12 8l4 4"/><path d="M16.5 3.5l4 4L13 15l-4-4z"/></svg>',
+  saveWord: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1Z"/></svg>',
+  explainSentence: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7H5a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h2v3a2 2 0 0 1-2 2"/><path d="M18 7h-2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h2v3a2 2 0 0 1-2 2"/></svg>',
+}
+
+// Rough luminance check of the block under the selection, to decide whether
+// to render the light or dark glass variant. Defaults to light on any failure.
+const BLOCK_TAGS = new Set(['DIV', 'SECTION', 'ARTICLE', 'MAIN', 'P', 'LI', 'BLOCKQUOTE', 'TD', 'BODY'])
+function isDarkPage(node: Node): boolean {
+  try {
+    let el: Element | null = node.nodeType === 1 ? (node as Element) : node.parentElement
+    while (el && !BLOCK_TAGS.has(el.tagName)) el = el.parentElement
+    while (el) {
+      const bg = getComputedStyle(el).backgroundColor // e.g. "rgb(20, 22, 28)"
+      const m = bg.match(/rgba?\(([^)]+)\)/)
+      if (m) {
+        const [r, g, b] = m[1].split(',').map((s) => parseFloat(s.trim()))
+        if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b)) {
+          // alpha 0 → transparent → keep walking; otherwise threshold on luminance.
+          const a = m[1].split(',')[3] ? parseFloat(m[1].split(',')[3]) : 1
+          if (a > 0 && (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 < 0.35) return true
+          if (a > 0) return false
+        }
+      }
+      el = el.parentElement
+    }
+  } catch {
+    /* fall through to default */
+  }
+  return false
+}
+
 function createToolbar(x: number, y: number, text: string) {
   removeToolbar()
 
+  const selection = window.getSelection()
+  const anchorNode = selection?.getRangeAt(0).startContainer
+  const dark = anchorNode ? isDarkPage(anchorNode) : false
+
   selectionToolbar = document.createElement('div')
   selectionToolbar.id = 'lector-ai-toolbar'
-  selectionToolbar.style.cssText = `
-    position: fixed;
-    left: ${x}px;
-    top: ${y + 20}px;
-    display: flex;
-    gap: 6px;
-    padding: 6px;
-    background: #9C6B3C;
-    border-radius: 10px;
-    box-shadow: 0 4px 20px rgba(0,0,0,.25);
-    z-index: 2147483647;
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-    animation: lectorFadeIn .2s ease-out;
-  `
+  if (dark) selectionToolbar.classList.add('is-dark')
+  selectionToolbar.style.cssText = dark
+    ? `position: fixed; left: ${x}px; top: ${y}px; display: flex; align-items: center; gap: 2px; padding: 5px 8px; background: rgba(28,28,30,.82); backdrop-filter: blur(14px) saturate(1.6); -webkit-backdrop-filter: blur(14px) saturate(1.6); border: 1px solid rgba(255,255,255,.12); border-radius: 999px; box-shadow: 0 4px 16px rgba(0,0,0,.28), 0 1px 2px rgba(0,0,0,.18); color: #fff; z-index: 2147483647; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; animation: lectorFadeIn .2s ease-out;`
+    : `position: fixed; left: ${x}px; top: ${y}px; display: flex; align-items: center; gap: 2px; padding: 5px 8px; background: rgba(255,255,255,.82); backdrop-filter: blur(14px) saturate(1.6); -webkit-backdrop-filter: blur(14px) saturate(1.6); border: 1px solid rgba(255,255,255,.6); border-radius: 999px; box-shadow: 0 4px 16px rgba(43,38,32,.14), 0 1px 2px rgba(43,38,32,.06); color: #2B2620; z-index: 2147483647; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; animation: lectorFadeIn .2s ease-out;`
 
-  const mk = (cls: string, html: string, fn: () => void) => {
+  const mk = (actionId: string, label: string, fn: () => void) => {
     const b = document.createElement('button')
-    b.className = cls
-    b.innerHTML = html
+    b.className = 't-btn'
+    b.type = 'button'
+    b.title = label
+    b.setAttribute('aria-label', label)
+    b.innerHTML = TOOLBAR_ICONS[actionId]
     b.onclick = (e) => {
       e.stopPropagation()
       if (typeof chrome === 'undefined' || !chrome.runtime) {
@@ -218,19 +255,23 @@ function createToolbar(x: number, y: number, text: string) {
     return b
   }
 
-  selectionToolbar.appendChild(mk('t-btn', tr('toolbar.translate'), () => handleAction('translate', text)))
-  selectionToolbar.appendChild(mk('t-btn', tr('toolbar.explain'), () => handleAction('explain', text)))
-  selectionToolbar.appendChild(mk('summary-btn', tr('toolbar.summarize'), () => handleAction('summarize', text)))
-  selectionToolbar.appendChild(mk('t-btn', tr('toolbar.ask'), () => handleAction('ask', text)))
-  selectionToolbar.appendChild(mk('t-btn', tr('toolbar.highlight'), () => handleHighlight(text)))
-  selectionToolbar.appendChild(mk('t-btn', tr('toolbar.saveWord'), () => handleSaveWord(text)))
-  selectionToolbar.appendChild(mk('t-btn', tr('toolbar.explainSentence'), () => handleExplainSentence(text)))
+  const mkDivider = () => {
+    const d = document.createElement('span')
+    d.className = 't-divider'
+    d.setAttribute('aria-hidden', 'true')
+    return d
+  }
 
-  const closeBtn = document.createElement('button')
-  closeBtn.className = 'close-btn'
-  closeBtn.innerHTML = '✕'
-  closeBtn.onclick = () => removeToolbar()
-  selectionToolbar.appendChild(closeBtn)
+  // Group 1: AI actions
+  selectionToolbar.appendChild(mk('translate', tr('toolbar.translate'), () => handleAction('translate', text)))
+  selectionToolbar.appendChild(mk('explain', tr('toolbar.explain'), () => handleAction('explain', text)))
+  selectionToolbar.appendChild(mk('summarize', tr('toolbar.summarize'), () => handleAction('summarize', text)))
+  selectionToolbar.appendChild(mk('ask', tr('toolbar.ask'), () => handleAction('ask', text)))
+  selectionToolbar.appendChild(mkDivider())
+  // Group 2: annotation
+  selectionToolbar.appendChild(mk('highlight', tr('toolbar.highlight'), () => handleHighlight(text)))
+  selectionToolbar.appendChild(mk('saveWord', tr('toolbar.saveWord'), () => handleSaveWord(text)))
+  selectionToolbar.appendChild(mk('explainSentence', tr('toolbar.explainSentence'), () => handleExplainSentence(text)))
 
   document.body.appendChild(selectionToolbar)
 }
