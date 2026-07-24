@@ -7,6 +7,7 @@
 
 import type { Locale, LocalePref } from './i18n'
 export type { Locale, LocalePref }
+import { isValidDisplayMode, type DisplayMode, type TargetLangCode } from './translation'
 
 export type ProviderId =
   // OpenAI-compatible hosts (overseas)
@@ -395,6 +396,40 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
   },
 }
 
+export interface TranslationSettings {
+  /** Target language; 'auto' infers the opposite of the source script. */
+  targetLanguage: TargetLangCode | 'auto'
+  /** How bilingual translations are rendered on the page. */
+  displayMode: DisplayMode
+  /** Auto-translate the whole page on load when enabled. Default false. */
+  autoTranslate: boolean
+  /** Max in-flight translation requests for page mode. 1–10. Default 5. */
+  concurrency: number
+}
+
+export const DEFAULT_TRANSLATION_SETTINGS: TranslationSettings = {
+  targetLanguage: 'auto',
+  displayMode: 'bilingual',
+  autoTranslate: false,
+  concurrency: 5,
+}
+
+/** Coerce arbitrary stored data into a valid TranslationSettings (migration-safe). */
+export function normalizeTranslationSettings(raw: unknown): TranslationSettings {
+  const base = { ...DEFAULT_TRANSLATION_SETTINGS }
+  if (!raw || typeof raw !== 'object') return base
+  const r = raw as Record<string, unknown>
+  if (typeof r.targetLanguage === 'string') {
+    base.targetLanguage = r.targetLanguage as TargetLangCode | 'auto'
+  }
+  if (isValidDisplayMode(r.displayMode)) base.displayMode = r.displayMode
+  if (typeof r.autoTranslate === 'boolean') base.autoTranslate = r.autoTranslate
+  if (typeof r.concurrency === 'number' && !Number.isNaN(r.concurrency)) {
+    base.concurrency = Math.max(1, Math.min(10, Math.floor(r.concurrency)))
+  }
+  return base
+}
+
 export interface ByokSettings {
   provider: ProviderId
   apiKey: string
@@ -411,6 +446,8 @@ export interface ByokSettings {
     modelName: string
     tags: string[]
   }
+  /** Translation feature settings (target language, display mode, etc.). */
+  translation?: TranslationSettings
 }
 
 export const DEFAULT_BYOK_SETTINGS: ByokSettings = {
