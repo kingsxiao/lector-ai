@@ -737,9 +737,27 @@ document.addEventListener('mouseup', (e) => {
     }
     const range = selection.getRangeAt(0)
     const rect = range.getBoundingClientRect()
-    const x = Math.max(10, Math.min(rect.left, window.innerWidth - 280))
-    const y = rect.bottom + window.scrollY
-    loadPref().then(() => createToolbar(x, y, text))
+    const GAP = 8
+    // Initial placement: left-aligned to selection, just below it.
+    // Final clamping happens after the pill is in the DOM and measured.
+    const initialX = rect.left
+    const initialY = rect.bottom + GAP
+    loadPref().then(() => {
+      createToolbar(initialX, initialY, text)
+      if (!selectionToolbar) return
+      const pw = selectionToolbar.offsetWidth
+      const ph = selectionToolbar.offsetHeight
+      // Clamp horizontally so the pill never overflows the right edge (8px margin).
+      let x = Math.min(initialX, window.innerWidth - pw - 8)
+      x = Math.max(8, x)
+      // If it would overflow the bottom, flip above the selection.
+      let y = initialY
+      if (y + ph > window.innerHeight - 8) {
+        y = Math.max(8, rect.top - ph - GAP)
+      }
+      selectionToolbar.style.left = `${x}px`
+      selectionToolbar.style.top = `${y}px`
+    })
   }, 100)
 })
 
