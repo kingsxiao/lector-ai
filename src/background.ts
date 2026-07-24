@@ -12,6 +12,10 @@ import { SENTENCE_CARD_SYSTEM_PROMPT, extractTranslation, extractKeywords, extra
 import { appendHistory, newHistoryId } from './shared/translation'
 import { normalizeTranslationSettings } from './shared/providers'
 
+// Serializes translation-history appends so rapid successive relay messages
+// (read-modify-write on chrome.storage) don't clobber each other.
+let historyChain: Promise<void> = Promise.resolve()
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Lector AI installed')
 
@@ -66,11 +70,20 @@ chrome.runtime.onMessage.addListener((message) => {
   }
   if (message?.action === 'lector-translation-history') {
     // Queue into storage; the side panel drains & merges into zustand.
-    chrome.storage.local.get(['lectorTranslationHistory'], (r) => {
-      const list = Array.isArray(r.lectorTranslationHistory) ? r.lectorTranslationHistory : []
-      const next = appendHistory(list as any[], { ...message.entry, id: newHistoryId() })
-      chrome.storage.local.set({ lectorTranslationHistory: next })
-    })
+    // Serialize the read-modify-write so rapid successive entries (e.g. a
+    // concurrent bilingual pass) don't lose writes to a shared base list.
+    historyChain = historyChain
+      .then(
+        () =>
+          new Promise<void>((resolve) => {
+            chrome.storage.local.get(['lectorTranslationHistory'], (r) => {
+              const list = Array.isArray(r.lectorTranslationHistory) ? r.lectorTranslationHistory : []
+              const next = appendHistory(list as any[], { ...message.entry, id: newHistoryId() })
+              chrome.storage.local.set({ lectorTranslationHistory: next }, () => resolve())
+            })
+          })
+      )
+      .catch(() => {})
     return false
   }
   if (message?.action === 'lector-set-translation-target') {

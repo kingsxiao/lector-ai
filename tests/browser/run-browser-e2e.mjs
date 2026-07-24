@@ -226,6 +226,19 @@ async function main() {
     const bilingualFetches = JSON.parse(await evalIn(page, `JSON.stringify((window.__fetchCalls||[]).filter(u=>String(u).endsWith('/chat/completions')))`) || '[]')
     check('§9.2 bilingual fires concurrent requests (>1 in flight)', bilingualFetches.length >= 2, `chatCalls=${bilingualFetches.length}`)
 
+    // §9.3 display modes: each translated block is marked a host so the
+    // translationOnly / hover CSS can target it, and the original text is
+    // wrapped in a .lector-bi-source span so translationOnly can hide it.
+    const hostCount = await evalIn(page, `document.querySelectorAll('.lector-bilingual-host').length`)
+    check('§9.3a translated blocks are marked .lector-bilingual-host', hostCount === bilingualBlocks, `hosts=${hostCount} blocks=${bilingualBlocks}`)
+    await evalIn(page, `document.body.classList.remove('lector-dm-bilingual'); document.body.classList.add('lector-dm-translationOnly')`)
+    const origHiddenInTranslationOnly = await evalIn(page, `(() => { const s = document.querySelector('.lector-bilingual-host .lector-bi-source'); return !!s && getComputedStyle(s).display === 'none' })()`)
+    check('§9.3b translationOnly hides the original text', origHiddenInTranslationOnly === true)
+    const trVisibleInTranslationOnly = await evalIn(page, `(() => { const h = document.querySelector('.lector-bilingual-host .lector-bilingual'); return !!h && getComputedStyle(h).display !== 'none' })()`)
+    check('§9.3c translationOnly keeps the translation visible', trVisibleInTranslationOnly === true)
+    // restore default mode for any later checks
+    await evalIn(page, `document.body.classList.remove('lector-dm-translationOnly'); document.body.classList.add('lector-dm-bilingual')`)
+
     // ---- §2.3 Escape closes popups ----
     await evalIn(page, `document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`)
     await sleep(200)

@@ -59,7 +59,7 @@ function injectStyles() {
     /* display modes (toggled via body class set by content script) */
     body.lector-dm-translationOnly .lector-bi-source { display:none !important; }
     body.lector-dm-hover .lector-bilingual { display:none; }
-    body.lector-dm-hover .lector-bi-source:hover + .lector-bilingual { display:block; }
+    body.lector-dm-hover .lector-bilingual-host:hover .lector-bilingual { display:block; }
   `
   document.head.appendChild(style)
 }
@@ -440,7 +440,8 @@ function showStreamingTranslateResult(
   initialTarget: TargetLangCode,
   run: (
     target: TargetLangCode,
-    sink: { append: (d: string) => void; setText: (s: string) => void }
+    sink: { append: (d: string) => void; setText: (s: string) => void },
+    signal: AbortSignal
   ) => Promise<void>
 ) {
   removeLoading()
@@ -541,6 +542,11 @@ function showStreamingTranslateResult(
 
   let acc = ''
   let curTarget = initialTarget
+  // Generation guard + per-run abort: a new execute() (language switch)
+  // supersedes any in-flight run — its streamChat is aborted and stale
+  // sink callbacks are ignored so two streams never interleave.
+  let gen = 0
+  let runController: AbortController | null = null
   const sink = {
     append(delta: string) {
       acc += delta
@@ -555,11 +561,20 @@ function showStreamingTranslateResult(
   }
 
   async function execute(target: TargetLangCode) {
+    const myGen = ++gen
     curTarget = target
-    sink.setText('')
+    // Abort the previous in-flight run (if any) before starting a new one.
+    runController?.abort()
+    runController = new AbortController()
+    const mySink = {
+      append(delta: string) { if (myGen === gen) sink.append(delta) },
+      setText(s: string) { if (myGen === gen) sink.setText(s) },
+    }
+    mySink.setText('')
     content.appendChild(caret)
     try {
-      await run(target, sink)
+      await run(target, mySink, runController.signal)
+      if (myGen !== gen) return // superseded; don't touch DOM or history
       if (caret.parentNode === content) content.removeChild(caret)
       chrome.runtime
         .sendMessage({
@@ -576,6 +591,10 @@ function showStreamingTranslateResult(
         })
         .catch(() => {})
     } catch (e) {
+      // Aborted runs are expected when the user switches language — not an error.
+      const aborted = runController.signal.aborted && (e instanceof DOMException && e.name === 'AbortError')
+      if (aborted && myGen !== gen) return
+      if (myGen !== gen) return
       if (caret.parentNode === content) content.removeChild(caret)
       const msg = e instanceof Error ? e.message : tr('err.requestFailed')
       content.textContent = tr('err.failedPrefix').replace('{msg}', msg)
@@ -819,7 +838,7 @@ async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: 
     const initialTarget = resolveTargetLang(tSettings.targetLanguage, text)
     const glossary = await loadGlossary()
     // Show the streaming popup immediately with a target-language selector.
-    showStreamingTranslateResult(r()?.left || 100, r()?.top || 100, text, initialTarget, async (selTarget, sink) => {
+    showStreamingTranslateResult(r()?.left || 100, r()?.top || 100, text, initialTarget, async (selTarget, sink, signal) => {
       const sp = buildTranslateSystemPrompt(
         selTarget,
         renderGlossaryPrompt(filterGlossaryForDirection(glossary, selTarget))
@@ -828,7 +847,8 @@ async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: 
         settings,
         [{ role: 'system', content: sp }, { role: 'user', content: text.slice(0, 8000) }],
         { maxTokens: Math.min(3000, Math.max(500, text.length * 2)), temperature: 0.2 },
-        (delta) => sink.append(delta)
+        (delta) => sink.append(delta),
+        signal
       )
     })
     return
@@ -886,9 +906,26 @@ function applyDisplayMode(mode: DisplayMode) {
   document.body.classList.add('lector-dm-' + mode)
 }
 
-/** Translate a single block, streaming tokens into a freshly inserted container. */
-async function translateOneBlock(settings: ByokSettings, systemPrompt: string, block: HTMLElement): Promise<string> {
+/** Translate a single block, streaming tokens into a freshly inserted container.
+ *  `signal` aborts the in-flight request (cancel / language-switch). */
+async function translateOneBlock(
+  settings: ByokSettings,
+  systemPrompt: string,
+  block: HTMLElement,
+  signal?: AbortSignal
+): Promise<string> {
   const original = (block.textContent || '').trim()
+  // Mark the host so display-mode CSS (translationOnly / hover) can target the
+  // block that owns this translation, and wrap the original content in a
+  // .lector-bi-source span so translationOnly can hide it via CSS (the
+  // original is a bare text node, which display:none can't reach directly).
+  block.classList.add('lector-bilingual-host')
+  if (!block.querySelector(':scope > .lector-bi-source')) {
+    const sourceWrap = document.createElement('span')
+    sourceWrap.className = 'lector-bi-source'
+    while (block.firstChild) sourceWrap.appendChild(block.firstChild)
+    block.appendChild(sourceWrap)
+  }
   // Insert placeholder container immediately so the user sees progress.
   const span = document.createElement('div')
   span.className = 'lector-bilingual is-loading'
@@ -924,7 +961,8 @@ async function translateOneBlock(settings: ByokSettings, systemPrompt: string, b
       span.classList.remove('is-loading')
       span.textContent = acc
       span.appendChild(actions)
-    }
+    },
+    signal
   )
   span.textContent = acc || tr('err.emptyResponse')
   span.appendChild(actions)
@@ -964,6 +1002,7 @@ async function runBilingualTranslation() {
   const systemPrompt = buildTranslateSystemPrompt(target, glossaryBlock)
 
   bilingualAbort = new AbortController()
+  const controller = bilingualAbort
   const total = candidates.length
   let done = 0
   const report = () =>
@@ -976,12 +1015,15 @@ async function runBilingualTranslation() {
     candidates,
     async (block) => {
       try {
-        await translateOneBlock(settings, systemPrompt, block)
+        await translateOneBlock(settings, systemPrompt, block, controller.signal)
       } catch (e) {
-        // Retry once with a short backoff.
+        // Don't retry (or count) once the user has cancelled.
+        if (controller.signal.aborted) throw e
+        // Retry once with a short backoff (still abortable).
         await new Promise((r) => setTimeout(r, 500))
+        if (controller.signal.aborted) throw e
         try {
-          await translateOneBlock(settings, systemPrompt, block)
+          await translateOneBlock(settings, systemPrompt, block, controller.signal)
         } catch (e2) {
           const span = block.querySelector('.lector-bilingual')
           if (span) {
@@ -992,11 +1034,15 @@ async function runBilingualTranslation() {
           throw e2
         }
       } finally {
-        done++
-        report()
+        // Don't count aborted tasks as "translated" — that would report a
+        // misleading 30/30 right after a cancel.
+        if (!controller.signal.aborted) {
+          done++
+          report()
+        }
       }
     },
-    { concurrency: tSettings.concurrency, signal: bilingualAbort.signal }
+    { concurrency: tSettings.concurrency, signal: controller.signal }
   )
 
   // Relay one history entry for the page (sample = first successfully translated block).

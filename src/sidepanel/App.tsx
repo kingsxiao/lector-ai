@@ -1033,7 +1033,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                               {tr(('side.translationHistory.kind.' + e.kind) as StringKey)}
                             </span>
                             <span className="text-[10px] text-ink-faint">
-                              {getLanguage(e.targetLang)[byok.locale === 'zh' ? 'zh' : 'en']}
+                              {getLanguage(e.targetLang)[byok.locale === 'zh' || (byok.locale === 'auto' && navigator.language?.toLowerCase().startsWith('zh')) ? 'zh' : 'en']}
                             </span>
                             <span className="text-[10px] text-ink-faint">
                               {new Date(e.createdAt).toLocaleString()}

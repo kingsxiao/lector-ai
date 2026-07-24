@@ -80,15 +80,16 @@ export async function streamChat(
   settings: ByokSettings,
   messages: ChatMessage[],
   opts: { maxTokens: number; temperature: number },
-  onToken: (delta: string) => void
+  onToken: (delta: string) => void,
+  signal?: AbortSignal
 ): Promise<string> {
   assertConfigured(settings)
   const def = getProvider(settings.provider)
 
   if (def.format === 'openai') {
-    return streamOpenAI(settings, def, messages, opts, onToken)
+    return streamOpenAI(settings, def, messages, opts, onToken, signal)
   }
-  return streamAnthropic(settings, def, messages, opts, onToken)
+  return streamAnthropic(settings, def, messages, opts, onToken, signal)
 }
 
 async function streamOpenAI(
@@ -96,7 +97,8 @@ async function streamOpenAI(
   def: ProviderDef,
   messages: ChatMessage[],
   opts: { maxTokens: number; temperature: number },
-  onToken: (delta: string) => void
+  onToken: (delta: string) => void,
+  signal?: AbortSignal
 ): Promise<string> {
   const url = `${resolveBaseUrl(settings, def)}/chat/completions`
   const res = await fetch(url, {
@@ -109,6 +111,7 @@ async function streamOpenAI(
       temperature: opts.temperature,
       stream: true,
     }),
+    signal,
   })
 
   if (!res.ok || !res.body) {
@@ -118,7 +121,7 @@ async function streamOpenAI(
   return readSSE(res, (json) => {
     if (json.choices?.[0]?.delta?.content) return json.choices[0].delta.content
     return ''
-  }, onToken)
+  }, onToken, signal)
 }
 
 async function streamAnthropic(
@@ -126,7 +129,8 @@ async function streamAnthropic(
   def: ProviderDef,
   messages: ChatMessage[],
   opts: { maxTokens: number; temperature: number },
-  onToken: (delta: string) => void
+  onToken: (delta: string) => void,
+  signal?: AbortSignal
 ): Promise<string> {
   // Anthropic separates the system message from the conversation.
   const system = messages.find((m) => m.role === 'system')?.content || ''
@@ -146,6 +150,7 @@ async function streamAnthropic(
       temperature: opts.temperature,
       stream: true,
     }),
+    signal,
   })
 
   if (!res.ok || !res.body) {
@@ -155,17 +160,19 @@ async function streamAnthropic(
   return readSSE(res, (json) => {
     if (json.type === 'content_block_delta' && json.delta?.text) return json.delta.text
     return ''
-  }, onToken)
+  }, onToken, signal)
 }
 
 /**
  * Read an SSE stream. `extractDelta(json)` returns the text fragment for one
- * event, or '' if the event carries none.
+ * event, or '' if the event carries none. If `signal` aborts, the reader is
+ * cancelled and reading stops (the underlying fetch is also aborted upstream).
  */
 async function readSSE(
   res: Response,
   extractDelta: (json: any) => string,
-  onToken: (delta: string) => void
+  onToken: (delta: string) => void,
+  signal?: AbortSignal
 ): Promise<string> {
   const reader = res.body!.getReader()
   const decoder = new TextDecoder()
@@ -173,6 +180,11 @@ async function readSSE(
   let full = ''
 
   while (true) {
+    if (signal?.aborted) {
+      // Cancel the reader so the underlying stream is released promptly.
+      await reader.cancel().catch(() => {})
+      return full
+    }
     const { done, value } = await reader.read()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
