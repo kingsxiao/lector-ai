@@ -591,9 +591,8 @@ function showStreamingTranslateResult(
         })
         .catch(() => {})
     } catch (e) {
-      // Aborted runs are expected when the user switches language — not an error.
-      const aborted = runController.signal.aborted && (e instanceof DOMException && e.name === 'AbortError')
-      if (aborted && myGen !== gen) return
+      // A run superseded by a newer language switch was aborted — don't
+      // surface its error or touch the DOM; the newer run owns the popup.
       if (myGen !== gen) return
       if (caret.parentNode === content) content.removeChild(caret)
       const msg = e instanceof Error ? e.message : tr('err.requestFailed')
