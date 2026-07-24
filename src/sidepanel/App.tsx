@@ -434,6 +434,7 @@ export default function App() {
       setInput('')
       setStreaming(true)
       setError(null)
+      setErrorBanner(null) // a successful send clears any prior key/quota banner
       assistantBuf.current = ''
 
       try {
@@ -669,7 +670,10 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
       {errorBanner && (
         <div className="error-banner" role="alert">
           <span className="inline-block w-1.5 h-1.5 rounded-full bg-danger flex-shrink-0" />
-          <span className="flex-1 leading-relaxed">{errorBanner}</span>
+          <span className="flex-1 leading-relaxed">
+            <span className="font-semibold">{tr('side.error.banner')}: </span>
+            {errorBanner}
+          </span>
           <div className="error-banner-actions">
             <button
               onClick={() => { setActiveView('settings'); setErrorBanner(null) }}
