@@ -115,7 +115,9 @@ window.chrome = {
           model: 'gpt-4o-mini',
           baseUrl: '',
           locale: 'zh',
+          translation: { targetLanguage: 'auto', displayMode: 'bilingual', autoTranslate: false, concurrency: 5 },
         },
+        lectorGlossary: [],
       }),
       set: (_v, cb) => cb && cb(),
     },
@@ -176,7 +178,7 @@ async function main() {
       await evalIn(page, `(()=>{ const el = window.getSelection().anchorNode?.parentElement || document.body; el.dispatchEvent(new MouseEvent('mouseup',{bubbles:true})); })()`)
       await sleep(600)
     }
-    const clickToolbarBtn = (txt) => evalIn(page, `(()=>{const b=[...document.querySelectorAll('#lector-ai-toolbar button')].find(x=>x.textContent.includes(${JSON.stringify(txt)})); if(b){b.click(); return true} return false})()`)
+    const clickToolbarBtn = (txt) => evalIn(page, `(()=>{const t=${JSON.stringify(txt)};const b=[...document.querySelectorAll('#lector-ai-toolbar button')].find(x=>x.textContent.includes(t)||x.title.includes(t)||(x.getAttribute('aria-label')||'').includes(t)); if(b){b.click(); return true} return false})()`)
 
     // ---- §2 selection toolbar ----
     await selectReveal(`(() => { const el = document.querySelector('article p'); const r = document.createRange(); r.selectNodeContents(el); const s = window.getSelection(); s.removeAllRanges(); s.addRange(r); })()`)
@@ -190,6 +192,12 @@ async function main() {
     check('§2.2 translate toolbar → BYOK result popup', tr.length > 0, `result="${tr.slice(0, 40)}"`)
     const fetchHits = JSON.parse(await evalIn(page, `JSON.stringify(window.__fetchCalls||[])`) || '[]')
     check('§2.2 translate hit provider /chat/completions (BYOK)', fetchHits.some((u) => u.endsWith('/chat/completions')), `calls=${fetchHits.length}`)
+    // §2.2b the streaming popup also exposes a target-language selector + TTS buttons.
+    check('§2.2b streaming popup has target-language selector', await evalIn(page, `!!document.querySelector('#lector-ai-result select')`))
+    check('§2.2b streaming popup has read-aloud buttons', (await evalIn(page, `document.querySelectorAll('#lector-ai-result button.copy-btn').length`)) >= 1, `btns=${await evalIn(page, `document.querySelectorAll('#lector-ai-result button.copy-btn').length`)}`)
+
+    // close the result popup so it doesn't block later selections
+    await evalIn(page, `document.querySelector('#lector-ai-result')?.remove()`)
 
     // ---- §3 highlight capture → lector-highlight message relayed ----
     await selectReveal(`(() => { const el = document.querySelectorAll('article p')[1]; const r = document.createRange(); r.selectNodeContents(el); const s = window.getSelection(); s.removeAllRanges(); s.addRange(r); })()`)
@@ -208,9 +216,28 @@ async function main() {
     check('§4.1 save-word message relayed (word+context)', swMsg.length >= 1 && !!swMsg[0].word, `word="${swMsg[0]?.word}"`)
 
     // ---- §9 bilingual toggle → injects .lector-bilingual via BYOK streamChat ----
+    // Reset the fetch counter so we can measure how many requests the
+    // concurrent bilingual pass fires (concurrency default = 5).
+    await evalIn(page, `window.__fetchCalls = []`)
     await fireContentMessage(page, { action: 'lector-toggle-bilingual' })
-    await sleep(1500)
-    check('§9.1 lector-toggle-bilingual injects .lector-bilingual blocks', (await evalIn(page, `document.querySelectorAll('.lector-bilingual').length`)) >= 1, `blocks=${await evalIn(page, `document.querySelectorAll('.lector-bilingual').length`)}`)
+    await sleep(2000)
+    const bilingualBlocks = await evalIn(page, `document.querySelectorAll('.lector-bilingual').length`)
+    check('§9.1 lector-toggle-bilingual injects .lector-bilingual blocks', bilingualBlocks >= 1, `blocks=${bilingualBlocks}`)
+    const bilingualFetches = JSON.parse(await evalIn(page, `JSON.stringify((window.__fetchCalls||[]).filter(u=>String(u).endsWith('/chat/completions')))`) || '[]')
+    check('§9.2 bilingual fires concurrent requests (>1 in flight)', bilingualFetches.length >= 2, `chatCalls=${bilingualFetches.length}`)
+
+    // §9.3 display modes: each translated block is marked a host so the
+    // translationOnly / hover CSS can target it, and the original text is
+    // wrapped in a .lector-bi-source span so translationOnly can hide it.
+    const hostCount = await evalIn(page, `document.querySelectorAll('.lector-bilingual-host').length`)
+    check('§9.3a translated blocks are marked .lector-bilingual-host', hostCount === bilingualBlocks, `hosts=${hostCount} blocks=${bilingualBlocks}`)
+    await evalIn(page, `document.body.classList.remove('lector-dm-bilingual'); document.body.classList.add('lector-dm-translationOnly')`)
+    const origHiddenInTranslationOnly = await evalIn(page, `(() => { const s = document.querySelector('.lector-bilingual-host .lector-bi-source'); return !!s && getComputedStyle(s).display === 'none' })()`)
+    check('§9.3b translationOnly hides the original text', origHiddenInTranslationOnly === true)
+    const trVisibleInTranslationOnly = await evalIn(page, `(() => { const h = document.querySelector('.lector-bilingual-host .lector-bilingual'); return !!h && getComputedStyle(h).display !== 'none' })()`)
+    check('§9.3c translationOnly keeps the translation visible', trVisibleInTranslationOnly === true)
+    // restore default mode for any later checks
+    await evalIn(page, `document.body.classList.remove('lector-dm-translationOnly'); document.body.classList.add('lector-dm-bilingual')`)
 
     // ---- §2.3 Escape closes popups ----
     await evalIn(page, `document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`)

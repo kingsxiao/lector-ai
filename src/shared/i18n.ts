@@ -337,6 +337,44 @@ export const STRINGS = {
   'sentence.section.examples': { en: 'Examples', zh: '举一反三' },
   'sentence.section.takeaway': { en: 'Memory point', zh: '记忆点' },
   'sentence.err.emptyResponse': { en: '(empty analysis)', zh: '（分析为空）' },
+
+  // --- translation settings ---
+  'settings.translation.title': { en: 'Translation', zh: '翻译' },
+  'settings.translation.targetLanguage': { en: 'Target language', zh: '目标语言' },
+  'settings.translation.targetLanguage.auto': { en: 'Auto (opposite of source)', zh: '自动（与源语言相反）' },
+  'settings.translation.displayMode': { en: 'Bilingual display', zh: '双语显示' },
+  'settings.translation.displayMode.bilingual': { en: 'Below original', zh: '译文在原文下方' },
+  'settings.translation.displayMode.translationOnly': { en: 'Translation only', zh: '仅译文' },
+  'settings.translation.displayMode.hover': { en: 'On hover', zh: '悬停显示' },
+  'settings.translation.autoTranslate': { en: 'Auto-translate pages on load', zh: '打开页面自动整页翻译' },
+  'settings.translation.concurrency': { en: 'Parallel requests', zh: '并发请求数' },
+
+  // --- bilingual page translation ---
+  'toolbar.bilingual': { en: 'Bilingual', zh: '双语' },
+  'bilingual.progress': { en: 'Translated {done}/{total}', zh: '已翻译 {done}/{total} 段' },
+  'bilingual.cancel': { en: 'Cancel', zh: '取消' },
+  'bilingual.retry': { en: 'Retry', zh: '重试' },
+  'bilingual.copyTranslation': { en: 'Copy translation', zh: '复制译文' },
+  'bilingual.blockError': { en: 'Translation failed', zh: '翻译失败' },
+  'bilingual.canceled': { en: 'Canceled', zh: '已取消' },
+
+  // --- selection popup (translate) ---
+  'popup.result.speak': { en: 'Read aloud', zh: '朗读' },
+  'popup.result.retranslate': { en: 'Retranslate', zh: '重新翻译' },
+  'popup.result.targetLang': { en: 'Translate to', zh: '译为' },
+
+  // --- translation history ---
+  'side.translationHistory.title': { en: 'Translation history', zh: '翻译历史' },
+  'side.translationHistory.empty': {
+    en: 'Your translations will appear here.',
+    zh: '你的翻译记录会出现在这里。',
+  },
+  'side.translationHistory.clear': { en: 'Clear all', zh: '清空' },
+  'side.translationHistory.search': { en: 'Search translations…', zh: '搜索翻译…' },
+  'side.translationHistory.kind.selection': { en: 'Selection', zh: '划词' },
+  'side.translationHistory.kind.page': { en: 'Page', zh: '整页' },
+  'side.translationHistory.kind.vocab': { en: 'Vocab', zh: '生词' },
+  'side.translationHistory.kind.sentence': { en: 'Sentence', zh: '长难句' },
 } as const
 
 export type StringKey = keyof typeof STRINGS

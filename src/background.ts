@@ -9,6 +9,12 @@
 import { t, type StringKey } from './shared/i18n'
 import { getSettings, completeOnce } from './shared/byok'
 import { SENTENCE_CARD_SYSTEM_PROMPT, extractTranslation, extractKeywords, extractCefr, newCardId } from './shared/sentences'
+import { appendHistory, newHistoryId } from './shared/translation'
+import { normalizeTranslationSettings } from './shared/providers'
+
+// Serializes translation-history appends so rapid successive relay messages
+// (read-modify-write on chrome.storage) don't clobber each other.
+let historyChain: Promise<void> = Promise.resolve()
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Lector AI installed')
@@ -62,6 +68,44 @@ chrome.runtime.onMessage.addListener((message) => {
     handleExplainSentenceRelay(message).catch(() => {})
     return false
   }
+  if (message?.action === 'lector-translation-history') {
+    // Queue into storage; the side panel drains & merges into zustand.
+    // Serialize the read-modify-write so rapid successive entries (e.g. a
+    // concurrent bilingual pass) don't lose writes to a shared base list.
+    historyChain = historyChain
+      .then(
+        () =>
+          new Promise<void>((resolve) => {
+            chrome.storage.local.get(['lectorTranslationHistory'], (r) => {
+              const list = Array.isArray(r.lectorTranslationHistory) ? r.lectorTranslationHistory : []
+              const next = appendHistory(list as any[], { ...message.entry, id: newHistoryId() })
+              chrome.storage.local.set({ lectorTranslationHistory: next }, () => resolve())
+            })
+          })
+      )
+      .catch(() => {})
+    return false
+  }
+  if (message?.action === 'lector-set-translation-target') {
+    // Persist the popup's language choice back into BYOK settings and broadcast.
+    void (async () => {
+      const s = await getSettings()
+      const ts = normalizeTranslationSettings(s.translation)
+      ts.targetLanguage = message.target
+      const next = { ...s, translation: ts }
+      // Save directly to storage (background has no zustand).
+      await chrome.storage.local.set({ lector_byok_settings: next })
+      const tabs = await chrome.tabs.query({})
+      for (const tab of tabs) {
+        if (tab.id !== undefined) {
+          chrome.tabs.sendMessage(tab.id, { action: 'lector-translation-settings-changed' }, () => {
+            void chrome.runtime.lastError
+          })
+        }
+      }
+    })()
+    return false
+  }
   return false
 })
 
@@ -70,7 +114,10 @@ chrome.commands?.onCommand.addListener((cmd) => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0]?.id
     if (tabId === undefined) return
-    chrome.tabs.sendMessage(tabId, { action: 'lector-command', command: cmd }, () => {
+    // Alt+T triggers bilingual page translation directly.
+    const action =
+      cmd === 'lector-translate' ? { action: 'lector-toggle-bilingual' } : { action: 'lector-command', command: cmd }
+    chrome.tabs.sendMessage(tabId, action, () => {
       void chrome.runtime.lastError
     })
   })

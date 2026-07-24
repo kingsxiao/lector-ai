@@ -30,9 +30,13 @@ import {
   getProvider,
   type ProviderId,
   type ByokSettings,
+  DEFAULT_TRANSLATION_SETTINGS,
+  normalizeTranslationSettings,
+  type TranslationSettings,
 } from '../shared/providers'
 import { streamChat, completeOnce, getSettings, saveSettings, testConnection, fetchModels, type ChatMessage as WireMessage, type FetchedModel } from '../shared/byok'
 import { t, type StringKey, type LocalePref } from '../shared/i18n'
+import { LANGUAGES, getLanguage, type TranslationHistoryEntry } from '../shared/translation'
 import {
   fillTemplate, filterTemplates, sortTemplates, validateTemplate,
   type PromptTemplate, type TemplateContext,
@@ -95,6 +99,7 @@ type View =
   | 'templates'
   | 'glossary'
   | 'library'
+  | 'translationHistory'
 
 export default function App() {
   const { byok, setByok, sessions, addSession, updateSession, removeSession, clearSessions } =
@@ -119,6 +124,9 @@ export default function App() {
   const removeSentence = useStore((s) => s.removeSentence)
   const promoteSentenceToReview = useStore((s) => s.promoteSentenceToReview)
   const updateSentenceSrs = useStore((s) => s.updateSentenceSrs)
+  const translationHistory = useStore((s) => s.translationHistory)
+  const clearTranslationHistory = useStore((s) => s.clearTranslationHistory)
+  const [histSearch, setHistSearch] = useState('')
 
   const tr = (key: StringKey) => t(key, byok.locale)
   // Resolve a template's display title (i18n key for built-ins, raw for custom).
@@ -241,6 +249,12 @@ export default function App() {
         const addSentence = useStore.getState().addSentence
         for (const c of list) addSentence(c)
         chrome.storage.local.remove('lectorSentences')
+      }
+      if (changes.lectorTranslationHistory) {
+        const list = (changes.lectorTranslationHistory.newValue as unknown as TranslationHistoryEntry[]) || []
+        const add = useStore.getState().addTranslationHistory
+        for (const e of list) add(e)
+        chrome.storage.local.remove('lectorTranslationHistory')
       }
     }
     chrome.storage.onChanged.addListener(onStorage)
@@ -639,6 +653,15 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 <span className="flex-1 text-left">{tr('side.tab.more.library')}</span>
               </button>
               <button
+                onClick={() => { setActiveView('translationHistory'); setShowTools(false) }}
+                aria-label="Translation history"
+                className="tools-item relative"
+              >
+                <LanguagesIcon size={16} />
+                <span className="flex-1 text-left">{tr('side.translationHistory.title')}</span>
+                {translationHistory.length > 0 && <span className="dot-badge" />}
+              </button>
+              <button
                 onClick={() => { setActiveView('glossary'); setShowTools(false) }}
                 aria-label="Glossary"
                 className="tools-item relative"
@@ -972,6 +995,72 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               >
                 <DownloadIcon size={13} />
                 {tr('side.highlights.export')}
+              </button>
+            </>
+          )}
+        </ViewShell>
+      )}
+
+      {/* Translation history view (flat) */}
+      {activeView === 'translationHistory' && (
+        <ViewShell title={tr('side.translationHistory.title')}>
+          {translationHistory.length === 0 ? (
+            <Empty text={tr('side.translationHistory.empty')} />
+          ) : (
+            <>
+              <div className="px-3 pt-3">
+                <input
+                  value={histSearch}
+                  onChange={(e) => setHistSearch(e.target.value)}
+                  placeholder={tr('side.translationHistory.search')}
+                  className="field-sm w-full"
+                />
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                {translationHistory
+                  .filter(
+                    (e) =>
+                      !histSearch.trim() ||
+                      e.source.includes(histSearch.trim()) ||
+                      e.target.includes(histSearch.trim())
+                  )
+                  .map((e) => (
+                    <div key={e.id} className="group row">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className="text-[10px] text-ink-faint bg-surface-muted px-1.5 py-0.5 rounded">
+                              {tr(('side.translationHistory.kind.' + e.kind) as StringKey)}
+                            </span>
+                            <span className="text-[10px] text-ink-faint">
+                              {getLanguage(e.targetLang)[byok.locale === 'zh' || (byok.locale === 'auto' && navigator.language?.toLowerCase().startsWith('zh')) ? 'zh' : 'en']}
+                            </span>
+                            <span className="text-[10px] text-ink-faint">
+                              {new Date(e.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="text-[12px] text-ink leading-relaxed border-l-2 border-accent/40 pl-2.5">{e.source}</div>
+                          <div className="text-[12px] text-ink-soft leading-relaxed mt-1 pl-2.5">{e.target}</div>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            onClick={() => navigator.clipboard.writeText(e.target).catch(() => {})}
+                            aria-label="Copy translation"
+                            className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
+                          >
+                            <ClipboardListIcon size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+              <button
+                onClick={() => clearTranslationHistory()}
+                className="px-4 py-2.5 text-meta text-ink-soft hover:text-danger hover:bg-surface-muted border-t border-line transition-colors text-left flex items-center gap-1.5"
+              >
+                <TrashIcon size={13} />
+                {tr('side.translationHistory.clear')}
               </button>
             </>
           )}
@@ -2088,6 +2177,89 @@ function SettingsView({ byok, onChange }: SettingsViewProps) {
               </div>
             )}
           </div>
+
+          {/* Translation settings */}
+          {(() => {
+            const ts = { ...DEFAULT_TRANSLATION_SETTINGS, ...normalizeTranslationSettings(byok.translation) }
+            const setTs = (patch: Partial<TranslationSettings>) => {
+              const next = { ...ts, ...patch }
+              onChange({ translation: next })
+              // Broadcast to content scripts so display mode updates live.
+              if (typeof chrome !== 'undefined' && chrome.tabs) {
+                chrome.tabs.query({}).then((tabs) => {
+                  for (const tab of tabs) {
+                    if (tab.id !== undefined) {
+                      chrome.tabs
+                        .sendMessage(tab.id, { action: 'lector-translation-settings-changed' })
+                        .catch(() => {})
+                    }
+                  }
+                }).catch(() => {})
+              }
+            }
+            return (
+              <div className="pt-1 border-t border-line">
+                <label className="label mb-1.5 block">{t('settings.translation.title', byok.locale)}</label>
+
+                {/* Target language */}
+                <label className="text-[11px] text-ink-soft mb-1 block">{t('settings.translation.targetLanguage', byok.locale)}</label>
+                <select
+                  value={ts.targetLanguage}
+                  onChange={(e) => setTs({ targetLanguage: e.target.value as TranslationSettings['targetLanguage'] })}
+                  className="field w-full mb-3"
+                >
+                  <option value="auto">{t('settings.translation.targetLanguage.auto', byok.locale)}</option>
+                  {LANGUAGES.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {byok.locale === 'zh' ? l.zh : l.en} ({l.en})
+                    </option>
+                  ))}
+                </select>
+
+                {/* Display mode */}
+                <label className="text-[11px] text-ink-soft mb-1 block">{t('settings.translation.displayMode', byok.locale)}</label>
+                <div className="grid grid-cols-3 gap-1.5 mb-3">
+                  {(['bilingual', 'translationOnly', 'hover'] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setTs({ displayMode: m })}
+                      className={`px-1 py-1.5 text-[10.5px] font-medium rounded-lg border transition-colors duration-150 ease-out leading-tight ${
+                        ts.displayMode === m
+                          ? 'border-accent bg-accent-softer text-accent'
+                          : 'border-line text-ink-soft hover:bg-surface-muted hover:text-ink'
+                      }`}
+                    >
+                      {t(('settings.translation.displayMode.' + m) as StringKey, byok.locale)}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Auto-translate toggle */}
+                <label className="flex items-center gap-2 text-[11px] text-ink-soft mb-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={ts.autoTranslate}
+                    onChange={(e) => setTs({ autoTranslate: e.target.checked })}
+                    className="accent-[#9C6B3C]"
+                  />
+                  {t('settings.translation.autoTranslate', byok.locale)}
+                </label>
+
+                {/* Concurrency slider */}
+                <label className="text-[11px] text-ink-soft mb-1 block">
+                  {t('settings.translation.concurrency', byok.locale)}: {ts.concurrency}
+                </label>
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={ts.concurrency}
+                  onChange={(e) => setTs({ concurrency: Number(e.target.value) })}
+                  className="w-full accent-[#9C6B3C]"
+                />
+              </div>
+            )
+          })()}
         </div>
     </div>
   )

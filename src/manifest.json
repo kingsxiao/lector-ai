@@ -22,6 +22,12 @@
         "default": "Alt+S"
       },
       "description": "Save the current selection as a vocabulary word"
+    },
+    "lector-translate": {
+      "suggested_key": {
+        "default": "Alt+T"
+      },
+      "description": "Translate this page (bilingual mode)"
     }
   },
   "host_permissions": [

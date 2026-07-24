@@ -7,6 +7,7 @@ import { newSrs, type SrsState } from './srs'
 import { BUILTIN_TEMPLATES, newTemplateId, type PromptTemplate } from './promptTemplates'
 import { newEntryId, type GlossaryEntry } from './glossary'
 import { newCardId, normalizeSentence, makeSentenceCard, mergeSentenceCard, dedupeCards, type SentenceCard } from './sentences'
+import { appendHistory, newHistoryId, type TranslationHistoryEntry } from './translation'
 
 export interface ChatMessage {
   id: string
@@ -42,6 +43,9 @@ interface AppState {
 
   // Sentence library — structured deep-analysis cards (Feature ④).
   sentences: SentenceCard[]
+
+  // Translation history — LRU list of recent translations (max 200).
+  translationHistory: TranslationHistoryEntry[]
 
   // Actions
   setByok: (patch: Partial<ByokSettings>) => void
@@ -79,6 +83,10 @@ interface AppState {
   promoteSentenceToReview: (id: string) => void
   /** Advance/punish an already-reviewable card's SRS. No-op if srs is null. */
   updateSentenceSrs: (id: string, srs: SrsState) => void
+
+  // Translation history (LRU, max 200).
+  addTranslationHistory: (entry: Omit<TranslationHistoryEntry, 'id'>) => void
+  clearTranslationHistory: () => void
 }
 
 export const useStore = create<AppState>()(
@@ -91,6 +99,7 @@ export const useStore = create<AppState>()(
       templates: BUILTIN_TEMPLATES,
       glossary: [],
       sentences: [],
+      translationHistory: [],
 
       setByok: (patch) => set((s) => ({ byok: { ...s.byok, ...patch } })),
       setByokAll: (next) => set({ byok: next }),
@@ -281,6 +290,12 @@ export const useStore = create<AppState>()(
         set((s) => ({
           sentences: s.sentences.map((c) => (c.id === id ? { ...c, srs } : c)),
         })),
+
+      addTranslationHistory: (entry) =>
+        set((s) => ({
+          translationHistory: appendHistory(s.translationHistory, { ...entry, id: newHistoryId() }),
+        })),
+      clearTranslationHistory: () => set({ translationHistory: [] }),
     }),
     {
       name: 'lector-ai-storage',
@@ -296,6 +311,7 @@ export const useStore = create<AppState>()(
         templates: state.templates,
         glossary: state.glossary,
         sentences: state.sentences,
+        translationHistory: state.translationHistory,
       }),
     }
   )

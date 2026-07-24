@@ -13,6 +13,7 @@ beforeEach(() => {
     highlights: [],
     vocab: [],
     glossary: [],
+    translationHistory: [],
   })
 })
 
@@ -223,5 +224,26 @@ describe('glossary (术语表)', () => {
     const list = useStore.getState().glossary
     expect(list.length).toBe(1)
     expect(list[0].source).toBe('B')
+  })
+})
+
+describe('translation history', () => {
+  it('addTranslationHistory prepends and assigns id', () => {
+    useStore.getState().addTranslationHistory({
+      source: 'hi', target: '你好', sourceLang: 'auto', targetLang: 'zh',
+      kind: 'selection', url: 'u', createdAt: 1,
+    })
+    const list = useStore.getState().translationHistory
+    expect(list).toHaveLength(1)
+    expect(list[0].id).toBeTruthy()
+    expect(list[0].source).toBe('hi')
+  })
+  it('clearTranslationHistory empties the list', () => {
+    useStore.getState().addTranslationHistory({
+      source: 'hi', target: '你好', sourceLang: 'auto', targetLang: 'zh',
+      kind: 'selection', url: 'u', createdAt: 1,
+    })
+    useStore.getState().clearTranslationHistory()
+    expect(useStore.getState().translationHistory).toHaveLength(0)
   })
 })
