@@ -196,6 +196,21 @@ export const STRINGS = {
   'popup.result.explain': { en: '💡 Explanation', zh: '💡 解释' },
   'popup.result.explainSentence': { en: '🃏 Sentence card', zh: '🃏 讲解卡片' },
   'popup.close': { en: 'Close', zh: '关闭' },
+  // --- side panel: tab navigation (flat views replace overlay drawers) ---
+  'side.tab.chat': { en: 'Chat', zh: '对话' },
+  'side.tab.sentences': { en: 'Sentences', zh: '句库' },
+  'side.tab.highlights': { en: 'Highlights', zh: '高亮' },
+  'side.tab.vocab': { en: 'Vocab', zh: '生词' },
+  'side.tab.more': { en: 'More', zh: '更多' },
+  'side.tab.more.templates': { en: 'Templates', zh: '模板' },
+  'side.tab.more.glossary': { en: 'Glossary', zh: '术语表' },
+  'side.tab.more.library': { en: 'Library', zh: '历史记录' },
+  // --- error banner (replaces auto-popping Settings on API errors) ---
+  'side.error.banner': { en: 'Something went wrong', zh: '出现问题' },
+  'side.error.goSettings': { en: 'Open settings', zh: '打开设置' },
+  'side.error.dismiss': { en: 'Dismiss', zh: '忽略' },
+  // --- make-card inline loading (举一反三 → 生成卡片) ---
+  'side.sentences.makingCard': { en: 'Generating…', zh: '生成中…' },
   'popup.copy': { en: '📋 Copy', zh: '📋 复制' },
   'popup.copied': { en: '✅ Copied', zh: '✅ 已复制' },
   'popup.continueInPanel': {
