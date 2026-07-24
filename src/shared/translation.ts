@@ -71,6 +71,8 @@ export function detectScript(text: string): Script {
   return 'latin'
 }
 
+import type { GlossaryEntry } from './glossary'
+
 export type TargetLangSetting = TargetLangCode | 'auto'
 
 /**
@@ -81,4 +83,32 @@ export type TargetLangSetting = TargetLangCode | 'auto'
 export function resolveTargetLang(setting: TargetLangSetting, sourceText: string): TargetLangCode {
   if (setting !== 'auto') return setting
   return detectScript(sourceText) === 'cjk' ? 'en' : 'zh'
+}
+
+/**
+ * Build the standard translation system prompt, injecting the glossary block
+ * only when non-empty. Single source of truth so the selection popup, bilingual
+ * page mode, vocab save, and sentence card stay consistent. Migrated from the
+ * former inline copy in content.ts.
+ */
+export function buildTranslateSystemPrompt(targetLang: TargetLangCode, glossaryBlock: string): string {
+  const name = getLanguage(targetLang).en
+  const base = `You are a professional translator. Translate the user text to ${name}. Preserve meaning, tone, and formatting. Keep code blocks, URLs, and HTML tags untranslated. Output ONLY the translation, no explanations.`
+  return glossaryBlock ? `${base}\n\n${glossaryBlock}` : base
+}
+
+/**
+ * Direction-aware glossary filter. When the target is Chinese, only Latin-source
+ * terms are relevant (we are translating foreign text INTO chinese); when the
+ * target is English, only CJK-source terms are relevant. For other target
+ * languages we cannot infer direction, so keep all enabled entries. Disabled
+ * entries are always dropped.
+ */
+export function filterGlossaryForDirection(entries: GlossaryEntry[], targetLang: TargetLangCode): GlossaryEntry[] {
+  const enabled = entries.filter((e) => e.enabled && e.source.trim() && e.target.trim())
+  if (targetLang !== 'zh' && targetLang !== 'en') return enabled
+  return enabled.filter((e) => {
+    const srcScript = detectScript(e.source)
+    return targetLang === 'zh' ? srcScript !== 'cjk' : srcScript === 'cjk'
+  })
 }
