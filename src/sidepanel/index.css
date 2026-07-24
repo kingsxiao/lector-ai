@@ -121,10 +121,14 @@ body {
     @apply bg-accent-softer text-accent;
   }
 
-  /* —— 错误提示条（取代报错自动弹设置窗） —— */
+  /* —— 错误提示条（取代报错自动弹设置窗） ——
+     Note: danger-soft / danger are raw CSS vars (not Tailwind theme colors),
+     so the opacity-modifier form bg-danger-soft/50 fails under @apply. Use
+     the vars directly instead. */
   .error-banner {
-    @apply flex items-center gap-2 px-3.5 py-2 bg-danger-soft/50 border-b border-danger/30
-           text-[11px] text-danger;
+    @apply flex items-center gap-2 px-3.5 py-2 text-[11px] text-danger;
+    background-color: color-mix(in srgb, var(--danger-soft) 50%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
   }
   .error-banner-actions {
     @apply flex items-center gap-2 ml-auto;

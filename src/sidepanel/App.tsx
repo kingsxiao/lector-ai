@@ -662,19 +662,12 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         </div>
       </nav>
 
-      {/* ErrorBanner: API/key errors show here instead of auto-opening Settings.
-          Styles are inlined as JSX utilities rather than consumed from the
-          shared banner class, because that class's @apply of an opacity
-          utility on a non-configured soft color fails the Tailwind production
-          build (the equivalent JSX utility resolves fine via JIT). */}
+      {/* ErrorBanner: API/key errors show here instead of auto-opening Settings. */}
       {errorBanner && (
-        <div
-          className="flex items-center gap-2 px-3.5 py-2 bg-danger-soft/50 border-b border-danger/30 text-[11px] text-danger"
-          role="alert"
-        >
+        <div className="error-banner" role="alert">
           <span className="inline-block w-1.5 h-1.5 rounded-full bg-danger flex-shrink-0" />
           <span className="flex-1 leading-relaxed">{errorBanner}</span>
-          <div className="flex items-center gap-2 ml-auto">
+          <div className="error-banner-actions">
             <button
               onClick={() => { setActiveView('settings'); setErrorBanner(null) }}
               className="font-medium underline hover:no-underline"
