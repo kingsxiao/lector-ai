@@ -171,9 +171,12 @@ async function main() {
     // ---- React app mounts ----
     const headerPresent = await evalIn(page, `!!document.querySelector('header')`)
     check('§sidepanel React app mounts (header)', headerPresent)
-    // Header has: Library, Highlights, Vocab, Templates, Bilingual, Settings (6).
+    // Header holds: Bilingual + Settings (2). Tabs (Chat/Sentences/Highlights/
+    // Vocab/More) live in the .tab-bar nav below the header.
     const headerBtns = await evalIn(page, `document.querySelectorAll('header button').length`)
-    check('§sidepanel header buttons render (Library/Highlights/Vocab/Templates/Bilingual/Settings)', headerBtns >= 6, `buttons=${headerBtns}`)
+    check('§sidepanel header buttons render (Bilingual/Settings)', headerBtns >= 2, `buttons=${headerBtns}`)
+    const tabBtns = await evalIn(page, `document.querySelectorAll('.tab-bar button').length`)
+    check('§sidepanel tab-bar renders (Chat/Sentences/Highlights/Vocab/More)', tabBtns >= 5, `tabs=${tabBtns}`)
 
     // The bilingual toggle button (🌐 / "Translate page paragraphs").
     const biBtn = await evalIn(page, `document.querySelectorAll('header button[title*="bilingual" i], header button[title*="paragraphs" i]').length`)
@@ -217,10 +220,21 @@ async function main() {
     const biMsg = JSON.parse(await evalIn(page, `JSON.stringify((window.__lectorMsgs||[]).filter(m=>m.action==='lector-toggle-bilingual'))`) || '[]')
     check('§9 bilingual button click → lector-toggle-bilingual dispatched', biMsg.length >= 1, `msgs=${biMsg.length}`)
 
-    // ---- §7 session library: after a chat, the Library drawer lists it ----
-    await evalIn(page, `(()=>{const b=[...document.querySelectorAll('header button')].find(x=>(x.getAttribute('aria-label')||'')==='Library'); if(b){b.click(); return 'opened'} return 'no-btn'})()`)
+    // ---- §7 session library: open via More menu → Library (flat view) ----
+    await evalIn(page, `(()=>{const more=[...document.querySelectorAll('.tab-bar button')].find(b=>/more/i.test(b.getAttribute('aria-label')||'')); if(!more) return 'no-more'; more.click(); return 'opened-more'})()`)
+    await sleep(200)
+    await evalIn(page, `(()=>{const b=[...document.querySelectorAll('button')].find(x=>(x.getAttribute('aria-label')||'')==='Library'); if(b){b.click(); return 'opened'} return 'no-btn'})()`)
     await sleep(400)
-    check('§7 library drawer opens after a chat', await evalIn(page, `document.body.innerText.includes('Library')`))
+    check('§7 library view opens after a chat', await evalIn(page, `document.body.innerText.includes('Library')`))
+
+    // ---- tab switching is mutually exclusive (flat views) ----
+    await evalIn(page, `(()=>{const b=[...document.querySelectorAll('.tab-bar button')].find(x=>(x.getAttribute('aria-label')||'')==='Sentences'); if(b){b.click(); return 'clicked'} return 'no-btn'})()`)
+    await sleep(200)
+    const sentencesActive = await evalIn(page, `!!document.querySelector('.tab-bar button[aria-label="Sentences"].tab-item-active')`)
+    check('§tab: clicking Sentences activates its tab (flat, no overlay)', sentencesActive)
+    // No z-40/z-50 overlay should exist when a tab is active.
+    const overlayGone = await evalIn(page, `document.querySelectorAll('.absolute.inset-0').length === 0`)
+    check('§tab: no absolute inset-0 overlay present (stacking eliminated)', overlayGone)
 
     await cleanup()
   } catch (e) {
