@@ -539,21 +539,18 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
 
   return (
     <div className="flex flex-col h-screen bg-bg">
-      {/* Header: app identity + page-bilingual toggle + settings */}
+      {/* Header: page title + page-bilingual toggle + settings.
+          Brand identity is already shown in the side-panel window title bar
+          (<title> in index.html), so we don't repeat the "L" logo here. */}
       <header className="flex items-center justify-between gap-2 px-3.5 py-2.5 bg-surface border-b border-line">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-xl bg-accent text-accent-on font-bold flex items-center justify-center text-[15px] flex-shrink-0 shadow-sm font-serif">
-            L
+        <div className="min-w-0">
+          <div className="text-[13px] font-semibold text-ink truncate leading-tight">
+            {page?.title || tr('side.header.defaultTitle')}
           </div>
-          <div className="min-w-0">
-            <div className="text-[13px] font-semibold text-ink truncate leading-tight">
-              {page?.title || tr('side.header.defaultTitle')}
-            </div>
-            <div className="text-[10px] text-ink-faint truncate max-w-[200px] mt-0.5">
-              {providerConfigured
-                ? `${getProvider(byok.provider).label} · ${byok.model || 'model'}`
-                : tr('side.header.noKey')}
-            </div>
+          <div className="text-[10px] text-ink-faint truncate max-w-[200px] mt-0.5">
+            {providerConfigured
+              ? `${getProvider(byok.provider).label} · ${byok.model || 'model'}`
+              : tr('side.header.noKey')}
           </div>
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">
