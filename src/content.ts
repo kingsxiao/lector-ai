@@ -29,7 +29,6 @@ function injectStyles() {
     #lector-ai-fab { position: fixed; right: 20px; bottom: 24px; width: 48px; height: 48px; border-radius: 50%; background: #9C6B3C; color: #FFF8EE; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 20px; font-family: Georgia, 'Iowan Old Style', 'Source Serif Pro', serif; cursor: pointer; z-index: 2147483646; box-shadow: 0 6px 20px rgba(156,107,60,.32); animation: lectorFabPulse 3s ease-in-out infinite; transition: transform .18s cubic-bezier(0.16,1,0.3,1), background-color .15s ease; user-select: none; }
     #lector-ai-fab:hover { transform: scale(1.08); background: #875A2F; }
     #lector-ai-toolbar { display: flex; align-items: center; gap: 2px; padding: 5px 8px; border-radius: 999px; }
-    #lector-ai-toolbar.is-dark { }
     #lector-ai-toolbar .t-btn { width: 28px; height: 28px; padding: 0; border: none; border-radius: 999px; background: transparent; color: #6B6155; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: background-color .15s ease, color .15s ease, transform .1s ease; }
     #lector-ai-toolbar .t-btn svg { width: 16px; height: 16px; display: block; }
     #lector-ai-toolbar .t-btn:hover { background: rgba(156,107,60,.12); color: #9C6B3C; }
