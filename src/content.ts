@@ -47,7 +47,19 @@ function injectStyles() {
     #lector-ai-result .copy-btn { flex:1; padding:8px 12px; border:none; border-radius:10px; font-size:12px; font-weight:600; background:#F5EFE3; color:#6B6155; cursor:pointer; transition:background-color .15s ease, transform .1s ease; }
     #lector-ai-result .copy-btn:active { transform: translateY(1px); }
     #lector-ai-result .copy-btn:hover { background:#E8DECC; }
-    .lector-bilingual { font-size:.9em; color:#6B6155; border-left:3px solid #9C6B3C; padding:2px 0 2px 10px; margin:6px 0 6px 4px; border-radius:0 2px 2px 0; }
+    .lector-bilingual { font-size:.92em; line-height:1.6; color:#6B6155; border-left:3px solid #9C6B3C; padding:4px 0 4px 12px; margin:8px 0 8px 4px; border-radius:0 3px 3px 0; position:relative; transition:opacity .2s ease; }
+    .lector-bilingual.is-loading { opacity:.6; }
+    .lector-bilingual.is-error { border-left-color:#c0392b; color:#c0392b; }
+    .lector-bi-caret { display:inline-block; width:2px; height:1em; background:#9C6B3C; vertical-align:text-bottom; margin-left:1px; animation:lectorBlink 1s steps(2) infinite; }
+    @keyframes lectorBlink { 50% { opacity:0; } }
+    .lector-bi-actions { position:absolute; right:6px; top:-10px; display:none; gap:4px; background:#FFF8EE; border:1px solid #E8DECC; border-radius:6px; padding:2px 4px; box-shadow:0 2px 8px rgba(0,0,0,.1); z-index:1; }
+    .lector-bilingual:hover .lector-bi-actions { display:flex; }
+    .lector-bi-actions button { border:none; background:transparent; color:#9C6B3C; cursor:pointer; font-size:11px; padding:2px 4px; border-radius:4px; }
+    .lector-bi-actions button:hover { background:rgba(156,107,60,.12); }
+    /* display modes (toggled via body class set by content script) */
+    body.lector-dm-translationOnly .lector-bi-source { display:none !important; }
+    body.lector-dm-hover .lector-bilingual { display:none; }
+    body.lector-dm-hover .lector-bi-source:hover + .lector-bilingual { display:block; }
   `
   document.head.appendChild(style)
 }
@@ -406,6 +418,183 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
   setTimeout(() => document.addEventListener('click', handleClickOutside), 100)
 }
 
+/** Read source text aloud via the browser's built-in SpeechSynthesis (zero-dep). */
+function speak(text: string, langSpeechCode: string) {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+  window.speechSynthesis.cancel()
+  const u = new SpeechSynthesisUtterance(text)
+  u.lang = langSpeechCode
+  window.speechSynthesis.speak(u)
+}
+
+/**
+ * Streaming translate popup (DeepL-style). Shows immediately with a skeleton +
+ * target-language selector; tokens stream into the content area. The caller's
+ * `run(target, sink)` does the actual streaming; re-running on language change
+ * reuses the same popup.
+ */
+function showStreamingTranslateResult(
+  x: number,
+  y: number,
+  sourceText: string,
+  initialTarget: TargetLangCode,
+  run: (
+    target: TargetLangCode,
+    sink: { append: (d: string) => void; setText: (s: string) => void }
+  ) => Promise<void>
+) {
+  removeLoading()
+  removeResult()
+
+  resultPopup = document.createElement('div')
+  resultPopup.id = 'lector-ai-result'
+  const maxHeight = window.innerHeight - y - 100
+  resultPopup.style.cssText = `
+    position: fixed; left: ${x}px; top: ${y + 20}px; max-width: 420px; max-height: ${Math.min(maxHeight, 500)}px;
+    overflow-y: auto; padding: 16px; background: #fff; border-radius: 14px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.2); z-index: 2147483647;
+    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; animation: lectorFadeIn .25s ease-out;
+  `
+
+  const header = document.createElement('div')
+  header.className = 'result-header'
+  const title = document.createElement('div')
+  title.className = 'result-title'
+  title.innerHTML = tr('popup.result.translate')
+
+  // Target language selector.
+  const langWrap = document.createElement('label')
+  langWrap.style.cssText = 'font-size:11px;color:#6B6155;display:flex;align-items:center;gap:4px;'
+  const langLabel = document.createElement('span')
+  langLabel.textContent = tr('popup.result.targetLang')
+  const sel = document.createElement('select')
+  sel.style.cssText = 'font-size:11px;border:1px solid #E8DECC;border-radius:6px;padding:2px 4px;'
+  const autoOpt = document.createElement('option')
+  autoOpt.value = 'auto'
+  autoOpt.textContent = tr('settings.translation.targetLanguage.auto')
+  sel.appendChild(autoOpt)
+  for (const l of LANGUAGES) {
+    const o = document.createElement('option')
+    o.value = l.code
+    o.textContent = cachedPref === 'zh' ? l.zh : l.en
+    if (l.code === initialTarget) o.selected = true
+    sel.appendChild(o)
+  }
+  langWrap.appendChild(langLabel)
+  langWrap.appendChild(sel)
+
+  const closeBtn = document.createElement('button')
+  closeBtn.style.cssText = 'padding:4px 8px;border:none;background:#f1f5f9;border-radius:4px;cursor:pointer;font-size:11px;color:#94a3b8;'
+  closeBtn.textContent = tr('popup.close')
+  closeBtn.onclick = () => removeResult()
+  header.appendChild(title)
+  header.appendChild(langWrap)
+  header.appendChild(closeBtn)
+
+  const content = document.createElement('div')
+  content.className = 'result-content'
+  const caret = document.createElement('span')
+  caret.className = 'lector-bi-caret'
+  content.appendChild(caret)
+
+  const footer = document.createElement('div')
+  footer.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid #E8DECC;display:flex;gap:8px;flex-wrap:wrap;'
+  const speakSrc = document.createElement('button')
+  speakSrc.className = 'copy-btn'
+  speakSrc.type = 'button'
+  speakSrc.textContent = '🔊 ' + tr('popup.result.speak')
+  speakSrc.style.flex = '0 0 auto'
+  speakSrc.onclick = () => speak(sourceText, getLanguage(detectScript(sourceText) === 'cjk' ? 'zh' : 'en').speechCode)
+  const speakTgt = document.createElement('button')
+  speakTgt.className = 'copy-btn'
+  speakTgt.type = 'button'
+  speakTgt.textContent = '🔊'
+  speakTgt.title = tr('popup.result.speak')
+  speakTgt.style.flex = '0 0 auto'
+  speakTgt.onclick = () => speak(content.textContent || '', getLanguage(curTarget).speechCode)
+  const copyBtn = document.createElement('button')
+  copyBtn.className = 'copy-btn'
+  copyBtn.textContent = tr('popup.copy')
+  copyBtn.onclick = () => {
+    navigator.clipboard.writeText(content.textContent || '').catch(() => {})
+    copyBtn.textContent = tr('popup.copied')
+    setTimeout(() => (copyBtn.textContent = tr('popup.copy')), 1500)
+  }
+  const chatBtn = document.createElement('button')
+  chatBtn.className = 'action-btn primary'
+  chatBtn.textContent = tr('popup.continueInPanel')
+  chatBtn.onclick = () => {
+    chrome.runtime.sendMessage({ action: 'open-side-panel', seed: { kind: 'translate', text: content.textContent || '' } }).catch(() => {})
+    removeResult()
+    removeToolbar()
+  }
+  footer.appendChild(speakSrc)
+  footer.appendChild(speakTgt)
+  footer.appendChild(copyBtn)
+  footer.appendChild(chatBtn)
+
+  resultPopup.appendChild(header)
+  resultPopup.appendChild(content)
+  resultPopup.appendChild(footer)
+  document.body.appendChild(resultPopup)
+  setTimeout(() => document.addEventListener('click', handleClickOutside), 100)
+
+  let acc = ''
+  let curTarget = initialTarget
+  const sink = {
+    append(delta: string) {
+      acc += delta
+      content.textContent = acc
+      content.appendChild(caret)
+    },
+    setText(s: string) {
+      acc = s
+      content.textContent = s
+      content.appendChild(caret)
+    },
+  }
+
+  async function execute(target: TargetLangCode) {
+    curTarget = target
+    sink.setText('')
+    content.appendChild(caret)
+    try {
+      await run(target, sink)
+      if (caret.parentNode === content) content.removeChild(caret)
+      chrome.runtime
+        .sendMessage({
+          action: 'lector-translation-history',
+          entry: {
+            source: sourceText.slice(0, 200),
+            target: (acc || '').slice(0, 200),
+            sourceLang: 'auto',
+            targetLang: target,
+            kind: 'selection',
+            url: location.href,
+            createdAt: Date.now(),
+          },
+        })
+        .catch(() => {})
+    } catch (e) {
+      if (caret.parentNode === content) content.removeChild(caret)
+      const msg = e instanceof Error ? e.message : tr('err.requestFailed')
+      content.textContent = tr('err.failedPrefix').replace('{msg}', msg)
+    }
+  }
+
+  sel.onchange = () => {
+    const code =
+      sel.value === 'auto'
+        ? resolveTargetLang('auto', sourceText)
+        : (sel.value as TargetLangCode)
+    // Persist the user's choice so it sticks for next time.
+    chrome.runtime.sendMessage({ action: 'lector-set-translation-target', target: sel.value }).catch(() => {})
+    void execute(code)
+  }
+
+  void execute(initialTarget)
+}
+
 function removeResult() {
   if (resultPopup) {
     resultPopup.remove()
@@ -427,9 +616,23 @@ function handleClickOutside(e: MouseEvent) {
 // BYOK helpers (run in the content-script context)
 // ---------------------------------------------------------------------------
 // The content script can import shared modules; vite bundles them in.
-import { getSettings, completeOnce } from './shared/byok'
+import { getSettings, completeOnce, streamChat } from './shared/byok'
 import { t, type LocalePref, type StringKey } from './shared/i18n'
 import { renderGlossaryPrompt, type GlossaryEntry } from './shared/glossary'
+import {
+  runConcurrent,
+  shouldTranslateBlock,
+  buildTranslateSystemPrompt,
+  filterGlossaryForDirection,
+  resolveTargetLang,
+  detectScript,
+  EXCLUDED_ANCESTOR_TAGS,
+  LANGUAGES,
+  getLanguage,
+  type DisplayMode,
+  type TargetLangCode,
+} from './shared/translation'
+import { normalizeTranslationSettings, type ByokSettings } from './shared/providers'
 
 // --- i18n: content script reads the locale pref from storage once per action ---
 let cachedPref: LocalePref = 'auto'
@@ -465,15 +668,9 @@ async function loadGlossary(): Promise<GlossaryEntry[]> {
   }
 }
 
-/**
- * Build the standard translation system prompt, injecting the glossary block
- * only when the user has enabled terms. Single source of truth so the inline
- * translator (划词) and the bilingual mode (双语) stay consistent.
- */
-function buildTranslationSystemPrompt(targetLang: string, glossaryBlock: string): string {
-  const base = `You are a professional translator. Translate the user text to ${targetLang}. Preserve meaning, tone, and formatting. Output ONLY the translation.`
-  return glossaryBlock ? `${base}\n\n${glossaryBlock}` : base
-}
+// (buildTranslationSystemPrompt now lives in src/shared/translation.ts and is
+// imported above — single source of truth for the selection popup, bilingual
+// mode, vocab save, and sentence card.)
 
 // ---------------------------------------------------------------------------
 // Highlight capture (Feature ②) and vocabulary save (Feature ③)
@@ -617,99 +814,236 @@ async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: 
     return
   }
 
-  let systemPrompt = ''
-  let maxTokens = 1000
   if (kind === 'translate') {
-    const target = /[\u4e00-\u9fff]/.test(text) ? 'English' : '中文'
-    // Inject the user's glossary so translate actions respect term mappings.
+    const tSettings = normalizeTranslationSettings(settings.translation)
+    const initialTarget = resolveTargetLang(tSettings.targetLanguage, text)
     const glossary = await loadGlossary()
-    systemPrompt = buildTranslationSystemPrompt(target, renderGlossaryPrompt(glossary))
-    maxTokens = Math.min(3000, Math.max(500, text.length * 2))
-  } else if (kind === 'summarize') {
-    systemPrompt = `You are Lector AI. Summarize the user content in 3-5 short bullets plus a one-line takeaway. Clean Markdown, no leading heading.`
-    maxTokens = 900
-  } else {
-    systemPrompt = `You are Lector AI. Explain the user content clearly in a few sentences, then give one concrete example. Clean Markdown.`
-    maxTokens = 900
+    // Show the streaming popup immediately with a target-language selector.
+    showStreamingTranslateResult(r()?.left || 100, r()?.top || 100, text, initialTarget, async (selTarget, sink) => {
+      const sp = buildTranslateSystemPrompt(
+        selTarget,
+        renderGlossaryPrompt(filterGlossaryForDirection(glossary, selTarget))
+      )
+      await streamChat(
+        settings,
+        [{ role: 'system', content: sp }, { role: 'user', content: text.slice(0, 8000) }],
+        { maxTokens: Math.min(3000, Math.max(500, text.length * 2)), temperature: 0.2 },
+        (delta) => sink.append(delta)
+      )
+    })
+    return
   }
 
+  // summarize / explain stay non-streaming.
+  let systemPrompt = ''
+  let maxTokens = 900
+  if (kind === 'summarize') {
+    systemPrompt = `You are Lector AI. Summarize the user content in 3-5 short bullets plus a one-line takeaway. Clean Markdown, no leading heading.`
+  } else {
+    systemPrompt = `You are Lector AI. Explain the user content clearly in a few sentences, then give one concrete example. Clean Markdown.`
+  }
   try {
     const out = await completeOnce(settings, systemPrompt, text.slice(0, 8000), {
       maxTokens,
-      temperature: kind === 'translate' ? 0.2 : 0.5,
+      temperature: 0.5,
     })
     removeLoading()
     showResult(
       r()?.left || 100,
       r()?.top || 100,
       out || tr('err.emptyResponse'),
-      kind === 'summarize' ? 'summary' : kind === 'translate' ? 'translate' : 'explain'
+      kind === 'summarize' ? 'summary' : 'explain'
     )
   } catch (e) {
     removeLoading()
     const msg = e instanceof Error ? e.message : tr('err.requestFailed')
-    showResult(r()?.left || 100, r()?.top || 100, tr('err.failedPrefix').replace('{msg}', msg), 'translate')
+    showResult(r()?.left || 100, r()?.top || 100, tr('err.failedPrefix').replace('{msg}', msg), 'explain')
   }
 }
 
 // ---------------------------------------------------------------------------
-// Inline bilingual translation (Immersive-Translate style) — BYOK direct
+// Inline bilingual translation (Immersive-Translate style) — BYOK direct.
+// Concurrency + streaming + viewport-first ordering + progress + cancel.
 // ---------------------------------------------------------------------------
-const translatedSet = new WeakSet<HTMLElement>()
+let bilingualAbort: AbortController | null = null
 
-async function toggleBilingual() {
+const EXCLUDED_SELECTOR = Array.from(EXCLUDED_ANCESTOR_TAGS).map((t) => t.toLowerCase()).join(',')
+
+function buildBlockCandidate(el: HTMLElement) {
+  const text = (el.textContent || '').trim()
+  const outerLen = (el.outerHTML || '').length || text.length || 1
+  return {
+    text,
+    tag: el.tagName,
+    isInsideExcluded: !!el.closest(EXCLUDED_SELECTOR),
+    isAlreadyTranslated: !!el.querySelector('.lector-bilingual'),
+    textRatio: text.length / outerLen,
+  }
+}
+
+function applyDisplayMode(mode: DisplayMode) {
+  document.body.classList.remove('lector-dm-bilingual', 'lector-dm-translationOnly', 'lector-dm-hover')
+  document.body.classList.add('lector-dm-' + mode)
+}
+
+/** Translate a single block, streaming tokens into a freshly inserted container. */
+async function translateOneBlock(settings: ByokSettings, systemPrompt: string, block: HTMLElement): Promise<string> {
+  const original = (block.textContent || '').trim()
+  // Insert placeholder container immediately so the user sees progress.
+  const span = document.createElement('div')
+  span.className = 'lector-bilingual is-loading'
+  const caret = document.createElement('span')
+  caret.className = 'lector-bi-caret'
+  span.appendChild(caret)
+  // Per-block hover actions.
+  const actions = document.createElement('span')
+  actions.className = 'lector-bi-actions'
+  const retry = document.createElement('button')
+  retry.type = 'button'
+  retry.textContent = tr('bilingual.retry')
+  retry.onclick = (ev) => {
+    ev.stopPropagation()
+    span.remove()
+    void translateOneBlock(settings, systemPrompt, block).catch(() => {})
+  }
+  const copy = document.createElement('button')
+  copy.type = 'button'
+  copy.textContent = tr('bilingual.copyTranslation')
+  copy.onclick = (ev) => { ev.stopPropagation(); navigator.clipboard.writeText(span.textContent || '').catch(() => {}) }
+  actions.appendChild(retry)
+  actions.appendChild(copy)
+  block.appendChild(span)
+
+  let acc = ''
+  await streamChat(
+    settings,
+    [{ role: 'system', content: systemPrompt }, { role: 'user', content: original.slice(0, 8000) }],
+    { maxTokens: Math.min(1000, Math.max(200, original.length * 2)), temperature: 0.2 },
+    (delta) => {
+      acc += delta
+      span.classList.remove('is-loading')
+      span.textContent = acc
+      span.appendChild(actions)
+    }
+  )
+  span.textContent = acc || tr('err.emptyResponse')
+  span.appendChild(actions)
+  return acc
+}
+
+async function runBilingualTranslation() {
   const settings = await getSettings()
   if (!settings.apiKey) {
     chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
     return
   }
+  const tSettings = normalizeTranslationSettings(settings.translation)
+  applyDisplayMode(tSettings.displayMode)
+
+  // Gather candidates, viewport-first ordering.
+  const all = Array.from(document.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, dt, dd, figcaption, summary')) as HTMLElement[]
+  const vh = window.innerHeight
+  const candidates = all
+    .map((el) => ({ el, c: buildBlockCandidate(el) }))
+    .filter((x) => shouldTranslateBlock(x.c) && !x.el.closest('#lector-ai-result, #lector-ai-toolbar, #lector-ai-loading, #lector-ai-fab, [data-lector-no-translate]'))
+    .sort((a, b) => {
+      const ra = a.el.getBoundingClientRect()
+      const rb = b.el.getBoundingClientRect()
+      const aIn = ra.top < vh && ra.bottom > 0 ? 0 : 1
+      const bIn = rb.top < vh && rb.bottom > 0 ? 0 : 1
+      return aIn - bIn
+    })
+    .map((x) => x.el)
+  if (candidates.length === 0) return
 
   const page = extractPage()
-  const targetLang = page.lang === 'zh' ? 'English' : '中文'
-
-  const blocks = Array.from(document.querySelectorAll('p, li, blockquote'))
-    .filter((el) => {
-      const t = (el.textContent || '').trim()
-      return t.length >= 20 && t.length <= 600 && !translatedSet.has(el as HTMLElement) && !el.closest('#lector-ai-result')
-    })
-    .slice(0, 30) as HTMLElement[]
-
-  if (blocks.length === 0) return
-
-  // Inject the user's glossary once per bilingual toggle. Reading storage
-  // once (rather than per-block) keeps this cheap.
+  const probeText = page.lang === 'zh' ? '中文示例文本' : 'Hello world sample text'
+  const target = resolveTargetLang(tSettings.targetLanguage, probeText)
   const glossary = await loadGlossary()
-  const systemPrompt = buildTranslationSystemPrompt(targetLang, renderGlossaryPrompt(glossary))
+  const glossaryBlock = renderGlossaryPrompt(filterGlossaryForDirection(glossary, target))
+  const systemPrompt = buildTranslateSystemPrompt(target, glossaryBlock)
 
-  // Surface the FIRST provider error to the side panel so a bad key / quota
-  // doesn't look like the feature silently did nothing. Subsequent blocks
-  // keep going best-effort; only the first failure is reported once.
-  let firstError: string | null = null
-  for (const block of blocks) {
-    const original = (block.textContent || '').trim()
-    try {
-      const translated = await completeOnce(settings, systemPrompt, original, {
-        maxTokens: Math.min(1000, Math.max(200, original.length * 2)),
-        temperature: 0.2,
-      })
-      if (!translated) continue
-      const span = document.createElement('div')
-      span.className = 'lector-bilingual'
-      span.textContent = translated
-      block.appendChild(span)
-      translatedSet.add(block)
-    } catch (e) {
-      if (firstError === null) {
-        firstError = e instanceof Error ? e.message : tr('err.requestFailed')
-      }
-      // best-effort; skip this block, keep translating the rest
-    }
-  }
-  if (firstError) {
+  bilingualAbort = new AbortController()
+  const total = candidates.length
+  let done = 0
+  const report = () =>
     chrome.runtime
-      .sendMessage({ action: 'lector-bilingual-error', message: firstError })
+      .sendMessage({ action: 'lector-bilingual-progress', done, total })
+      .catch(() => {})
+  report()
+
+  const results = await runConcurrent(
+    candidates,
+    async (block) => {
+      try {
+        await translateOneBlock(settings, systemPrompt, block)
+      } catch (e) {
+        // Retry once with a short backoff.
+        await new Promise((r) => setTimeout(r, 500))
+        try {
+          await translateOneBlock(settings, systemPrompt, block)
+        } catch (e2) {
+          const span = block.querySelector('.lector-bilingual')
+          if (span) {
+            span.classList.remove('is-loading')
+            span.classList.add('is-error')
+            span.textContent = tr('bilingual.blockError')
+          }
+          throw e2
+        }
+      } finally {
+        done++
+        report()
+      }
+    },
+    { concurrency: tSettings.concurrency, signal: bilingualAbort.signal }
+  )
+
+  // Relay one history entry for the page (sample = first successfully translated block).
+  const firstOkIdx = results.findIndex((r) => r.ok)
+  if (firstOkIdx >= 0) {
+    const sample = candidates[firstOkIdx]
+    const tgt = (sample.querySelector('.lector-bilingual')?.textContent || '').slice(0, 200)
+    chrome.runtime
+      .sendMessage({
+        action: 'lector-translation-history',
+        entry: {
+          source: ((sample.textContent) || '').trim().slice(0, 200),
+          target: tgt,
+          sourceLang: page.lang || 'auto',
+          targetLang: target,
+          kind: 'page',
+          url: location.href,
+          createdAt: Date.now(),
+        },
+      })
       .catch(() => {})
   }
+
+  // First non-abort error surfaces to side panel (preserve existing UX).
+  const firstErr = results.find(
+    (r) => !r.ok && !(r.error instanceof DOMException && (r.error as DOMException).name === 'AbortError')
+  )
+  if (firstErr && !firstErr.ok) {
+    const msg = firstErr.error instanceof Error ? firstErr.error.message : tr('err.requestFailed')
+    chrome.runtime.sendMessage({ action: 'lector-bilingual-error', message: msg }).catch(() => {})
+  }
+  bilingualAbort = null
+}
+
+function cancelBilingual() {
+  if (bilingualAbort) {
+    bilingualAbort.abort()
+    bilingualAbort = null
+  }
+  chrome.runtime
+    .sendMessage({ action: 'lector-bilingual-error', message: tr('bilingual.canceled') })
+    .catch(() => {})
+}
+
+/** Backwards-compat entry point; the side panel / command send lector-toggle-bilingual. */
+async function toggleBilingual() {
+  await runBilingualTranslation()
 }
 
 // ---------------------------------------------------------------------------
@@ -793,11 +1127,27 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.action === 'lector-toggle-bilingual') {
     // Respond immediately so the side panel can release bilingualBusy without
-    // holding the message channel open across up to 30 sequential provider
-    // calls (MV3 may tear the channel/worker down during that time, leaving
-    // the button stuck). Translations still inject into the DOM as they land.
+    // holding the message channel open across concurrent provider calls (MV3
+    // may tear the channel/worker down during that time, leaving the button
+    // stuck). Translations still inject into the DOM as they land; progress
+    // is reported via separate lector-bilingual-progress messages.
     sendResponse({ ok: true })
     void toggleBilingual()
+    return false
+  }
+  if (message?.action === 'lector-cancel-bilingual') {
+    cancelBilingual()
+    sendResponse({ ok: true })
+    return false
+  }
+  if (message?.action === 'lector-translation-settings-changed') {
+    // Re-apply display mode live without re-translating.
+    void (async () => {
+      const s = await getSettings()
+      const ts = normalizeTranslationSettings(s.translation)
+      applyDisplayMode(ts.displayMode)
+    })()
+    sendResponse({ ok: true })
     return false
   }
   if (message?.action === 'lector-jump-to') {
