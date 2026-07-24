@@ -116,13 +116,13 @@ export const STRINGS = {
   'settings.language.zh': { en: '中文', zh: '中文' },
 
   // --- content script: toolbar ---
-  'toolbar.translate': { en: '🌐 Translate', zh: '🌐 翻译' },
-  'toolbar.explain': { en: '💬 Explain', zh: '💬 解释' },
-  'toolbar.summarize': { en: '📄 Summarize', zh: '📄 摘要' },
-  'toolbar.ask': { en: '🤖 Ask', zh: '🤖 提问' },
-  'toolbar.highlight': { en: '🔖 Highlight', zh: '🔖 高亮' },
-  'toolbar.saveWord': { en: '📚 Save word', zh: '📚 存词' },
-  'toolbar.explainSentence': { en: '🃏 Explain sentence', zh: '🃏 讲解句子' },
+  'toolbar.translate': { en: 'Translate', zh: '翻译' },
+  'toolbar.explain': { en: 'Explain', zh: '解释' },
+  'toolbar.summarize': { en: 'Summarize', zh: '摘要' },
+  'toolbar.ask': { en: 'Ask', zh: '提问' },
+  'toolbar.highlight': { en: 'Highlight', zh: '高亮' },
+  'toolbar.saveWord': { en: 'Save word', zh: '存词' },
+  'toolbar.explainSentence': { en: 'Explain sentence', zh: '讲解句子' },
 
   // --- side panel: highlights drawer (Feature ②) ---
   'side.highlights.title': { en: 'Highlights', zh: '高亮收藏' },
