@@ -106,6 +106,33 @@ body {
   .drawer-title {
     @apply text-body font-semibold text-ink tracking-tight;
   }
+
+  /* —— 顶部 Tab 栏（平铺视图切换） —— */
+  .tab-bar {
+    @apply flex items-center gap-0.5 px-2 py-1.5 bg-surface border-b border-line;
+  }
+  .tab-item {
+    @apply flex items-center justify-center gap-1 px-2.5 h-7 rounded-lg text-[12px] font-medium
+           text-ink-faint transition-colors duration-150 ease-out
+           hover:bg-surface-muted hover:text-ink-soft
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-soft;
+  }
+  .tab-item-active {
+    @apply bg-accent-softer text-accent;
+  }
+
+  /* —— 错误提示条（取代报错自动弹设置窗） ——
+     Note: danger-soft / danger are raw CSS vars (not Tailwind theme colors),
+     so the opacity-modifier form bg-danger-soft/50 fails under @apply. Use
+     the vars directly instead. */
+  .error-banner {
+    @apply flex items-center gap-2 px-3.5 py-2 text-[11px] text-danger;
+    background-color: color-mix(in srgb, var(--danger-soft) 50%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  }
+  .error-banner-actions {
+    @apply flex items-center gap-2 ml-auto;
+  }
 }
 
 /* Prose styling for streamed Markdown assistant replies — 暖色版. */
