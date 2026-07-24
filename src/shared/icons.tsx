@@ -85,3 +85,6 @@ export function SearchIcon({ size = 18, ...p }: IconProps) {
 export function GlobeIcon({ size = 18, ...p }: IconProps) {
   return (<svg {...svgProps(size)} {...p}><circle cx="12" cy="12" r="10" /><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" /><path d="M2 12h20" /></svg>)
 }
+export function GridIcon({ size = 18, ...p }: IconProps) {
+  return (<svg {...svgProps(size)} {...p}><rect width="7" height="7" x="3" y="3" rx="1" /><rect width="7" height="7" x="14" y="3" rx="1" /><rect width="7" height="7" x="14" y="14" rx="1" /><rect width="7" height="7" x="3" y="14" rx="1" /></svg>)
+}

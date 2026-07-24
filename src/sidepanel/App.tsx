@@ -23,7 +23,7 @@ import {
   LibraryIcon, BookmarkIcon, BookOpenIcon, LanguagesIcon,
   SendIcon, XIcon, ClipboardListIcon, PlusIcon, PencilIcon, TrashIcon,
   BookMarkedIcon, DownloadIcon, UploadIcon, CardsIcon, SparklesIcon,
-  SettingsIcon, GripVerticalIcon, CheckIcon,
+  SettingsIcon, GripVerticalIcon, CheckIcon, GridIcon,
 } from '../shared/icons'
 import {
   PROVIDERS,
@@ -132,6 +132,7 @@ export default function App() {
   const [showTemplates, setShowTemplates] = useState(false)
   const [showGlossary, setShowGlossary] = useState(false)
   const [showSentences, setShowSentences] = useState(false)
+  const [showTools, setShowTools] = useState(false)
   const [revealedVocab, setRevealedVocab] = useState<Set<string>>(new Set())
   const [revealedSentences, setRevealedSentences] = useState<Set<string>>(new Set())
   const [bilingualBusy, setBilingualBusy] = useState(false)
@@ -141,7 +142,27 @@ export default function App() {
   )
 
   const scrollRef = useRef<HTMLDivElement>(null)
+  const toolsRef = useRef<HTMLDivElement>(null)
   const assistantBuf = useRef<string>('')
+
+  // Close the tools dropdown on outside click / Escape.
+  useEffect(() => {
+    if (!showTools) return
+    const onDown = (e: MouseEvent) => {
+      if (toolsRef.current && !toolsRef.current.contains(e.target as Node)) {
+        setShowTools(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowTools(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [showTools])
 
   // Pull the page from the active tab's content script + read any seed.
   useEffect(() => {
@@ -497,69 +518,6 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">
           <button
-            onClick={() => setShowLibrary(true)}
-            title={tr('side.library.title')}
-            aria-label={tr('side.library.title')}
-            className="icon-btn"
-          >
-            <LibraryIcon size={17} />
-          </button>
-          <button
-            onClick={() => setShowHighlights(true)}
-            title="Highlights"
-            aria-label={tr('side.highlights.title')}
-            className="icon-btn relative"
-          >
-            <BookmarkIcon size={17} />
-            {highlights.length > 0 && (
-              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-accent" />
-            )}
-          </button>
-          <button
-            onClick={() => setShowVocab(true)}
-            title="Vocabulary"
-            aria-label={tr('side.vocab.title')}
-            className="icon-btn relative"
-          >
-            <BookOpenIcon size={17} />
-            {vocab.some((v) => isDue(v.srs)) && (
-              <span className="lector-due-badge absolute top-0 right-0">!</span>
-            )}
-          </button>
-          <button
-            onClick={() => setShowGlossary(true)}
-            title={tr('side.glossary.title')}
-            aria-label={tr('side.glossary.title')}
-            className="icon-btn relative"
-          >
-            <BookMarkedIcon size={17} />
-            {glossary.length > 0 && (
-              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-accent" />
-            )}
-          </button>
-          <button
-            onClick={() => setShowSentences(true)}
-            title={tr('side.sentences.title')}
-            aria-label={tr('side.sentences.title')}
-            className="icon-btn relative"
-          >
-            <CardsIcon size={17} />
-            {sentences.some((c) => c.srs && isDue(c.srs)) && (
-              <span className="lector-due-badge absolute top-0 right-0">!</span>
-            )}
-          </button>
-          <button
-            onClick={() => setShowTemplates(true)}
-            title={tr('side.templates.title')}
-            aria-label={tr('side.templates.title')}
-            className="icon-btn relative"
-          >
-            <ClipboardListIcon size={17} />
-            {templates.filter((t) => !t.builtIn).length > 0 && (
-              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-accent" />
-            )}
-          </button>
-          <button
             onClick={toggleBilingual}
             disabled={!page || bilingualBusy}
             title={page ? 'Translate page paragraphs (bilingual)' : 'Open a page first'}
@@ -580,6 +538,78 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           >
             <SettingsIcon size={17} />
           </button>
+          <div className="relative" ref={toolsRef}>
+            <button
+              onClick={() => setShowTools((v) => !v)}
+              title={tr('side.tools.title')}
+              aria-label={tr('side.tools.title')}
+              aria-expanded={showTools}
+              className="icon-btn relative"
+            >
+              <GridIcon size={17} />
+              {(vocab.some((v) => isDue(v.srs)) ||
+                sentences.some((c) => c.srs && isDue(c.srs))) && (
+                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-accent" />
+              )}
+            </button>
+            {showTools && (
+              <div className="absolute right-0 top-full mt-1 w-48 bg-surface border border-line rounded-xl shadow-pop z-30 py-1 lector-anim-fade">
+                <button
+                  onClick={() => { setShowLibrary(true); setShowTools(false) }}
+                  className="tools-item"
+                >
+                  <LibraryIcon size={16} />
+                  <span className="flex-1 text-left">{tr('side.library.title')}</span>
+                </button>
+                <button
+                  onClick={() => { setShowHighlights(true); setShowTools(false) }}
+                  className="tools-item relative"
+                >
+                  <BookmarkIcon size={16} />
+                  <span className="flex-1 text-left">{tr('side.highlights.title')}</span>
+                  {highlights.length > 0 && <span className="dot-badge" />}
+                </button>
+                <button
+                  onClick={() => { setShowVocab(true); setShowTools(false) }}
+                  className="tools-item relative"
+                >
+                  <BookOpenIcon size={16} />
+                  <span className="flex-1 text-left">{tr('side.vocab.title')}</span>
+                  {vocab.some((v) => isDue(v.srs)) && (
+                    <span className="lector-due-badge">!</span>
+                  )}
+                </button>
+                <button
+                  onClick={() => { setShowGlossary(true); setShowTools(false) }}
+                  className="tools-item relative"
+                >
+                  <BookMarkedIcon size={16} />
+                  <span className="flex-1 text-left">{tr('side.glossary.title')}</span>
+                  {glossary.length > 0 && <span className="dot-badge" />}
+                </button>
+                <button
+                  onClick={() => { setShowSentences(true); setShowTools(false) }}
+                  className="tools-item relative"
+                >
+                  <CardsIcon size={16} />
+                  <span className="flex-1 text-left">{tr('side.sentences.title')}</span>
+                  {sentences.some((c) => c.srs && isDue(c.srs)) && (
+                    <span className="lector-due-badge">!</span>
+                  )}
+                </button>
+                <button
+                  onClick={() => { setShowTemplates(true); setShowTools(false) }}
+                  className="tools-item relative"
+                >
+                  <ClipboardListIcon size={16} />
+                  <span className="flex-1 text-left">{tr('side.templates.title')}</span>
+                  {templates.filter((t) => !t.builtIn).length > 0 && (
+                    <span className="dot-badge" />
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 

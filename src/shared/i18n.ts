@@ -75,6 +75,7 @@ export const STRINGS = {
 
   // --- side panel: library drawer ---
   'side.library.title': { en: 'Library', zh: '历史记录' },
+  'side.tools.title': { en: 'Tools', zh: '工具' },
   'side.library.empty': {
     en: 'Saved conversations will appear here.',
     zh: '保存的对话将显示在此。',

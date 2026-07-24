@@ -26,6 +26,16 @@ body {
   }
   .icon-btn:disabled { @apply opacity-40 cursor-not-allowed; }
 
+  /* —— 工具下拉菜单项 —— */
+  .tools-item {
+    @apply flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-ink-soft
+           hover:bg-surface-muted hover:text-ink transition-colors duration-100;
+  }
+  /* 小圆点角标（有数据提示） */
+  .dot-badge {
+    @apply w-1.5 h-1.5 rounded-full bg-accent;
+  }
+
   /* —— 主要按钮 —— */
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 font-medium rounded-lg
