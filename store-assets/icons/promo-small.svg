@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 280" width="440" height="280">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="440" y2="280" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FBF8F2"/>
+      <stop offset="1" stop-color="#F1E9D8"/>
+    </linearGradient>
+    <linearGradient id="chip" x1="0" y1="0" x2="0" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9C6B3C"/>
+      <stop offset="1" stop-color="#875A2F"/>
+    </linearGradient>
+    <symbol id="spark" viewBox="-10 -10 20 20">
+      <path d="M0,-10 C1.4,-3 3,-1.4 10,0 C3,1.4 1.4,3 0,10 C-1.4,3 -3,1.4 -10,0 C-3,-1.4 -1.4,-3 0,-10 Z" fill="#FFFFFF"/>
+    </symbol>
+  </defs>
+
+  <rect width="440" height="280" fill="url(#bg)"/>
+
+  <!-- Icon mark (L + sparkle), top-left -->
+  <g transform="translate(36,36)">
+    <rect width="60" height="60" rx="15" fill="url(#chip)"/>
+    <path d="M18 15 L30 15 L30 38 L46 38 L46 48 L18 48 Z" fill="#FFF8EE"/>
+    <use href="#spark" x="33" y="14" width="16" height="16"/>
+  </g>
+
+  <!-- Brand name -->
+  <text x="36" y="130" font-family="-apple-system, 'Segoe UI', 'PingFang SC', sans-serif" font-size="34" font-weight="700" fill="#2B2620">Lector AI</text>
+  <text x="37" y="158" font-family="-apple-system, 'Segoe UI', 'PingFang SC', sans-serif" font-size="17" fill="#6B6155">Read smarter, in any language</text>
+
+  <!-- Feature pills -->
+  <g font-family="-apple-system, 'Segoe UI', 'PingFang SC', sans-serif" font-size="15" font-weight="600">
+    <g transform="translate(36,198)">
+      <rect width="120" height="38" rx="10" fill="#F2E6D2"/>
+      <text x="60" y="24" text-anchor="middle" fill="#875A2F">Chat · Ask</text>
+    </g>
+    <g transform="translate(166,198)">
+      <rect width="118" height="38" rx="10" fill="#F2E6D2"/>
+      <text x="59" y="24" text-anchor="middle" fill="#875A2F">Translate</text>
+    </g>
+    <g transform="translate(294,198)">
+      <rect width="110" height="38" rx="10" fill="#F2E6D2"/>
+      <text x="55" y="24" text-anchor="middle" fill="#875A2F">Vocab</text>
+    </g>
+  </g>
+</svg>

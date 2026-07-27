@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 560" width="1400" height="560">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1400" y2="560" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FBF8F2"/>
+      <stop offset="1" stop-color="#F1E9D8"/>
+    </linearGradient>
+    <linearGradient id="chip" x1="0" y1="0" x2="0" y2="100" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9C6B3C"/>
+      <stop offset="1" stop-color="#875A2F"/>
+    </linearGradient>
+    <symbol id="spark" viewBox="-10 -10 20 20">
+      <path d="M0,-10 C1.4,-3 3,-1.4 10,0 C3,1.4 1.4,3 0,10 C-1.4,3 -3,1.4 -10,0 C-3,-1.4 -1.4,-3 0,-10 Z" fill="#FFFFFF"/>
+    </symbol>
+  </defs>
+
+  <rect width="1400" height="560" fill="url(#bg)"/>
+
+  <!-- LEFT: brand + headline + features -->
+  <g transform="translate(90,80)">
+    <g>
+      <rect width="96" height="96" rx="22" fill="url(#chip)"/>
+      <path d="M30 24 L48 24 L48 60 L74 60 L74 76 L30 76 Z" fill="#FFF8EE"/>
+      <use href="#spark" x="54" y="22" width="26" height="26"/>
+    </g>
+    <text x="0" y="158" font-family="-apple-system, 'Segoe UI', 'PingFang SC', sans-serif" font-size="60" font-weight="700" fill="#2B2620">Lector AI</text>
+    <text x="3" y="200" font-family="-apple-system, 'Segoe UI', 'PingFang SC', sans-serif" font-size="27" fill="#6B6155">Read smarter — in any language.</text>
+
+    <g font-family="-apple-system, 'Segoe UI', 'PingFang SC', sans-serif" font-size="24" fill="#2B2620">
+      <g transform="translate(0,266)"><circle cx="12" cy="0" r="6" fill="#9C6B3C"/><text x="36" y="8">Chat with any article in the side panel</text></g>
+      <g transform="translate(0,310)"><circle cx="12" cy="0" r="6" fill="#9C6B3C"/><text x="36" y="8">Inline bilingual translation</text></g>
+      <g transform="translate(0,354)"><circle cx="12" cy="0" r="6" fill="#9C6B3C"/><text x="36" y="8">Vocabulary &amp; SRS review</text></g>
+    </g>
+
+    <g transform="translate(0,392)">
+      <rect width="250" height="46" rx="12" fill="#EDF3EB"/>
+      <text x="125" y="30" text-anchor="middle" font-family="-apple-system, 'Segoe UI', sans-serif" font-size="19" font-weight="600" fill="#4E7A4A">Free · No signup · BYOK</text>
+    </g>
+  </g>
+
+  <!-- RIGHT: mock side panel -->
+  <g transform="translate(720,70)">
+    <rect width="560" height="420" rx="18" fill="#FFFFFF" stroke="#E8DECC" stroke-width="1.5"/>
+    <!-- header -->
+    <path d="M0 18 a18 18 0 0 1 18 -18 h524 a18 18 0 0 1 18 18 v34 h-560 z" fill="#F8F0E2"/>
+    <circle cx="40" cy="34" r="12" fill="#9C6B3C"/>
+    <text x="62" y="41" font-family="-apple-system, sans-serif" font-size="19" font-weight="700" fill="#2B2620">Lector AI</text>
+    <circle cx="470" cy="34" r="14" fill="none" stroke="#9A8E7A" stroke-width="1.8"/>
+    <circle cx="512" cy="34" r="14" fill="none" stroke="#9A8E7A" stroke-width="1.8"/>
+
+    <!-- user bubble -->
+    <g transform="translate(28,86)">
+      <rect width="430" height="54" rx="12" fill="#F2E6D2"/>
+      <text x="18" y="33" font-family="-apple-system, sans-serif" font-size="16" fill="#2B2620">Summarize this article in 3 bullets</text>
+    </g>
+
+    <!-- assistant streaming lines -->
+    <g transform="translate(28,162)">
+      <rect width="504" height="120" rx="12" fill="#F5EFE3"/>
+      <rect x="20" y="22" width="464" height="8" rx="4" fill="#9C6B3C"/>
+      <rect x="20" y="42" width="420" height="8" rx="4" fill="#D9CBB0"/>
+      <rect x="20" y="66" width="464" height="8" rx="4" fill="#9C6B3C"/>
+      <rect x="20" y="86" width="380" height="8" rx="4" fill="#D9CBB0"/>
+    </g>
+
+    <!-- bilingual preview -->
+    <g transform="translate(28,300)">
+      <rect width="504" height="100" rx="12" fill="#FFFFFF" stroke="#E8DECC"/>
+      <text x="20" y="28" font-family="-apple-system, sans-serif" font-size="13" font-weight="700" fill="#875A2F">中文</text>
+      <rect x="20" y="40" width="400" height="7" rx="3.5" fill="#2B2620" opacity="0.78"/>
+      <rect x="20" y="54" width="440" height="7" rx="3.5" fill="#2B2620" opacity="0.5"/>
+      <text x="20" y="82" font-family="-apple-system, sans-serif" font-size="13" font-weight="700" fill="#875A2F">ENGLISH</text>
+      <rect x="78" y="72" width="380" height="7" rx="3.5" fill="#2B2620" opacity="0.78"/>
+    </g>
+  </g>
+</svg>

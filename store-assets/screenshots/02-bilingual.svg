@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 800" width="1280" height="800" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif">
+  <defs>
+    <linearGradient id="chip" x1="0" y1="0" x2="0" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9C6B3C"/><stop offset="1" stop-color="#875A2F"/>
+    </linearGradient>
+    <symbol id="spark" viewBox="-10 -10 20 20">
+      <path d="M0,-10 C1.4,-3 3,-1.4 10,0 C3,1.4 1.4,3 0,10 C-1.4,3 -3,1.4 -10,0 C-3,-1.4 -1.4,-3 0,-10 Z" fill="#FFFFFF"/>
+    </symbol>
+  </defs>
+
+  <rect width="1280" height="800" fill="#FBF8F2"/>
+  <!-- browser chrome -->
+  <rect width="1280" height="64" fill="#E9E3D6"/>
+  <circle cx="30" cy="32" r="6" fill="#B4452F"/>
+  <circle cx="52" cy="32" r="6" fill="#B07D2B"/>
+  <circle cx="74" cy="32" r="6" fill="#4E7A4A"/>
+  <path d="M104 64 L104 22 a8 8 0 0 1 8 -8 h280 a8 8 0 0 1 8 8 V64 Z" fill="#FBF8F2"/>
+  <circle cx="128" cy="32" r="6" fill="#9C6B3C"/>
+  <text x="144" y="37" font-size="13" fill="#2B2620">Climate Science Quarterly — Feature</text>
+  <rect x="392" y="18" width="700" height="28" rx="14" fill="#FFFFFF" stroke="#D9CBB0"/>
+  <text x="410" y="37" font-size="12" fill="#6B6155">https://climate.example.org/ocean-currents</text>
+  <rect x="1208" y="20" width="44" height="24" rx="6" fill="url(#chip)"/>
+  <text x="1230" y="36" text-anchor="middle" font-size="12" font-weight="700" fill="#FFF8EE">L</text>
+
+  <!-- ARTICLE (full width, bilingual) -->
+  <g transform="translate(0,64)">
+    <rect width="1280" height="736" fill="#FFFFFF"/>
+    <g transform="translate(120,52)" width="1040">
+      <text font-size="13" font-weight="700" fill="#9C6B3C" letter-spacing="2">FEATURE · CLIMATE</text>
+      <text y="46" font-size="36" font-weight="700" fill="#2B2620">The Slowing of Ocean Currents</text>
+
+      <!-- paragraph 1: EN + ZH -->
+      <g transform="translate(0,96)">
+        <rect width="780" height="9" rx="4.5" fill="#2B2620" opacity="0.85"/>
+        <rect y="18" width="800" height="9" rx="4.5" fill="#2B2620" opacity="0.55"/>
+        <rect y="36" width="740" height="9" rx="4.5" fill="#2B2620" opacity="0.55"/>
+        <!-- translation block -->
+        <g transform="translate(20,60)">
+          <rect width="3" height="34" rx="1.5" fill="#9C6B3C"/>
+          <text x="14" y="13" font-size="12.5" fill="#875A2F" font-weight="600">中文</text>
+          <rect x="14" y="20" width="720" height="7" rx="3.5" fill="#6B6155"/>
+          <rect x="14" y="32" width="660" height="7" rx="3.5" fill="#9A8E7A"/>
+        </g>
+      </g>
+
+      <!-- paragraph 2: EN + ZH -->
+      <g transform="translate(0,228)">
+        <rect width="800" height="9" rx="4.5" fill="#2B2620" opacity="0.85"/>
+        <rect y="18" width="760" height="9" rx="4.5" fill="#2B2620" opacity="0.55"/>
+        <rect y="36" width="700" height="9" rx="4.5" fill="#2B2620" opacity="0.55"/>
+        <g transform="translate(20,60)">
+          <rect width="3" height="34" rx="1.5" fill="#9C6B3C"/>
+          <text x="14" y="13" font-size="12.5" fill="#875A2F" font-weight="600">中文</text>
+          <rect x="14" y="20" width="700" height="7" rx="3.5" fill="#6B6155"/>
+          <rect x="14" y="32" width="640" height="7" rx="3.5" fill="#9A8E7A"/>
+        </g>
+      </g>
+
+      <!-- paragraph 3: EN + ZH (active/streaming) -->
+      <g transform="translate(0,360)">
+        <rect x="-8" y="-6" width="816" height="100" rx="8" fill="#F8F0E2"/>
+        <rect width="800" height="9" rx="4.5" fill="#2B2620" opacity="0.9"/>
+        <rect y="18" width="780" height="9" rx="4.5" fill="#2B2620" opacity="0.55"/>
+        <g transform="translate(20,42)">
+          <rect width="3" height="34" rx="1.5" fill="#9C6B3C"/>
+          <text x="14" y="13" font-size="12.5" fill="#875A2F" font-weight="600">中文 · translating…</text>
+          <rect x="14" y="20" width="740" height="7" rx="3.5" fill="#6B6155"/>
+          <rect x="14" y="32" width="380" height="7" rx="3.5" fill="#9A8E7A"/>
+          <rect x="394" y="29" width="10" height="10" rx="2" fill="#9C6B3C">
+            <animate attributeName="opacity" values="0.3;1;0.3" dur="1.1s" repeatCount="indefinite"/>
+          </rect>
+        </g>
+      </g>
+
+      <!-- paragraph 4 not yet translated -->
+      <g transform="translate(0,500)" opacity="0.5">
+        <rect width="800" height="9" rx="4.5" fill="#2B2620"/>
+        <rect y="18" width="720" height="9" rx="4.5" fill="#2B2620"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- floating translate control -->
+  <g transform="translate(1000,120)">
+    <rect width="220" height="92" rx="14" fill="#FFFFFF" stroke="#D9CBB0"/>
+    <text x="16" y="28" font-size="12" font-weight="700" fill="#9A8E7A" letter-spacing="1.5">TRANSLATE</text>
+    <rect x="16" y="40" width="92" height="28" rx="8" fill="#F2E6D2"/>
+    <text x="62" y="58" text-anchor="middle" font-size="12" font-weight="600" fill="#875A2F">EN → 中文</text>
+    <rect x="114" y="40" width="90" height="28" rx="8" fill="#F5EFE3"/>
+    <text x="159" y="58" text-anchor="middle" font-size="12" font-weight="600" fill="#6B6155">Bilingual</text>
+    <text x="16" y="84" font-size="11" fill="#4E7A4A">✓ 12 / 34 paragraphs · streaming</text>
+  </g>
+
+  <!-- caption -->
+  <g transform="translate(40,748)">
+    <rect width="376" height="36" rx="18" fill="#2B2620"/>
+    <use href="#spark" x="16" y="8" width="20" height="20"/>
+    <text x="46" y="23" font-size="13.5" font-weight="600" fill="#FFF8EE">Inline bilingual translation — immersive style</text>
+  </g>
+</svg>
