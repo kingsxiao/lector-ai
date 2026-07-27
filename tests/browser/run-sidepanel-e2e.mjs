@@ -171,10 +171,10 @@ async function main() {
     // ---- React app mounts ----
     const headerPresent = await evalIn(page, `!!document.querySelector('header')`)
     check('§sidepanel React app mounts (header)', headerPresent)
-    // Header holds: Bilingual + Settings (2). Tabs (Chat/Sentences/Highlights/
-    // Vocab/More) live in the .tab-bar nav below the header.
+    // Header holds: Bilingual + Open-in-new-window + Settings (3). Tabs
+    // (Chat/Sentences/Highlights/Vocab/More) live in the .tab-bar nav below.
     const headerBtns = await evalIn(page, `document.querySelectorAll('header button').length`)
-    check('§sidepanel header buttons render (Bilingual/Settings)', headerBtns >= 2, `buttons=${headerBtns}`)
+    check('§sidepanel header buttons render (Bilingual/Expand/Settings)', headerBtns >= 3, `buttons=${headerBtns}`)
     const tabBtns = await evalIn(page, `document.querySelectorAll('.tab-bar button').length`)
     check('§sidepanel tab-bar renders (Chat/Sentences/Highlights/Vocab/More)', tabBtns >= 5, `tabs=${tabBtns}`)
 

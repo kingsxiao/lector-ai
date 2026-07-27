@@ -45,12 +45,24 @@ const MAX_CONTENT_LEN = 2000
 /**
  * Replace placeholders in a template body with actual values. Unknown
  * placeholders (anything not in PLACEHOLDERS) are left untouched.
+ *
+ * Implementation notes:
+ *  - A single-pass replace with a function replacer is used deliberately.
+ *    `String.replace(regex, stringReplacement)` interprets `$&`, `$'`, `` $` ``,
+ *    `$$` as special patterns, which would silently corrupt user content
+ *    (selection/page) containing `$` (prices, shell variables, code). A
+ *    function replacer's return value is used verbatim — no `$` handling.
+ *  - Single-pass also prevents cross-contamination: with chained `.replace`
+ *    calls, a selection value shaped like `{page}` would be re-substituted by
+ *    the next stage. One regex over all placeholders + a lookup map fixes that.
  */
 export function fillTemplate(content: string, ctx: TemplateContext): string {
-  return content
-    .replace(/\{selection\}/g, ctx.selection)
-    .replace(/\{page\}/g, ctx.page)
-    .replace(/\{lang\}/g, ctx.lang)
+  const values: Record<string, string> = {
+    '{selection}': ctx.selection,
+    '{page}': ctx.page,
+    '{lang}': ctx.lang,
+  }
+  return content.replace(/\{selection\}|\{page\}|\{lang\}/g, (m) => values[m] ?? m)
 }
 
 /** Sort templates by order ascending (stable for equal orders). */

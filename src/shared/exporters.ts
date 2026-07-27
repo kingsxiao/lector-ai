@@ -70,7 +70,10 @@ export function toNotionProperties(h: Highlight): Record<string, unknown> {
       url: h.url,
     },
     Note: {
-      rich_text: [{ text: { content: h.note || '' } }],
+      // Notion's rich_text content field rejects values longer than 2000 chars
+      // (same limit as title); slice to keep a single long note from failing
+      // the entire createPage call.
+      rich_text: [{ text: { content: (h.note || '').slice(0, 2000) } }],
     },
   }
 }

@@ -119,6 +119,15 @@ async function streamOpenAI(
   }
 
   return readSSE(res, (json) => {
+    // OpenAI-compatible streams can carry a top-level { error: {...} } frame
+    // even on HTTP 200 (proxy/gateway errors, some gateways). Surface it
+    // instead of silently truncating the output.
+    if (json.error) {
+      const msg =
+        (typeof json.error === 'object' && json.error && (json.error as { message?: unknown }).message) ||
+        JSON.stringify(json.error).slice(0, 200)
+      throw new Error(`Provider stream error: ${msg}`)
+    }
     if (json.choices?.[0]?.delta?.content) return json.choices[0].delta.content
     return ''
   }, onToken, signal)
@@ -158,6 +167,19 @@ async function streamAnthropic(
   }
 
   return readSSE(res, (json) => {
+    // Anthropic can emit an `error` event mid-stream with HTTP 200
+    // (overloaded_error, rate_limit_error, api_error). Without this, the error
+    // frame was silently dropped and streamChat resolved with the partial text
+    // — the user saw a truncated answer and believed it succeeded. readSSE's
+    // try/catch only swallows JSON.parse failures, so a thrown error here
+    // propagates out of the stream and surfaces to the caller.
+    if (json.type === 'error') {
+      const detail = json.error
+      const msg =
+        (detail && typeof detail === 'object' && (detail as { message?: unknown }).message) ||
+        JSON.stringify(detail).slice(0, 200)
+      throw new Error(`Anthropic stream error: ${msg || 'unknown error'}`)
+    }
     if (json.type === 'content_block_delta' && json.delta?.text) return json.delta.text
     return ''
   }, onToken, signal)
@@ -197,15 +219,22 @@ async function readSSE(
       if (!t || !t.startsWith('data:')) continue
       const payload = t.slice(5).trim()
       if (payload === '[DONE]') return full
+      // Only JSON.parse failures are retriable (a line split across chunk
+      // boundaries reassembles on the next read). An error THROWN by
+      // extractDelta (e.g. a mid-stream Anthropic/OpenAI error frame) must
+      // propagate out of the loop and surface to the caller — so parse and
+      // extract are separated, and only parse is swallowed.
+      let json: unknown
       try {
-        const json = JSON.parse(payload)
-        const delta = extractDelta(json)
-        if (delta) {
-          full += delta
-          onToken(delta)
-        }
+        json = JSON.parse(payload)
       } catch {
         // partial JSON across chunks — next read completes it
+        continue
+      }
+      const delta = extractDelta(json)
+      if (delta) {
+        full += delta
+        onToken(delta)
       }
     }
   }

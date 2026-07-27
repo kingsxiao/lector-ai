@@ -65,9 +65,18 @@ export function detectScript(text: string): Script {
       latin++
     }
   }
-  if (cjk >= cyrillic && cjk >= arabic && cjk > 0) return 'cjk'
-  if (cyrillic >= arabic && cyrillic > 0) return 'cyrillic'
-  if (arabic > 0) return 'arabic'
+  // Pick the DOMINANT script by raw count, comparing ALL scripts against each
+  // other (including latin). The previous logic compared cjk only to cyrillic
+  // and arabic — never to latin — so a single stray CJK char in an otherwise
+  // Latin page won ('cjk > 0' was enough), which made resolveTargetLang flip
+  // an English page (with e.g. a Chinese footer char) to "translate to
+  // English" → the page came back untranslated. Compare against latin too so
+  // the majority script wins.
+  const max = Math.max(cjk, cyrillic, arabic, latin)
+  if (max === 0) return 'latin'
+  if (cjk === max) return 'cjk'
+  if (cyrillic === max) return 'cyrillic'
+  if (arabic === max) return 'arabic'
   return 'latin'
 }
 
@@ -90,11 +99,126 @@ export function resolveTargetLang(setting: TargetLangSetting, sourceText: string
  * only when non-empty. Single source of truth so the selection popup, bilingual
  * page mode, vocab save, and sentence card stay consistent. Migrated from the
  * former inline copy in content.ts.
+ *
+ * Prompt design notes (regression: English pages "translated" back to English):
+ *  - The entire output is HARD-required to be in the target language. Without
+ *    this, the model routinely echoed the source for markup-heavy / technical
+ *    blocks (inline <code>, URLs, identifiers), producing an English→English
+ *    result that looked like translation did nothing.
+ *  - The "leave untranslated" directive is scoped to actual code/URLs *inside*
+ *    the text, and paired with an explicit "translate ALL surrounding prose"
+ *    instruction. The old unqualified "Keep code blocks, URLs, and HTML tags
+ *    untranslated" was over-applied to prose with a few inline tokens, so the
+ *    model skipped the whole block.
+ *  - A source-language hint (set via buildTranslateUserPrompt) gives the model
+ *    confidence to commit to a direction instead of hedging.
  */
 export function buildTranslateSystemPrompt(targetLang: TargetLangCode, glossaryBlock: string): string {
   const name = getLanguage(targetLang).en
-  const base = `You are a professional translator. Translate the user text to ${name}. Preserve meaning, tone, and formatting. Keep code blocks, URLs, and HTML tags untranslated. Output ONLY the translation, no explanations.`
+  const base = `You are a professional translator. Translate the user text into ${name}. Preserve meaning, tone, and formatting. Your entire output MUST be written in ${name} — never echo the source language. Leave code snippets, URLs, email addresses, and HTML tags verbatim, but translate ALL surrounding prose, including sentences that contain code or links. Output ONLY the translation, no explanations, no quotes.`
   return glossaryBlock ? `${base}\n\n${glossaryBlock}` : base
+}
+
+/**
+ * Build the user-turn content for a translation request. The source text is
+ * returned VERBATIM with no wrapper — this is deliberate: page-mode chunks are
+ * concatenated back together by callers, so any framing text ("Translate
+ * this:", language tags) would corrupt the round-trip and bleed into the
+ * rendered translation. The translation direction + output language are
+ * enforced entirely by the system prompt (see buildTranslateSystemPrompt),
+ * which is where the model actually heeds them.
+ *
+ * This function exists as the explicit single entry point for the user turn so
+ * callers don't inline the text and so future per-block enrichment (none
+ * currently) has one place to live.
+ */
+export function buildTranslateUserPrompt(text: string): string {
+  return text
+}
+
+/**
+ * Map a target language code to its dominant script, so we can tell whether a
+ * translation was *expected* to change script (en→zh must produce CJK; zh→en
+ * must produce Latin). Used by isTranslationLikelyUnchanged to avoid flagging
+ * same-script "translations" (en→en, es→en) where echoing is ambiguous rather
+ * than a definite failure.
+ */
+function scriptOfLang(lang: TargetLangCode): Script {
+  if (lang === 'zh' || lang === 'ja' || lang === 'ko') return 'cjk'
+  if (lang === 'ru') return 'cyrillic'
+  if (lang === 'ar') return 'arabic'
+  return 'latin' // en, fr, de, es, pt, it, vi
+}
+
+// Below this length (after whitespace trim) a source is too short to judge
+// reliably — "API", "OK", a lone URL — so we don't flag it. This also prevents
+// retry loops on legitimately untranslatable identifiers.
+const UNCHANGED_MIN_SOURCE_LEN = 8
+
+/**
+ * Decide whether a translation output looks like the model just echoed the
+ * source instead of translating it — the English→English symptom. Pure so it
+ * can be unit-tested; the page translator calls this per chunk to trigger a
+ * single forceful retry when it returns true.
+ *
+ * Rules:
+ *  - Source too short (< 8 non-space chars) → false (too noisy).
+ *  - Target script equals source script → false (e.g. user asked en→en, or
+ *    a Latin→Latin pair where echoing is ambiguous, not a definite failure).
+ *  - Otherwise compare the two on a normalized form (lowercased, whitespace +
+ *    punctuation stripped). If they match exactly OR differ by very little
+ *    (≤20% of the longer string's length) → true (the model didn't translate).
+ */
+export function isTranslationLikelyUnchanged(
+  source: string,
+  output: string,
+  targetLang: TargetLangCode
+): boolean {
+  const norm = (s: string) => s.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '')
+  const ns = norm(source)
+  const no = norm(output)
+  if (ns.length < UNCHANGED_MIN_SOURCE_LEN) return false
+  // Only flag when a real script change was expected.
+  if (scriptOfLang(targetLang) === detectScript(source)) return false
+  if (!no) return true // empty output after normalization = nothing translated
+  if (ns === no) return true
+  // Character-level diff ratio (cheap Levenshtein-free proxy via LCS length).
+  const lcs = longestCommonSubsequence(ns, no)
+  const longer = Math.max(ns.length, no.length)
+  const diffRatio = 1 - lcs / longer
+  return diffRatio <= 0.2
+}
+
+/** LCS length (dynamic programming). Used for the unchanged-output similarity. */
+function longestCommonSubsequence(a: string, b: string): number {
+  const m = a.length, n = b.length
+  if (m === 0 || n === 0) return 0
+  // Two rolling rows to keep memory O(min(m,n)).
+  let prev = new Array(n + 1).fill(0)
+  let curr = new Array(n + 1).fill(0)
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      curr[j] = a[i - 1] === b[j - 1] ? prev[j - 1] + 1 : Math.max(prev[j], curr[j - 1])
+    }
+    ;[prev, curr] = [curr, prev]
+  }
+  return prev[n]
+}
+
+// Output-token budget for translating one chunk.
+//  - Floor (300): short headings / labels still get headroom for the model's
+//    framing; the old 200 floor produced empty-looking responses on tiny blocks.
+//  - Scale (×2): a Chinese translation of N source chars can run up to ~2N
+//    characters, which is roughly N–2N tokens depending on the script.
+//  - Ceiling (4000): comfortably covers a full MAX_BLOCK_LEN (2000) translation
+//    with margin, and bounds the request for runaway estimates.
+// Regression this fixes ("翻译不全"): the per-chunk budget was capped at 1000,
+// so a 2000-char English block (Chinese ≈ 1500–2500 chars ≈ 1200–1800 tokens)
+// was truncated mid-sentence and the user saw a partial translation.
+const MAX_TOKENS_FLOOR = 300
+const MAX_TOKENS_CEIL = 4000
+export function maxTokensForChunk(sourceLen: number): number {
+  return Math.min(MAX_TOKENS_CEIL, Math.max(MAX_TOKENS_FLOOR, Math.floor(sourceLen * 2)))
 }
 
 /**
@@ -206,21 +330,95 @@ export interface BlockCandidate {
 // Minimum block length chosen so trivial fragments (e.g. "hi", nav labels)
 // are skipped, while short-but-meaningful headings/list items still qualify.
 const MIN_BLOCK_LEN = 3
-const MAX_BLOCK_LEN = 2000
-const MIN_TEXT_RATIO = 0.6
+/** Soft upper bound for a single translation chunk. Blocks longer than this are
+ *  SPLIT (see splitBlockForTranslation) rather than dropped — long sections on
+ *  technical-doc sites used to vanish entirely. Exported so content.ts shares
+ *  the same split threshold the filter treats as "needs splitting". */
+export const MAX_BLOCK_LEN = 2000
+// Relaxed from 0.6 to 0.4: technical-doc / code-site blocks are markup-heavy
+// (inline <code>, links, entities), which inflates outerHTML and pushes
+// textRatio = text.length/outerHTML.length below 0.6 even for perfectly
+// translatable prose. 0.4 keeps nav/button fragments out while rescuing
+// ~half the blocks on a typical docs page.
+const MIN_TEXT_RATIO = 0.4
 
 /**
  * Decide whether a candidate DOM block should be translated. Pure function so
  * the DOM-querying (content.ts) is decoupled from the policy (here, unit-tested).
+ *
+ * Note: length is NOT a reason to reject — long blocks are accepted here and
+ * split into chunks by the caller (splitBlockForTranslation). Only genuinely
+ * untranslatable content (wrong tag, too short, excluded ancestor, already
+ * translated, markup-dominant) is filtered out.
  */
 export function shouldTranslateBlock(c: BlockCandidate): boolean {
   if (!TRANSLATABLE_TAGS.has(c.tag.toUpperCase())) return false
   const t = c.text.trim()
-  if (t.length < MIN_BLOCK_LEN || t.length > MAX_BLOCK_LEN) return false
+  if (t.length < MIN_BLOCK_LEN) return false
   if (c.isInsideExcluded) return false
   if (c.isAlreadyTranslated) return false
   if (c.textRatio < MIN_TEXT_RATIO) return false
   return true
+}
+
+/**
+ * Split a long block's text into translation chunks, each no longer than
+ * `maxLen` (default MAX_BLOCK_LEN). Strategy:
+ *   1. Empty/whitespace → [] (nothing to translate).
+ *   2. Fits the limit → [text] (single chunk, no overhead).
+ *   3. Otherwise, greedily pack sentences (splitting after . ! ? 。！？ or
+ *      newlines) until adding the next sentence would exceed maxLen, then
+ *      start a new chunk. A single sentence longer than maxLen is hard-split
+ *      at maxLen so progress is always made.
+ *
+ * Chunks join back to the original text exactly (no trimming/loss), so the
+ * caller can render them in order under one host block. Pure & unit-tested.
+ */
+export function splitBlockForTranslation(text: string, maxLen: number = MAX_BLOCK_LEN): string[] {
+  const trimmed = text.trim()
+  if (!trimmed) return []
+  if (trimmed.length <= maxLen) return [trimmed]
+
+  // Find sentence-end positions (index of the char AFTER the terminator, incl.
+  // any trailing whitespace) so we can cut there. Matches runs of terminators
+  // followed by optional spaces.
+  const boundary = /[.!?。！？\n]+[ \t]*/g
+  const cuts: number[] = []
+  let m: RegExpExecArray | null
+  while ((m = boundary.exec(trimmed)) !== null) {
+    cuts.push(m.index + m[0].length)
+  }
+
+  const chunks: string[] = []
+  let start = 0
+  let nextCutIdx = 0
+  while (start < trimmed.length) {
+    // No chunk may exceed maxLen.
+    const hardEnd = Math.min(trimmed.length, start + maxLen)
+    if (hardEnd - start <= 0) break
+
+    // If the remainder fits entirely, take it all.
+    if (trimmed.length - start <= maxLen) {
+      chunks.push(trimmed.slice(start))
+      break
+    }
+
+    // Find the last boundary within [start, hardEnd] for a clean sentence cut.
+    let end = hardEnd
+    while (nextCutIdx < cuts.length && cuts[nextCutIdx] <= hardEnd) nextCutIdx++
+    // nextCutIdx now points past the last boundary ≤ hardEnd; step back.
+    let lastBound = -1
+    for (let i = nextCutIdx - 1; i >= 0; i--) {
+      if (cuts[i] > start) { lastBound = cuts[i]; break }
+    }
+    if (lastBound > start) end = lastBound
+    // else: no boundary in range → hard-cut at maxLen (still ≤ maxLen).
+
+    chunks.push(trimmed.slice(start, end))
+    start = end
+    // Keep nextCutIdx cursor monotonic; boundary list isn't regenerated.
+  }
+  return chunks
 }
 
 // ---------------------------------------------------------------------------

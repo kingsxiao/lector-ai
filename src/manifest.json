@@ -69,7 +69,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "icons/*"
+        "icons/*",
+        "sidepanel/*"
       ],
       "matches": [
         "<all_urls>"

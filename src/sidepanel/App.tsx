@@ -23,7 +23,7 @@ import {
   LibraryIcon, BookmarkIcon, BookOpenIcon, LanguagesIcon,
   SendIcon, XIcon, ClipboardListIcon, PlusIcon, PencilIcon, TrashIcon,
   BookMarkedIcon, DownloadIcon, UploadIcon, CardsIcon, SparklesIcon,
-  SettingsIcon, GripVerticalIcon, CheckIcon, GridIcon,
+  SettingsIcon, GripVerticalIcon, CheckIcon, GridIcon, StopIcon, RotateIcon, ExpandIcon,
 } from '../shared/icons'
 import {
   PROVIDERS,
@@ -35,7 +35,7 @@ import {
   type TranslationSettings,
 } from '../shared/providers'
 import { streamChat, completeOnce, getSettings, saveSettings, testConnection, fetchModels, type ChatMessage as WireMessage, type FetchedModel } from '../shared/byok'
-import { t, type StringKey, type LocalePref } from '../shared/i18n'
+import { t, resolveLocale, type StringKey, type LocalePref } from '../shared/i18n'
 import { LANGUAGES, getLanguage, type TranslationHistoryEntry } from '../shared/translation'
 import {
   fillTemplate, filterTemplates, sortTemplates, validateTemplate,
@@ -126,6 +126,9 @@ export default function App() {
   const updateSentenceSrs = useStore((s) => s.updateSentenceSrs)
   const translationHistory = useStore((s) => s.translationHistory)
   const clearTranslationHistory = useStore((s) => s.clearTranslationHistory)
+  const hasOpened = useStore((s) => s.hasOpened)
+  const markOpened = useStore((s) => s.markOpened)
+  const [hintDismissed, setHintDismissed] = useState(false)
   const [histSearch, setHistSearch] = useState('')
 
   const tr = (key: StringKey) => t(key, byok.locale)
@@ -158,6 +161,10 @@ export default function App() {
   const [revealedVocab, setRevealedVocab] = useState<Set<string>>(new Set())
   const [revealedSentences, setRevealedSentences] = useState<Set<string>>(new Set())
   const [bilingualBusy, setBilingualBusy] = useState(false)
+  // Live bilingual translation progress ({done,total}) reported by the content
+  // script via lector-bilingual-progress. Shown on the header button; cleared
+  // when the run completes, is cancelled, or errors.
+  const [bilingualProgress, setBilingualProgress] = useState<{ done: number; total: number } | null>(null)
   // "/" menu state
   const [slashMenu, setSlashMenu] = useState<{ open: boolean; query: string; activeIdx: number }>(
     { open: false, query: '', activeIdx: 0 }
@@ -166,6 +173,14 @@ export default function App() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const toolsRef = useRef<HTMLDivElement>(null)
   const assistantBuf = useRef<string>('')
+  // AbortController for the in-flight chat stream. Lets the user Stop a long
+  // response, and lets us abort cleanly on unmount / session switch so the
+  // stream can't write into the wrong session or an unmounted component.
+  const abortRef = useRef<AbortController | null>(null)
+  // Abort the in-flight stream when the panel unmounts (close / Chrome
+  // teardown / strict-mode remount) — otherwise streamChat keeps running and
+  // its onToken setMessages fires on a gone component.
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   // Close the tools dropdown on outside click / Escape.
   useEffect(() => {
@@ -212,11 +227,17 @@ export default function App() {
       if (seed.lectorSeed?.text) {
         const s = seed.lectorSeed
         chrome.storage.local.remove('lectorSeed')
+        // These prefixes seed the composer as editable user text. The
+        // instructions are English (prompt-engineering works best in English
+        // and the user can edit them), but the translate target respects the
+        // active locale rather than being hardcoded to 中文.
+        const loc = resolveLocale((await getSettings()).locale)
+        const translateTarget = loc === 'zh' ? 'English' : '中文'
         const seedPrompt =
           s.kind === 'summarize'
             ? 'Summarize this in a few bullets:\n\n'
             : s.kind === 'translate'
-              ? 'Translate this to 中文:\n\n'
+              ? `Translate this to ${translateTarget}:\n\n`
               : s.kind === 'explain'
                 ? 'Explain this clearly:\n\n'
                 : ''
@@ -227,6 +248,23 @@ export default function App() {
 
   // Sync knowledge captured by the content→background relay (chrome.storage)
   // into the zustand store so the Highlights / Vocab drawers stay live.
+  //
+  // drain() clears a relay queue key with a compare-and-swap: it re-reads the
+  // current value and only clears it if nothing changed since we observed it.
+  // This closes a race where the background appends a new item between our
+  // onChanged fire and a naive `remove(key)`/`set(key, [])` — that new item
+  // would otherwise be wiped. If the value changed, we leave it: the merge
+  // actions above are idempotent (dedup by word/text/source), so the items we
+  // already processed are harmless to re-merge on the next onChanged fire.
+  const drain = (key: string, observed: unknown[]) => {
+    chrome.storage.local.get([key], (cur) => {
+      const current = (cur as Record<string, unknown>)[key]
+      // Only clear when the queue is exactly what we just merged.
+      const same =
+        Array.isArray(current) && current.length === observed.length
+      if (same) chrome.storage.local.set({ [key]: [] })
+    })
+  }
   useEffect(() => {
     const onStorage = (
       changes: { [key: string]: chrome.storage.StorageChange },
@@ -236,25 +274,25 @@ export default function App() {
       if (changes.lectorHighlights) {
         const list = (changes.lectorHighlights.newValue as unknown as Highlight[]) || []
         for (const h of list) addHighlight(h)
-        chrome.storage.local.remove('lectorHighlights')
+        drain('lectorHighlights', list)
       }
       if (changes.lectorVocab) {
         const list = (changes.lectorVocab.newValue as unknown as VocabEntry[]) || []
         const addVocab = useStore.getState().addVocab
         for (const v of list) addVocab(v)
-        chrome.storage.local.remove('lectorVocab')
+        drain('lectorVocab', list)
       }
       if (changes.lectorSentences) {
         const list = (changes.lectorSentences.newValue as unknown as SentenceCard[]) || []
         const addSentence = useStore.getState().addSentence
         for (const c of list) addSentence(c)
-        chrome.storage.local.remove('lectorSentences')
+        drain('lectorSentences', list)
       }
       if (changes.lectorTranslationHistory) {
         const list = (changes.lectorTranslationHistory.newValue as unknown as TranslationHistoryEntry[]) || []
         const add = useStore.getState().addTranslationHistory
         for (const e of list) add(e)
-        chrome.storage.local.remove('lectorTranslationHistory')
+        drain('lectorTranslationHistory', list)
       }
     }
     chrome.storage.onChanged.addListener(onStorage)
@@ -273,18 +311,46 @@ export default function App() {
     })
   }, [glossary])
 
-  // Surface bilingual translation errors reported by the content script. The
-  // inline bilingual loop runs best-effort per block; if the FIRST block fails
-  // (bad key, quota, network), the content script forwards the message here so
-  // the user isn't left wondering why nothing happened.
+  // Surface bilingual translation errors reported by the content script and
+  // track live progress. The inline bilingual loop runs best-effort per block;
+  // if the FIRST block fails (bad key, quota, network) the content script
+  // forwards the error here so the user isn't left wondering why nothing
+  // happened. Progress messages ({done,total}) drive the header button's
+  // "{done}/{total}" readout; when done===total the run is complete.
   useEffect(() => {
-    const onMessage = (message: { action?: string; message?: string }) => {
+    const onMessage = (message: {
+      action?: string
+      message?: string
+      done?: number
+      total?: number
+    }) => {
+      if (message?.action === 'lector-bilingual-progress') {
+        const done = message.done ?? 0
+        const total = message.total ?? 0
+        setBilingualProgress({ done, total })
+        // The content script sends a final progress with done===total when the
+        // run completes; release the busy state then so the button resets.
+        if (total > 0 && done >= total) {
+          setBilingualBusy(false)
+          // Keep the {total/total} readout briefly so the user sees completion,
+          // then clear it.
+          setTimeout(() => setBilingualProgress(null), 1200)
+        }
+        return
+      }
       if (message?.action === 'lector-bilingual-error' && message.message) {
-        setError(message.message)
-        // Key/quota errors surface in a top banner (no auto-opening Settings
-        // on top of the current view — the user jumps to Settings themselves).
-        if (/401|key|quota|429|credit/i.test(message.message)) {
-          setErrorBanner(message.message)
+        // Both hard errors and user-cancel send this. Cancel's message is the
+        // bilingual.canceled string; either way the run is over.
+        setBilingualBusy(false)
+        setBilingualProgress(null)
+        const canceled = /cancel|stop/i.test(message.message)
+        if (!canceled) {
+          setError(message.message)
+          // Key/quota errors surface in a top banner (no auto-opening Settings
+          // on top of the current view — the user jumps to Settings themselves).
+          if (/401|key|quota|429|credit/i.test(message.message)) {
+            setErrorBanner(message.message)
+          }
         }
       }
     }
@@ -292,9 +358,22 @@ export default function App() {
     return () => chrome.runtime.onMessage.removeListener(onMessage)
   }, [])
 
+  // First-run onboarding gate: mark the panel opened once so the one-time
+  // feature hint shows only on the very first open (not every session).
+  useEffect(() => {
+    if (!hasOpened) markOpened()
+  }, [hasOpened, markOpened])
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, streaming])
+
+  // Keep <html lang> in sync with the active locale so screen readers pronounce
+  // content with the right phonology. index.html ships lang="en"; a zh user
+  // would otherwise hear Chinese read as English.
+  useEffect(() => {
+    document.documentElement.lang = resolveLocale(byok.locale)
+  }, [byok.locale])
 
   const downloadMarkdown = (hs: Highlight[]) => {
     const md = toMarkdown(hs)
@@ -372,20 +451,26 @@ export default function App() {
   // blocks it has already translated, so repeated toggles add new ones.
   //
   // The content script responds immediately (it can't hold the channel open
-  // across its ~30-block loop under MV3), so we flip bilingualBusy on send
-  // and clear it on a short timer rather than awaiting the full run. Errors
-  // arrive later via the 'lector-bilingual-error' message handler below.
+  // across its ~30-block loop under MV3). bilingualBusy is now driven by the
+  // progress / completion / error messages rather than a fixed timer, so the
+  // button shows live "{done}/{total}" and lets the user cancel mid-run.
   const toggleBilingual = async () => {
-    if (bilingualBusy) return
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
     if (!tab?.id) return
+    if (bilingualBusy) {
+      // Already translating → this click cancels the in-flight run.
+      chrome.tabs.sendMessage(tab.id, { action: 'lector-cancel-bilingual' }, () => {
+        void chrome.runtime.lastError
+      })
+      setBilingualBusy(false)
+      setBilingualProgress(null)
+      return
+    }
     setBilingualBusy(true)
+    setBilingualProgress(null)
     chrome.tabs.sendMessage(tab.id, { action: 'lector-toggle-bilingual' }, () => {
       void chrome.runtime.lastError
     })
-    // Clear after the first batch has had time to start injecting; the user
-    // can toggle again for more blocks. The content script is best-effort.
-    setTimeout(() => setBilingualBusy(false), 2500)
   }
 
   // Ask the active tab's content script for the current text selection.
@@ -450,6 +535,10 @@ export default function App() {
       setError(null)
       setErrorBanner(null) // a successful send clears any prior key/quota banner
       assistantBuf.current = ''
+      // Fresh abort controller for this stream; Stop button / unmount / session
+      // switch can cancel it. readSSE returns gracefully on abort, preserving
+      // whatever streamed so far.
+      abortRef.current = new AbortController()
 
       try {
         // Build citation-grounded page context: number the extracted blocks so
@@ -502,15 +591,35 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             setMessages((cur) =>
               cur.map((m) => (m.id === assistantMsg.id ? { ...m, content: snapshot } : m))
             )
-          }
+          },
+          abortRef.current?.signal
         )
 
         const finalMessages = next.concat({
           ...assistantMsg,
           content: assistantBuf.current || '(no response)',
         })
+        // Guard against the session being deleted while the stream was running
+        // (user removed it from the Library mid-response). updateSession on a
+        // missing id is a silent no-op, but the user would lose the answer;
+        // fall back to creating a fresh session so the exchange isn't dropped.
         if (activeSessionId) {
-          updateSession(activeSessionId, { messages: finalMessages })
+          const stillExists = useStore
+            .getState()
+            .sessions.some((s) => s.id === activeSessionId)
+          if (stillExists) {
+            updateSession(activeSessionId, { messages: finalMessages })
+          } else {
+            const session: ChatSession = {
+              id: newId(),
+              title: page?.title || text.slice(0, 60),
+              url: page?.url || '',
+              createdAt: Date.now(),
+              messages: finalMessages,
+            }
+            addSession(session)
+            setActiveSessionId(session.id)
+          }
         } else {
           const session: ChatSession = {
             id: newId(),
@@ -523,14 +632,35 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           setActiveSessionId(session.id)
         }
       } catch (e) {
-        const msg = e instanceof Error ? e.message : 'Request failed.'
-        setError(msg)
-        setMessages((cur) =>
-          cur.map((m) =>
-            m.id === assistantMsg.id ? { ...m, content: `⚠️ ${msg}` } : m
+        // Abort (Stop / unmount / session switch) is intentional: keep whatever
+        // streamed so far and don't show an error. A genuine failure surfaces
+        // inline + (for key/quota errors) in the banner with an Open-settings link.
+        const aborted =
+          abortRef.current?.signal.aborted ||
+          (e instanceof DOMException && e.name === 'AbortError')
+        if (aborted) {
+          const partial = assistantBuf.current
+          setMessages((cur) =>
+            cur.map((m) =>
+              m.id === assistantMsg.id
+                ? { ...m, content: partial || tr('side.chat.canceled') }
+                : m
+            )
           )
-        )
+        } else {
+          const msg = e instanceof Error ? e.message : tr('err.requestFailed')
+          setError(msg)
+          // Key/quota/auth errors also surface in the banner (with the
+          // Open-settings shortcut) so they're not buried in the inline line.
+          if (/401|key|quota|429|credit/i.test(msg)) setErrorBanner(msg)
+          setMessages((cur) =>
+            cur.map((m) =>
+              m.id === assistantMsg.id ? { ...m, content: `⚠️ ${msg}` } : m
+            )
+          )
+        }
       } finally {
+        abortRef.current = null
         setStreaming(false)
       }
     },
@@ -538,15 +668,54 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
   )
 
   const startNewChat = () => {
+    // Abort any in-flight stream so it can't finish and write its answer into
+    // this fresh (empty) chat, and reset streaming state so the composer isn't
+    // left disabled. Without this, a stream started in session A could land in
+    // the new chat or vanish entirely.
+    abortRef.current?.abort()
+    abortRef.current = null
+    assistantBuf.current = ''
+    setStreaming(false)
     setMessages([])
     setActiveSessionId(null)
     setError(null)
   }
 
   const openSession = (s: ChatSession) => {
+    // Same rationale as startNewChat: don't let a stream from another session
+    // bleed into the one we're opening.
+    abortRef.current?.abort()
+    abortRef.current = null
+    assistantBuf.current = ''
+    setStreaming(false)
     setMessages(s.messages)
     setActiveSessionId(s.id)
     setActiveView('chat')
+  }
+
+  // Stop the in-flight chat stream (Keep the partial text already rendered).
+  const stopStreaming = () => {
+    abortRef.current?.abort()
+  }
+
+  // Retry the last user turn (re-send the same text). Used by the Retry button
+  // on a failed/empty assistant message.
+  const retryLast = () => {
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user')
+    if (lastUser) handleSend(lastUser.content)
+  }
+
+  // Pop Lector out into its own standalone window (the old FAB behavior, now
+  // surfaced as a header button). Runs in the extension context, so
+  // getURL is safe; reuse a named window so repeats focus it instead of
+  // stacking windows.
+  const openStandalone = () => {
+    try {
+      const url = chrome.runtime.getURL('sidepanel/index.html')
+      window.open(url, 'lector-ai-panel')
+    } catch {
+      /* context unavailable — ignore */
+    }
   }
 
   const providerConfigured = Boolean(byok.apiKey)
@@ -570,16 +739,41 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         <div className="flex items-center gap-0.5 flex-shrink-0">
           <button
             onClick={toggleBilingual}
-            disabled={!page || bilingualBusy}
-            title={page ? 'Translate page paragraphs (bilingual)' : 'Open a page first'}
-            aria-label={page ? 'Translate page paragraphs (bilingual)' : 'Open a page first'}
-            className="icon-btn"
+            disabled={!page}
+            title={
+              !page
+                ? tr('toolbar.bilingual.disabledHint')
+                : bilingualBusy
+                  ? tr('bilingual.cancel')
+                  : tr('toolbar.bilingual')
+            }
+            aria-label={
+              !page
+                ? tr('toolbar.bilingual.disabledHint')
+                : bilingualBusy
+                  ? tr('bilingual.cancel')
+                  : tr('toolbar.bilingual')
+            }
+            className={`icon-btn relative ${bilingualBusy ? 'text-accent' : ''}`}
           >
             {bilingualBusy ? (
               <span className="block w-3.5 h-3.5 border-2 border-line border-t-accent rounded-full animate-spin" />
             ) : (
               <LanguagesIcon size={17} />
             )}
+            {bilingualBusy && bilingualProgress && bilingualProgress.total > 0 && (
+              <span className="absolute -bottom-1.5 -right-1.5 text-[8px] font-semibold bg-accent text-accent-on rounded-full px-1 leading-tight min-w-[14px] text-center">
+                {bilingualProgress.done}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={openStandalone}
+            title={tr('side.header.openStandalone')}
+            aria-label={tr('side.header.openStandalone')}
+            className="icon-btn"
+          >
+            <ExpandIcon size={17} />
           </button>
           <button
             onClick={() => setActiveView('settings')}
@@ -593,9 +787,11 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
       </header>
 
       {/* TabBar: flat view switching (high-frequency tabs + MoreMenu). */}
-      <nav className="tab-bar" aria-label="Views">
+      <nav className="tab-bar" role="tablist" aria-label={tr('aria.views')}>
         <button
           onClick={() => setActiveView('chat')}
+          role="tab"
+          aria-selected={activeView === 'chat'}
           className={`tab-item ${activeView === 'chat' ? 'tab-item-active' : ''}`}
           aria-label={tr('side.tab.chat')}
         >
@@ -604,6 +800,8 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         </button>
         <button
           onClick={() => setActiveView('sentences')}
+          role="tab"
+          aria-selected={activeView === 'sentences'}
           className={`tab-item relative ${activeView === 'sentences' ? 'tab-item-active' : ''}`}
           aria-label={tr('side.tab.sentences')}
         >
@@ -615,6 +813,8 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         </button>
         <button
           onClick={() => setActiveView('highlights')}
+          role="tab"
+          aria-selected={activeView === 'highlights'}
           className={`tab-item relative ${activeView === 'highlights' ? 'tab-item-active' : ''}`}
           aria-label={tr('side.tab.highlights')}
         >
@@ -624,6 +824,8 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         </button>
         <button
           onClick={() => setActiveView('vocab')}
+          role="tab"
+          aria-selected={activeView === 'vocab'}
           className={`tab-item relative ${activeView === 'vocab' ? 'tab-item-active' : ''}`}
           aria-label={tr('side.tab.vocab')}
         >
@@ -646,7 +848,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             <div className="absolute right-0 top-full mt-1 w-48 bg-surface border border-line rounded-xl shadow-pop z-30 py-1 lector-anim-fade">
               <button
                 onClick={() => { setActiveView('library'); setShowTools(false) }}
-                aria-label="Library"
+                aria-label={tr('aria.library')}
                 className="tools-item"
               >
                 <LibraryIcon size={16} />
@@ -654,7 +856,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               </button>
               <button
                 onClick={() => { setActiveView('translationHistory'); setShowTools(false) }}
-                aria-label="Translation history"
+                aria-label={tr('aria.translationHistory')}
                 className="tools-item relative"
               >
                 <LanguagesIcon size={16} />
@@ -663,7 +865,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               </button>
               <button
                 onClick={() => { setActiveView('glossary'); setShowTools(false) }}
-                aria-label="Glossary"
+                aria-label={tr('aria.glossary')}
                 className="tools-item relative"
               >
                 <BookMarkedIcon size={16} />
@@ -672,7 +874,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               </button>
               <button
                 onClick={() => { setActiveView('templates'); setShowTools(false) }}
-                aria-label="Templates"
+                aria-label={tr('aria.templates')}
                 className="tools-item relative"
               >
                 <ClipboardListIcon size={16} />
@@ -715,7 +917,12 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
       {activeView === 'chat' && (
         <>
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3.5 py-4 space-y-3.5">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto px-3.5 py-4 space-y-3.5"
+        aria-live="polite"
+        aria-relevant="additions text"
+      >
         {!providerConfigured && (
           <div className="p-3 rounded-xl bg-accent-softer border border-accent-soft text-[12px] text-accent-hover leading-relaxed">
             <div className="font-semibold mb-1">{tr('side.onboard.title')}</div>
@@ -744,6 +951,35 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             <p className="text-xs text-ink-faint mb-6 px-8 leading-relaxed">
               {tr('side.empty.subtitle')}
             </p>
+            {/* Prominent first-run CTA straight from the empty hero — before,
+                the only path to Settings was the header gear / the onboarding
+                strip above, which a first-time user scanning the center missed. */}
+            {!providerConfigured && (
+              <div className="mb-5">
+                <button
+                  onClick={() => setActiveView('settings')}
+                  className="btn-primary px-5 py-2.5 text-[12px] font-medium"
+                >
+                  {tr('side.onboard.cta')}
+                </button>
+              </div>
+            )}
+            {/* One-time feature hint: shown only on the first open ever, then
+                dismissed for good (hasOpened persists). Explains the content-
+                script toolbar / FAB / bilingual features a first-time user
+                can't otherwise discover from this panel. */}
+            {!hintDismissed && !hasOpened && (
+              <div className="mx-2 mb-5 text-left p-3 rounded-xl bg-surface border border-line">
+                <div className="text-[12px] font-semibold text-ink mb-1">{tr('side.onboard.hintTitle')}</div>
+                <p className="text-[11px] text-ink-soft leading-relaxed mb-2">{tr('side.onboard.hintBody')}</p>
+                <button
+                  onClick={() => setHintDismissed(true)}
+                  className="text-[11px] text-accent font-medium hover:text-accent-hover"
+                >
+                  {tr('side.onboard.hintDismiss')}
+                </button>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-2 px-1">
               {suggestions.map((tpl) => (
                 <button
@@ -783,6 +1019,20 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                   <div className="flex items-center gap-2 text-[12px] text-ink-faint">
                     <div className="w-3.5 h-3.5 border-2 border-line border-t-accent rounded-full animate-spin" />
                     {tr('side.thinking')}
+                  </div>
+                )}
+                {/* Retry affordance on a failed or stopped assistant message:
+                    re-send the last user turn. Hidden while a stream is in
+                    flight and for the in-progress (empty) bubble. */}
+                {m.content && !streaming && /^(⚠️|\(stopped\))/.test(m.content) && (
+                  <div className="mt-1.5">
+                    <button
+                      onClick={retryLast}
+                      className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent-hover transition-colors"
+                    >
+                      <RotateIcon size={12} />
+                      {tr('side.chat.retry')}
+                    </button>
                   </div>
                 )}
               </div>
@@ -866,16 +1116,12 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             className="flex-1 max-h-32 resize-none px-3.5 py-2.5 text-body bg-bg border border-line rounded-2xl leading-relaxed focus:outline-none focus:border-accent focus:bg-surface focus:ring-2 focus:ring-accent-soft transition-colors duration-150 ease-out"
           />
           <button
-            onClick={() => handleSend()}
-            disabled={streaming || !input.trim() || !providerConfigured}
-            aria-label={tr('side.composer.hint')}
+            onClick={() => (streaming ? stopStreaming() : handleSend())}
+            disabled={!streaming && (!input.trim() || !providerConfigured)}
+            aria-label={streaming ? tr('side.chat.stop') : tr('side.composer.hint')}
             className="btn-primary w-10 h-10 flex-shrink-0 rounded-2xl !p-0"
           >
-            {streaming ? (
-              <div className="w-4 h-4 border-2 border-accent-on/40 border-t-accent-on rounded-full animate-spin" />
-            ) : (
-              <SendIcon size={17} />
-            )}
+            {streaming ? <StopIcon size={14} /> : <SendIcon size={17} />}
           </button>
         </div>
         <div className="flex items-center justify-between mt-1.5 px-1">
@@ -916,7 +1162,15 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 <div
                   key={s.id}
                   className="group row row-hover"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => openSession(s)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      openSession(s)
+                    }
+                  }}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
@@ -929,7 +1183,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                         removeSession(s.id)
                         if (activeSessionId === s.id) startNewChat()
                       }}
-                      aria-label="Delete conversation"
+                      aria-label={tr('aria.deleteConversation')}
                       className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
                     >
                       <XIcon size={15} />
@@ -973,13 +1227,14 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                         <button
                           onClick={() => void handleMakeCardFromHighlight(h)}
                           title={tr('side.sentences.fromHighlight')}
+                          aria-label={tr('aria.makeCard')}
                           className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                         >
                           <SparklesIcon size={14} />
                         </button>
                         <button
                           onClick={() => removeHighlight(h.id)}
-                          aria-label="Delete highlight"
+                          aria-label={tr('aria.deleteHighlight')}
                           className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
                         >
                           <XIcon size={15} />
@@ -1045,7 +1300,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <button
                             onClick={() => navigator.clipboard.writeText(e.target).catch(() => {})}
-                            aria-label="Copy translation"
+                            aria-label={tr('aria.copyTranslation')}
                             className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                           >
                             <ClipboardListIcon size={14} />
@@ -1234,13 +1489,19 @@ function SlashMenu({
   onHover: (idx: number) => void
 }) {
   return (
-    <div className="mb-2 max-h-60 overflow-y-auto rounded-xl border border-line bg-surface shadow-md lector-anim-pop">
+    <div
+      role="listbox"
+      aria-label="Templates"
+      className="mb-2 max-h-60 overflow-y-auto rounded-xl border border-line bg-surface shadow-md lector-anim-pop"
+    >
       {templates.length === 0 ? (
         <div className="px-3 py-3 text-[12px] text-ink-faint">{emptyText}</div>
       ) : (
         templates.map((tpl, i) => (
           <button
             key={tpl.id}
+            role="option"
+            aria-selected={i === activeIdx}
             onMouseEnter={() => onHover(i)}
             onClick={() => onPick(tpl)}
             className={`w-full text-left px-3 py-2.5 flex flex-col gap-0.5 transition-colors ${
@@ -1250,7 +1511,7 @@ function SlashMenu({
             <span className="text-[12px] font-medium text-ink flex items-center gap-1.5">
               {titleFor(tpl)}
               {tpl.builtIn && (
-                <span className="chip-builtIn">built-in</span>
+                <span className="chip-builtIn">{t('side.templates.builtIn', useStore.getState().byok.locale)}</span>
               )}
             </span>
             <span className="text-[10px] text-ink-faint truncate">
@@ -1449,6 +1710,7 @@ function VocabView({
                       <button
                         onClick={() => onExplainVocab(v)}
                         title={tr('side.sentences.fromVocab')}
+                        aria-label={tr('aria.makeCard')}
                         className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                       >
                         <SparklesIcon size={14} />
@@ -1456,7 +1718,7 @@ function VocabView({
                     )}
                     <button
                       onClick={() => onRemoveVocab(v.id)}
-                      aria-label="Delete word"
+                      aria-label={tr('aria.deleteWord')}
                       className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
                     >
                       <XIcon size={15} />
@@ -1657,6 +1919,8 @@ function TemplatesView({
                     </div>
                     <button
                       onClick={() => startEdit(tpl)}
+                      aria-label={tr('aria.edit')}
+                      title={tr('aria.edit')}
                       className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                     >
                       <PencilIcon size={14} />
@@ -1664,6 +1928,8 @@ function TemplatesView({
                     {!tpl.builtIn && (
                       <button
                         onClick={() => onRemove(tpl.id)}
+                        aria-label={tr('aria.delete')}
+                        title={tr('aria.delete')}
                         className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
                       >
                         <TrashIcon size={14} />
@@ -1873,6 +2139,9 @@ function GlossaryView({
                   <div className="flex items-center gap-2.5">
                     <button
                       onClick={() => onUpdate(e.id, { enabled: !e.enabled })}
+                      role="switch"
+                      aria-checked={e.enabled}
+                      aria-label={tr('aria.enableGlossary')}
                       title={e.enabled ? tr('side.glossary.enabled') : tr('side.glossary.disabled')}
                       className={`w-3.5 h-3.5 rounded-full border flex-shrink-0 transition-colors ${
                         e.enabled
@@ -1890,12 +2159,16 @@ function GlossaryView({
                     </div>
                     <button
                       onClick={() => startEdit(e)}
+                      aria-label={tr('aria.edit')}
+                      title={tr('aria.edit')}
                       className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                     >
                       <PencilIcon size={14} />
                     </button>
                     <button
                       onClick={() => onRemove(e.id)}
+                      aria-label={tr('aria.delete')}
+                      title={tr('aria.delete')}
                       className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
                     >
                       <TrashIcon size={14} />
@@ -1921,7 +2194,9 @@ type SettingsViewProps = {
 
 function SettingsView({ byok, onChange }: SettingsViewProps) {
   const [showKey, setShowKey] = useState(false)
-  const [customModel, setCustomModel] = useState('')
+  // When true, the model free-text input is shown even if byok.model happens
+  // to match a list entry (the user explicitly chose "Custom model id…").
+  const [customMode, setCustomMode] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [fetchedModels, setFetchedModels] = useState<FetchedModel[] | null>(null)
@@ -1929,10 +2204,17 @@ function SettingsView({ byok, onChange }: SettingsViewProps) {
   const [fetchError, setFetchError] = useState<string | null>(null)
 
   const def = getProvider(byok.provider)
+  // Resolve a localized provider description, falling back to the English
+  // string baked into providers.ts if no i18n entry exists for this provider.
+  const descKey = `provider.desc.${byok.provider}` as StringKey
+  const providerDesc = t(descKey, byok.locale) === descKey ? def.description : t(descKey, byok.locale)
 
   const handleProviderChange = (id: ProviderId) => {
     const next = getProvider(id)
     const isCustom = id === 'custom' || id === 'openrouter-custom'
+    // Switching provider leaves custom model mode (the new provider has its
+    // own preset/fetched list to pick from).
+    setCustomMode(false)
     onChange({
       provider: id,
       // Reset to the provider's default model/baseUrl; keep the key.
@@ -1947,8 +2229,11 @@ function SettingsView({ byok, onChange }: SettingsViewProps) {
   const runTest = async () => {
     setTesting(true)
     setTestResult(null)
-    // The store persists async; test against the latest local view.
-    const result = await testConnection({ ...byok })
+    // Read the live store rather than the rendered `byok` prop: if the user
+    // typed a key and immediately clicked Test before re-render propagated,
+    // the prop could be one keystroke stale and we'd test the previous key.
+    // useStore.getState() always returns the freshest committed value.
+    const result = await testConnection({ ...useStore.getState().byok })
     setTestResult(result)
     setTesting(false)
   }
@@ -1957,11 +2242,12 @@ function SettingsView({ byok, onChange }: SettingsViewProps) {
     setFetching(true)
     setFetchError(null)
     try {
-      const models = await fetchModels({ ...byok })
+      const live = useStore.getState().byok
+      const models = await fetchModels({ ...live })
       setFetchedModels(models)
       if (models.length > 0) {
         // If the current model isn't in the fetched list, snap to the first.
-        if (!models.some((m) => m.id === byok.model)) {
+        if (!models.some((m) => m.id === live.model)) {
           onChange({ model: models[0].id })
         }
       } else {
@@ -2030,7 +2316,7 @@ function SettingsView({ byok, onChange }: SettingsViewProps) {
                 </button>
               ))}
             </div>
-            <p className="text-[10px] text-ink-faint mt-1.5 leading-relaxed">{def.description}</p>
+            <p className="text-[10px] text-ink-faint mt-1.5 leading-relaxed">{providerDesc}</p>
           </div>
 
           {/* Custom base URL */}
@@ -2110,12 +2396,16 @@ function SettingsView({ byok, onChange }: SettingsViewProps) {
                 return (
                   <select
                     id="lector-model"
-                    value={currentInList ? byok.model : '__custom__'}
+                    value={currentInList && !customMode ? byok.model : '__custom__'}
                     onChange={(e) => {
                       if (e.target.value === '__custom__') {
-                        setCustomModel(byok.model)
-                        onChange({ model: customModel || def.defaultModel })
+                        // Reveal the free-text input WITHOUT discarding the
+                        // current model. Previously this reset byok.model to
+                        // the provider default (customModel was '' on first
+                        // switch), silently losing whatever the user had set.
+                        setCustomMode(true)
                       } else {
+                        setCustomMode(false)
                         onChange({ model: e.target.value })
                       }
                     }}
@@ -2140,9 +2430,9 @@ function SettingsView({ byok, onChange }: SettingsViewProps) {
               <div className="mt-1 text-[10px] text-ink-faint">{t('settings.model.fetchedCount', byok.locale).replace('{n}', String(fetchedModels.length))}</div>
             )}
 
-            {/* Free-text input: when custom selected, or no list matches. */}
-            {!(
-              (fetchedModels && fetchedModels.length > 0 ? fetchedModels : def.models).some((m) => m.id === byok.model)
+            {/* Free-text input: when custom mode is on, or no list matches. */}
+            {(customMode ||
+              !(fetchedModels && fetchedModels.length > 0 ? fetchedModels : def.models).some((m) => m.id === byok.model)
             ) && (
               <input
                 type="text"
@@ -2351,7 +2641,7 @@ function SentencesView(props: SentencesViewProps) {
       {sentences.filter((c) => c.srs).length > 0 && (
         <StatsBar stats={computeReviewStats(sentences)} tr={tr} />
       )}
-      {sentences.length === 0 && !pasteText ? (
+      {sentences.length === 0 ? (
         <>
           <div className="px-4 py-3 border-b border-line">
             <PasteBox
@@ -2436,6 +2726,7 @@ function SentencesView(props: SentencesViewProps) {
                               <button
                                 onClick={() => props.onViewSource(c.blockId, c.url)}
                                 title={tr('side.sentences.viewSource')}
+                                aria-label={tr('aria.viewSource')}
                                 className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                               >
                                 <SparklesIcon size={13} />
@@ -2444,6 +2735,7 @@ function SentencesView(props: SentencesViewProps) {
                             <button
                               onClick={() => props.onAnkiExport([c])}
                               title={tr('side.sentences.toAnkiOne')}
+                              aria-label={tr('aria.sendToAnki')}
                               className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                             >
                               <DownloadIcon size={13} />
@@ -2505,6 +2797,7 @@ function SentencesView(props: SentencesViewProps) {
                                     onClick={() => props.onMakeCard(ex, c.title)}
                                     disabled={busy}
                                     title={tr('side.sentences.makeCard')}
+                                    aria-label={tr('aria.makeCard')}
                                     className="text-accent hover:text-accent-hover text-[10px] flex-shrink-0 font-medium flex items-center gap-1 disabled:opacity-60"
                                   >
                                     {busy ? (

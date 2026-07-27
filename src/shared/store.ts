@@ -47,6 +47,11 @@ interface AppState {
   // Translation history — LRU list of recent translations (max 200).
   translationHistory: TranslationHistoryEntry[]
 
+  // Onboarding: set true once the user has opened the panel (and seen the
+  // first-run feature hint). Lets us show a one-time guide without nagging
+  // returning users.
+  hasOpened: boolean
+
   // Actions
   setByok: (patch: Partial<ByokSettings>) => void
   setByokAll: (s: ByokSettings) => void
@@ -87,6 +92,9 @@ interface AppState {
   // Translation history (LRU, max 200).
   addTranslationHistory: (entry: Omit<TranslationHistoryEntry, 'id'>) => void
   clearTranslationHistory: () => void
+
+  // Mark the panel as opened (first-run onboarding gate).
+  markOpened: () => void
 }
 
 export const useStore = create<AppState>()(
@@ -100,6 +108,7 @@ export const useStore = create<AppState>()(
       glossary: [],
       sentences: [],
       translationHistory: [],
+      hasOpened: false,
 
       setByok: (patch) => set((s) => ({ byok: { ...s.byok, ...patch } })),
       setByokAll: (next) => set({ byok: next }),
@@ -296,13 +305,44 @@ export const useStore = create<AppState>()(
           translationHistory: appendHistory(s.translationHistory, { ...entry, id: newHistoryId() }),
         })),
       clearTranslationHistory: () => set({ translationHistory: [] }),
+
+      markOpened: () => set({ hasOpened: true }),
     }),
     {
       name: 'lector-ai-storage',
-      // NOTE: the API key is part of `byok` and is persisted to
-      // chrome.storage.local by zustand/persist. That is intentional for BYOK —
-      // it stays in the browser, never touches a server. Users who share a
-      // machine should clear storage or use a separate browser profile.
+      version: 1,
+      // NOTE on persistence & the API key: zustand/persist (with no custom
+      // storage adapter) writes to window.localStorage, NOT chrome.storage.
+      // The API key lives in `byok` and is therefore in localStorage here —
+      // intentional for BYOK (it stays in the browser, never touches a
+      // server). Separately, byok.ts's saveSettings/getSettings mirror the
+      // same `byok` object into chrome.storage.local under
+      // `lector_byok_settings` so the content script and background worker
+      // (which can't read window.localStorage of the side-panel origin) can
+      // read the key. Users who share a machine should clear storage or use a
+      // separate browser profile.
+      //
+      // version + migrate: bump version when the persisted shape changes in a
+      // breaking way and handle old shapes here. v0 users (no version field)
+      // migrate to v1 with defaults filled for any missing keys, so an upgrade
+      // never silently corrupts their saved sessions/highlights/vocab.
+      migrate: (persisted, _version) => {
+        const s = (persisted || {}) as Partial<AppState>
+        // Forward-compatible: fill defaults for any missing top-level slice so
+        // an upgrade from an older persisted shape (e.g. a field added later)
+        // doesn't leave holes that would crash selectors.
+        return {
+          byok: s.byok ?? DEFAULT_BYOK_SETTINGS,
+          sessions: s.sessions ?? [],
+          highlights: s.highlights ?? [],
+          vocab: s.vocab ?? [],
+          templates: s.templates ?? BUILTIN_TEMPLATES,
+          glossary: s.glossary ?? [],
+          sentences: s.sentences ?? [],
+          translationHistory: s.translationHistory ?? [],
+          hasOpened: s.hasOpened ?? false,
+        } as AppState
+      },
       partialize: (state) => ({
         byok: state.byok,
         sessions: state.sessions,
@@ -312,6 +352,7 @@ export const useStore = create<AppState>()(
         glossary: state.glossary,
         sentences: state.sentences,
         translationHistory: state.translationHistory,
+        hasOpened: state.hasOpened,
       }),
     }
   )

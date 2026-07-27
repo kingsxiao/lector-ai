@@ -47,4 +47,15 @@ describe('toNotionProperties', () => {
     expect(payload).toHaveProperty('Source')
     expect(payload).toHaveProperty('Note')
   })
+
+  // Regression: Notion rejects both `title` and `rich_text` content fields
+  // longer than 2000 chars with a ValidationError (the whole createPage call
+  // fails). Title was sliced; Note was not — a long note nuked the export.
+  it('caps the note rich_text content at 2000 chars (Notion API limit)', () => {
+    const long = 'x'.repeat(5000)
+    const payload = toNotionProperties({ ...hs[0], note: long }) as {
+      Note: { rich_text: { text: { content: string } }[] }
+    }
+    expect(payload.Note.rich_text[0].text.content.length).toBe(2000)
+  })
 })

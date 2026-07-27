@@ -62,6 +62,12 @@ const CHROME_STUB = `
 window.__lectorMsgs = [];
 window.__lectorMsgHandlers = {};
 window.__fetchCalls = [];
+// Capture window.open so the FAB test can assert the reliable MV3 opener path
+// (chrome.sidePanel.open can't be triggered from a content-script click; the
+// FAB falls back to window.open(chrome.runtime.getURL('sidepanel/index.html'))).
+window.__openCalls = [];
+const __origOpen = window.open.bind(window);
+window.open = (url, name) => { window.__openCalls.push({ url: String(url), name: String(name) }); return null; };
 
 // Build a ReadableStream that emits OpenAI-style SSE frames:
 //   data: {"choices":[{"delta":{"content":"..."}}]}
@@ -81,6 +87,10 @@ function sseStream(tokens) {
 
 window.fetch = function (url, opts) {
   window.__fetchCalls.push(String(url));
+  // Capture the request body so tests can assert translation direction (the
+  // system prompt's target language) — guards against the English→English
+  // regression caused by detectScript mis-classifying mixed-script pages.
+  try { window.__fetchBodies = window.__fetchBodies || []; window.__fetchBodies.push(opts && opts.body ? JSON.parse(opts.body) : null); } catch (e) {}
   // Every BYOK call (translate/explain/summarize/bilingual/testConnection)
   // hits {baseUrl}/chat/completions with stream:true. Return a 200 SSE body.
   return Promise.resolve({
@@ -99,6 +109,8 @@ window.chrome = {
       window.__lectorMsgs.push(msg);
       return Promise.resolve({});
     },
+    // The FAB's reliable opener builds the panel URL via getURL.
+    getURL: (p) => 'chrome-extension://testid/' + p.replace(/^\\//, ''),
     lastError: null,
     onMessage: { addListener(fn) { window.__lectorMsgHandlers.onMessage = fn; } },
   },
@@ -166,12 +178,108 @@ async function main() {
     check('§1 content styles injected', await evalIn(page, `!!document.getElementById('lector-ai-styles')`))
 
     // ---- extractPage via the content script's lector-get-page handler ----
+    // Run BEFORE the FAB menu tests: the "translate page" menu item injects
+    // .lector-bilingual blocks (Chinese translations) which would otherwise
+    // pollute extractPage's language detection.
     const resp = await fireContentMessage(page, { action: 'lector-get-page' })
     const pg = JSON.parse(resp || 'null')
     check('§extract lector-get-page returns parsed page', !!pg?.page, `title="${pg?.page?.title}"`)
     check('§extract detected language en', pg?.page?.lang === 'en', `lang=${pg?.page?.lang}`)
     check('§extract blocks stable b0/b1 ids', pg?.page?.blocks?.length >= 3 && pg.page.blocks[0].id === 'b0', `blocks=${pg?.page?.blocks?.length}`)
     check('§extract tags live DOM nodes with data-lector-id', (await evalIn(page, `document.querySelectorAll('[data-lector-id]').length`)) >= 3, `count=${await evalIn(page, `document.querySelectorAll('[data-lector-id]').length`)}`)
+
+    // ---- §1.2 FAB opens a radial quick-action menu ----
+    // The FAB no longer opens a window directly; it pops a radial menu of
+    // page-level actions. Verify: click FAB → menu appears with 4 items;
+    // each item is a menuitem; clicking "open in new window" triggers
+    // window.open with the cached sidepanel URL; clicking "translate page"
+    // triggers the bilingual message; clicking FAB again closes the menu.
+    await evalIn(page, `(()=>{ window.__openCalls.length = 0; window.__lectorMsgs.length = 0; })()`)
+    await evalIn(page, `document.querySelector('#lector-ai-fab').click()`)
+    await sleep(300)
+    const menuState = JSON.parse(await evalIn(page, `(()=>{ const m = document.querySelector('.lector-fab-menu'); const items = m ? m.querySelectorAll('.lector-fab-item') : []; return JSON.stringify({ open: !!m, itemCount: items.length, aria: document.querySelector('#lector-ai-fab').getAttribute('aria-expanded'), labels: [...items].map(i=>i.getAttribute('aria-label')) }); })()`) || '{}')
+    check('§1.2 FAB click → radial menu opens', menuState.open, `open=${menuState.open}`)
+    check('§1.2 menu has 4 items (translate/summarize/panel/standalone)', menuState.itemCount === 4, `count=${menuState.itemCount}`)
+    check('§1.2 FAB aria-expanded reflects open state', menuState.aria === 'true', `aria=${menuState.aria}`)
+    check('§1.2 menu items are role=menuitem with labels', menuState.labels && menuState.labels.length === 4 && menuState.labels.every((l) => typeof l === 'string' && l.length > 0), `labels=${JSON.stringify(menuState.labels)}`)
+
+    // Click the "open in new window" menu item → window.open(cached URL).
+    await evalIn(page, `(()=>{ const items = document.querySelectorAll('.lector-fab-item'); const t = [...items].find(i => i.getAttribute('aria-label') && /new window|单独打开/i.test(i.getAttribute('aria-label'))); if (t) t.click(); })()`)
+    await sleep(350)
+    const fabOpenCalls = JSON.parse(await evalIn(page, `JSON.stringify(window.__openCalls||[])`) || '[]')
+    check('§1.2 "open in new window" item → window.open(sidepanel URL)', fabOpenCalls.length >= 1 && fabOpenCalls[0].url.includes('sidepanel/index.html'), `calls=${JSON.stringify(fabOpenCalls)}`)
+    check('§1.2 reuses named window lector-ai-panel', fabOpenCalls.length === 0 || fabOpenCalls[0].name === 'lector-ai-panel', `name="${fabOpenCalls[0]?.name}"`)
+    // Menu auto-closes after an item is picked (closeFabMenu removes the DOM
+    // after its collapse animation; wait past the 280ms timeout).
+    const closedAfterPick = !(await evalIn(page, `!!document.querySelector('.lector-fab-menu')`))
+    check('§1.2 menu closes after picking an item', closedAfterPick, closedAfterPick ? 'ok' : 'still open')
+
+    // Reopen → "translate page" item runs the page bilingual translation
+    // directly (it does NOT re-send lector-toggle-bilingual — that's the
+    // inbound message from the side panel). Observable effect: the bilingual
+    // loop injects .lector-bilingual-host blocks + sends progress messages.
+    await evalIn(page, `(()=>{ window.__lectorMsgs.length = 0; })()`)
+    await evalIn(page, `document.querySelector('#lector-ai-fab').click()`)
+    await sleep(300)
+    await evalIn(page, `(()=>{ const items = document.querySelectorAll('.lector-fab-item'); const t = [...items].find(i => i.getAttribute('aria-label') && /translate page|翻译整页/i.test(i.getAttribute('aria-label'))); if (t) t.click(); })()`)
+    await sleep(400)
+    const hostsAfter = await evalIn(page, `document.querySelectorAll('.lector-bilingual-host').length`)
+    const progressMsgs = JSON.parse(await evalIn(page, `JSON.stringify((window.__lectorMsgs||[]).filter(m=>m.action==='lector-bilingual-progress'))`) || '[]')
+    check('§1.2 "translate page" item runs bilingual translation (hosts injected + progress)', hostsAfter > 0 && progressMsgs.length > 0, `hosts=${hostsAfter} progress=${progressMsgs.length}`)
+    // Translation DIRECTION regression: an English page (the article fixture)
+    // must translate to Chinese, not English. The old detectScript returned
+    // 'cjk' whenever any CJK char was present, flipping direction so English
+    // pages came back untranslated. Assert the captured request body's system
+    // prompt asks for Chinese.
+    const firstSys = await evalIn(page, `(()=>{ const b=(window.__fetchBodies||[])[0]; return (b && b.messages && b.messages[0] && b.messages[0].content) ? b.messages[0].content.slice(0,120) : ''; })()`)
+    check('§1.2 English page → bilingual prompt asks for Chinese (direction bug)', /to Chinese/i.test(firstSys), `sys="${firstSys.slice(0,80)}"`)
+    // "open side panel" item → open-side-panel message (best-effort) AND a
+    // window.open fallback (MV3 forbids sidePanel.open from a content-script
+    // click, so the item must also open the standalone window so the user
+    // always sees Lector open — never a silent no-op).
+    await evalIn(page, `(()=>{ window.__openCalls.length = 0; })()`)
+    await evalIn(page, `document.querySelector('#lector-ai-fab').click()`)
+    await sleep(300)
+    await evalIn(page, `(()=>{ const items = document.querySelectorAll('.lector-fab-item'); const t = [...items].find(i => i.getAttribute('aria-label') && /side panel|侧边栏/i.test(i.getAttribute('aria-label'))); if (t) t.click(); })()`)
+    await sleep(200)
+    const panelMsgs = JSON.parse(await evalIn(page, `JSON.stringify((window.__lectorMsgs||[]).filter(m=>m.action==='open-side-panel'))`) || '[]')
+    const panelOpenCalls = JSON.parse(await evalIn(page, `JSON.stringify(window.__openCalls||[])`) || '[]')
+    check('§1.2 "open side panel" item → open-side-panel sent (best-effort)', panelMsgs.length >= 1, `count=${panelMsgs.length}`)
+    check('§1.2 "open side panel" item → window.open fallback (reliable opener)', panelOpenCalls.length >= 1 && panelOpenCalls[0].url.includes('sidepanel/index.html'), `calls=${JSON.stringify(panelOpenCalls)}`)
+    // Toggle close: clicking FAB while open closes the menu without firing actions.
+    await evalIn(page, `document.querySelector('#lector-ai-fab').click()`)
+    await sleep(300)
+    const openCount = await evalIn(page, `document.querySelectorAll('.lector-fab-item').length`)
+    await evalIn(page, `document.querySelector('#lector-ai-fab').click()`)
+    await sleep(350)
+    const closedCount = await evalIn(page, `document.querySelectorAll('.lector-fab-item').length`)
+    check('§1.2 clicking FAB again closes the menu', openCount === 4 && closedCount === 0, `open=${openCount} closed=${closedCount}`)
+
+    // ---- §1.3 FAB menu survives "Extension context invalidated" ----
+    // The orphaned-content-script regression: after ext reload / SW destroyed,
+    // chrome.runtime.getURL/sendMessage throw synchronously. The URL is cached
+    // at load and runtime calls are try/caught, so the menu still opens and the
+    // "open in new window" item still window.opens the cached URL.
+    await evalIn(page, `(()=>{ window.__openCalls.length = 0; })()`)
+    await evalIn(page, `(()=>{ const r = window.chrome.runtime; r.getURL = () => { throw new Error('Extension context invalidated.'); }; r.sendMessage = () => { throw new Error('Extension context invalidated.'); }; })()`)
+    let invalidatedThrew = false
+    try {
+      await evalIn(page, `document.querySelector('#lector-ai-fab').click()`)
+      await sleep(300)
+      // Menu should still open even with invalidated runtime.
+      const stillOpen = await evalIn(page, `!!document.querySelector('.lector-fab-menu')`)
+      check('§1.3 FAB menu opens even when context invalidated', stillOpen, `open=${stillOpen}`)
+      // "open in new window" still works via cached URL.
+      await evalIn(page, `(()=>{ const items = document.querySelectorAll('.lector-fab-item'); const t = [...items].find(i => i.getAttribute('aria-label') && /new window|单独打开/i.test(i.getAttribute('aria-label'))); if (t) t.click(); })()`)
+      await sleep(200)
+    } catch (e) {
+      invalidatedThrew = true
+    }
+    const invOpenCalls = JSON.parse(await evalIn(page, `JSON.stringify(window.__openCalls||[])`) || '[]')
+    check('§1.3 FAB click does NOT throw on invalidated context', !invalidatedThrew, invalidatedThrew ? 'threw' : 'ok')
+    check('§1.3 "open in new window" still works via cached URL when invalidated', invOpenCalls.length >= 1 && invOpenCalls[0].url.includes('sidepanel/index.html'), `calls=${JSON.stringify(invOpenCalls)}`)
+    // Restore a working runtime so later tests still pass.
+    await evalIn(page, `(()=>{ const r = window.chrome.runtime; r.getURL = (p) => 'chrome-extension://testid/' + p.replace(/^\\//, ''); r.sendMessage = (m) => { window.__lectorMsgs.push(m); return Promise.resolve({}); }; })()`)
 
     const selectReveal = async (js) => {
       await evalIn(page, js)
@@ -264,12 +372,6 @@ async function main() {
     check('§A4 malicious blockId rejected (bad-id)', /bad-id/.test(badId), `resp="${String(badId).slice(0, 40)}"`)
     const goodId = await fireContentMessage(page, { action: 'lector-jump-to', blockId: 'b0' })
     check('§A4 valid blockId accepted (ok)', /"ok":true/.test(goodId), `resp="${String(goodId).slice(0, 40)}"`)
-
-    // ---- §1.2 FAB click → open-side-panel message relayed ----
-    await evalIn(page, `document.querySelector('#lector-ai-fab').click()`)
-    await sleep(200)
-    const openMsgs = JSON.parse(await evalIn(page, `JSON.stringify((window.__lectorMsgs||[]).filter(m=>m.action==='open-side-panel'))`) || '[]')
-    check('§1.2 FAB click → open-side-panel relayed', openMsgs.length >= 1)
 
     await cleanup()
   } catch (e) {

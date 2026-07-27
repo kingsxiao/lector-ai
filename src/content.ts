@@ -13,6 +13,7 @@ let selectionToolbar: HTMLElement | null = null
 let resultPopup: HTMLElement | null = null
 let loadingPopup: HTMLElement | null = null
 let fab: HTMLElement | null = null
+let fabMenu: HTMLElement | null = null
 
 // ---------------------------------------------------------------------------
 // Styles
@@ -26,8 +27,18 @@ function injectStyles() {
     @keyframes lectorFadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes lectorSpin { to { transform: rotate(360deg); } }
     @keyframes lectorFabPulse { 0%,100%{ box-shadow: 0 6px 20px rgba(156,107,60,.32);} 50%{ box-shadow: 0 8px 28px rgba(135,90,47,.5);} }
-    #lector-ai-fab { position: fixed; right: 20px; bottom: 24px; width: 48px; height: 48px; border-radius: 50%; background: #9C6B3C; color: #FFF8EE; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 20px; font-family: Georgia, 'Iowan Old Style', 'Source Serif Pro', serif; cursor: pointer; z-index: 2147483646; box-shadow: 0 6px 20px rgba(156,107,60,.32); animation: lectorFabPulse 3s ease-in-out infinite; transition: transform .18s cubic-bezier(0.16,1,0.3,1), background-color .15s ease; user-select: none; }
+    #lector-ai-fab { position: fixed; right: 20px; bottom: 24px; width: 48px; height: 48px; border-radius: 50%; background: #9C6B3C; color: #FFF8EE; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 20px; font-family: Georgia, 'Iowan Old Style', 'Source Serif Pro', serif; cursor: pointer; z-index: 2147483646; box-shadow: 0 6px 20px rgba(156,107,60,.32); animation: lectorFabPulse 3s ease-in-out infinite; transition: transform .22s cubic-bezier(0.16,1,0.3,1), background-color .15s ease; user-select: none; }
     #lector-ai-fab:hover { transform: scale(1.08); background: #875A2F; }
+    #lector-ai-fab.is-open { transform: rotate(45deg); animation: none; background: #875A2F; }
+    #lector-ai-fab.is-open:hover { transform: rotate(45deg) scale(1.08); }
+    /* Radial quick-action menu: items fan out from the FAB center along an
+       upward arc. Each item is a circular button with a hover tooltip label. */
+    .lector-fab-menu { position: fixed; z-index: 2147483645; pointer-events: none; }
+    .lector-fab-item { position: absolute; width: 44px; height: 44px; border-radius: 50%; background: #FFF8EE; color: #6B6155; border: 1px solid #E8DECC; box-shadow: 0 4px 14px rgba(43,38,32,.18); cursor: pointer; display: flex; align-items: center; justify-content: center; pointer-events: auto; opacity: 0; transform: translate(0,0) scale(.4); transition: transform .26s cubic-bezier(0.18,1.2,0.4,1), opacity .18s ease; will-change: transform, opacity; }
+    .lector-fab-item svg { width: 20px; height: 20px; display: block; }
+    .lector-fab-item:hover { background: #9C6B3C; color: #FFF8EE; transform: var(--lector-rest) scale(1.1); }
+    .lector-fab-label { position: absolute; right: 54px; top: 50%; transform: translateY(-50%); background: rgba(43,38,32,.92); color: #FFF8EE; font-size: 11px; font-weight: 500; padding: 3px 8px; border-radius: 6px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s ease; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+    .lector-fab-item:hover .lector-fab-label { opacity: 1; }
     #lector-ai-toolbar { display: flex; align-items: center; gap: 2px; padding: 5px 8px; border-radius: 999px; }
     #lector-ai-toolbar .t-btn { width: 28px; height: 28px; padding: 0; border: none; border-radius: 999px; background: transparent; color: #6B6155; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: background-color .15s ease, color .15s ease, transform .1s ease; }
     #lector-ai-toolbar .t-btn svg { width: 16px; height: 16px; display: block; }
@@ -176,18 +187,237 @@ export function extractPage(): ExtractedPage {
 }
 
 // ---------------------------------------------------------------------------
-// Floating action button → open the side panel
+// Floating action button → radial quick-action menu (page-level actions).
 // ---------------------------------------------------------------------------
+// Cache the Lector panel URL ONCE at load, while the extension context is
+// guaranteed valid. After an extension reload / when the MV3 service worker is
+// destroyed, this content script becomes "orphaned" and any later call to
+// chrome.runtime.getURL() / chrome.runtime.sendMessage() throws
+// "Extension context invalidated" SYNCHRONOUSLY. Caching the URL + wrapping
+// runtime calls in try/catch + using window.open (a page DOM API, unaffected
+// by context validity) keeps the FAB fully functional even when orphaned.
+let fabPanelUrl = ''
+try {
+  fabPanelUrl = chrome.runtime.getURL('sidepanel/index.html')
+} catch {
+  fabPanelUrl = ''
+}
+
 function ensureFab() {
   if (fab) return
   fab = document.createElement('div')
   fab.id = 'lector-ai-fab'
   fab.title = t('fab.title', 'auto')
+  fab.setAttribute('role', 'button')
+  fab.setAttribute('aria-haspopup', 'menu')
+  fab.setAttribute('aria-expanded', 'false')
+  fab.setAttribute('tabindex', '0')
+  fab.setAttribute('aria-label', t('fab.title', 'auto'))
   fab.textContent = 'L'
-  fab.onclick = () => {
-    chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
+  fab.onclick = (e) => {
+    e.stopPropagation()
+    toggleFabMenu()
+  }
+  fab.onkeydown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      toggleFabMenu()
+    } else if (e.key === 'Escape' && fabMenu) {
+      closeFabMenu()
+    }
   }
   document.body.appendChild(fab)
+}
+
+/** Best-effort: ask the background to open the side panel. Wrapped because a
+ *  sendMessage call throws synchronously once the extension context is
+ *  invalidated; a returned-promise .catch() can't catch that. */
+function tryOpenSidePanel() {
+  try {
+    if (typeof chrome !== 'undefined' && chrome.runtime) {
+      chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
+    }
+  } catch {
+    /* context invalidated — caller may fall back to window.open */
+  }
+}
+
+/** Open the standalone Lector window (the old FAB behavior). Reliable: uses
+ *  the cached URL + window.open (page DOM API), so it works even when the
+ *  extension context is invalidated. */
+function openStandaloneLector() {
+  if (fabPanelUrl) window.open(fabPanelUrl, 'lector-ai-panel')
+}
+
+/** Summarize the whole page (not a selection). Feeds extractPage().text to the
+ *  same summarizer the toolbar uses, and shows the result near the FAB. */
+async function summarizePage() {
+  const rect = fab?.getBoundingClientRect()
+  const x = rect?.left || 100
+  const y = rect?.top || 100
+  showLoading(x, y)
+  const settings = await getSettings()
+  cachedPref = settings.locale ?? 'auto'
+  if (!settings.apiKey) {
+    removeLoading()
+    showResult(x, y, tr('err.addKey'), 'translate')
+    tryOpenSidePanel()
+    return
+  }
+  const pageText = extractPage().text
+  const systemPrompt = `You are Lector AI. Summarize the user content in 3-5 short bullets plus a one-line takeaway. Clean Markdown, no leading heading.`
+  try {
+    const out = await completeOnce(settings, systemPrompt, pageText.slice(0, 8000), {
+      maxTokens: 900,
+      temperature: 0.5,
+    })
+    removeLoading()
+    showResult(x, y, out || tr('err.emptyResponse'), 'summary')
+  } catch (e) {
+    removeLoading()
+    const msg = e instanceof Error ? e.message : tr('err.requestFailed')
+    showResult(x, y, tr('err.failedPrefix').replace('{msg}', msg), 'explain')
+  }
+}
+
+type FabAction = {
+  id: string
+  label: string
+  icon: string
+  run: () => void
+}
+
+/** Build the radial menu's action list. Built per-open so labels reflect the
+ *  current locale (which can change without a reload). */
+function fabActions(): FabAction[] {
+  return [
+    {
+      id: 'translatePage',
+      label: tr('fab.menu.translatePage'),
+      icon: FAB_MENU_ICONS.translatePage,
+      run: () => {
+        void toggleBilingual()
+      },
+    },
+    {
+      id: 'summarizePage',
+      label: tr('fab.menu.summarizePage'),
+      icon: FAB_MENU_ICONS.summarizePage,
+      run: () => {
+        void summarizePage()
+      },
+    },
+    {
+      id: 'openPanel',
+      label: tr('fab.menu.openPanel'),
+      icon: FAB_MENU_ICONS.openPanel,
+      run: () => {
+        // MV3 forbids chrome.sidePanel.open from a content-script click (the
+        // user gesture is dropped across sendMessage), so the side-panel
+        // message alone would silently fail. Best-effort send it (works on
+        // Chrome versions that still honor it / when the panel is already
+        // open), then ALWAYS fall back to opening Lector in a standalone
+        // window via window.open — the only 100%-reliable opener from a
+        // content script. This matches the "open in new window" item so the
+        // user always sees Lector open, never a silent no-op.
+        tryOpenSidePanel()
+        openStandaloneLector()
+      },
+    },
+    {
+      id: 'openStandalone',
+      label: tr('fab.menu.openStandalone'),
+      icon: FAB_MENU_ICONS.openStandalone,
+      run: () => {
+        openStandaloneLector()
+      },
+    },
+  ]
+}
+
+/** Open the radial menu if closed, close it if open. Items fan out along an
+ *  upward arc (180°→360°) from the FAB center. */
+function toggleFabMenu() {
+  if (fabMenu) {
+    closeFabMenu()
+    return
+  }
+  if (!fab) return
+  const actions = fabActions()
+  const menu = document.createElement('div')
+  menu.className = 'lector-fab-menu'
+  menu.setAttribute('role', 'menu')
+  menu.setAttribute('aria-label', tr('fab.menu'))
+  // Anchor the menu's origin (0,0) at the FAB center; items are positioned by
+  // polar coordinates relative to that point.
+  const fr = fab.getBoundingClientRect()
+  const cx = fr.left + fr.width / 2
+  const cy = fr.top + fr.height / 2
+  menu.style.left = `${cx}px`
+  menu.style.top = `${cy}px`
+  const R = 76 // arc radius (px) from FAB center to each item center
+  const n = actions.length
+  actions.forEach((a, i) => {
+    // Spread across the upper semicircle: from 200° (left-up) to 340° (right-up)
+    // so items sit above the FAB and don't overlap the edge.
+    const angleDeg = 200 + (i * (340 - 200)) / Math.max(1, n - 1)
+    const rad = (angleDeg * Math.PI) / 180
+    const dx = Math.cos(rad) * R
+    const dy = Math.sin(rad) * R // negative = upward (screen y grows downward)
+    const item = document.createElement('button')
+    item.type = 'button'
+    item.className = 'lector-fab-item'
+    item.setAttribute('role', 'menuitem')
+    item.setAttribute('aria-label', a.label)
+    item.title = a.label
+    item.innerHTML = a.icon
+    // Resting transform = the fan-out position. Hover scales from there via the
+    // CSS var (--lector-rest), so hover stays put instead of snapping to origin.
+    const rest = `translate(${dx - 22}px, ${dy - 22}px)`
+    item.style.setProperty('--lector-rest', rest)
+    // Stagger the open animation for a pleasing radial reveal.
+    const delay = i * 35
+    const label = document.createElement('span')
+    label.className = 'lector-fab-label'
+    label.textContent = a.label
+    item.appendChild(label)
+    item.onclick = (ev) => {
+      ev.stopPropagation()
+      closeFabMenu()
+      a.run()
+    }
+    menu.appendChild(item)
+    // Apply the resting transform on the next frame so the transition runs.
+    requestAnimationFrame(() => {
+      item.style.transform = rest
+      item.style.opacity = '1'
+    })
+    // Adjust delay via transitionDelay so each item reveals in sequence.
+    item.style.transitionDelay = `${delay}ms`
+  })
+  document.body.appendChild(menu)
+  fabMenu = menu
+  fab.classList.add('is-open')
+  fab.setAttribute('aria-expanded', 'true')
+}
+
+function closeFabMenu() {
+  if (!fabMenu) return
+  // Reverse the items back toward the FAB center, then remove after the
+  // transition ends so the collapse animates.
+  const items = fabMenu.querySelectorAll<HTMLElement>('.lector-fab-item')
+  items.forEach((it, i) => {
+    it.style.transitionDelay = `${(items.length - 1 - i) * 25}ms`
+    it.style.transform = 'translate(0,0) scale(.4)'
+    it.style.opacity = '0'
+  })
+  const toRemove = fabMenu
+  fabMenu = null
+  if (fab) {
+    fab.classList.remove('is-open')
+    fab.setAttribute('aria-expanded', 'false')
+  }
+  setTimeout(() => toRemove.remove(), 280)
 }
 
 ensureFab()
@@ -205,6 +435,17 @@ const TOOLBAR_ICONS: Record<string, string> = {
   highlight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l-4 4v3h3l4-4"/><path d="M12 8l4 4"/><path d="M16.5 3.5l4 4L13 15l-4-4z"/></svg>',
   saveWord: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1Z"/></svg>',
   explainSentence: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7H5a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h2v3a2 2 0 0 1-2 2"/><path d="M18 7h-2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h2v3a2 2 0 0 1-2 2"/></svg>',
+}
+// Page-level icons for the FAB radial quick-action menu (no text selection).
+const FAB_MENU_ICONS: Record<string, string> = {
+  // bilingual page translation (globe)
+  translatePage: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18Z"/></svg>',
+  // summarize whole page (document with lines)
+  summarizePage: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg>',
+  // open side panel (chat bubble)
+  openPanel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.2 7.3L4 20l1-4.5A8 8 0 1 1 21 12Z"/></svg>',
+  // open in standalone window (external expand)
+  openStandalone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 21H3V6"/></svg>',
 }
 
 // Rough luminance check of the block under the selection, to decide whether
@@ -238,7 +479,12 @@ function createToolbar(x: number, y: number, text: string) {
   removeToolbar()
 
   const selection = window.getSelection()
-  const anchorNode = selection?.getRangeAt(0).startContainer
+  // Guard rangeCount: the selection was validated in the mouseup setTimeout,
+  // but loadPref() awaits chrome.storage in between, and the selection can be
+  // cleared (programmatic removeAllRanges, focus change, SPA route change)
+  // before we reach here. getRangeAt(0) throws IndexSizeError when rangeCount
+  // is 0, which would crash toolbar creation synchronously.
+  const anchorNode = selection && selection.rangeCount > 0 ? selection.getRangeAt(0).startContainer : null
   const dark = anchorNode ? isDarkPage(anchorNode) : false
 
   selectionToolbar = document.createElement('div')
@@ -640,10 +886,13 @@ import { renderGlossaryPrompt, type GlossaryEntry } from './shared/glossary'
 import {
   runConcurrent,
   shouldTranslateBlock,
+  splitBlockForTranslation,
   buildTranslateSystemPrompt,
   filterGlossaryForDirection,
   resolveTargetLang,
   detectScript,
+  isTranslationLikelyUnchanged,
+  maxTokensForChunk,
   EXCLUDED_ANCESTOR_TAGS,
   LANGUAGES,
   getLanguage,
@@ -725,7 +974,7 @@ function handleHighlight(text: string) {
     // Wrap the range in a mark node without disturbing the DOM structure.
     const mark = document.createElement('mark')
     mark.className = 'lector-hl'
-    mark.title = 'Lector highlight'
+    mark.title = t('highlight.markTitle', 'auto')
     range.surroundContents(mark)
     marked = true
     const block = mark.closest('[data-lector-id]') as HTMLElement | null
@@ -905,15 +1154,125 @@ function applyDisplayMode(mode: DisplayMode) {
   document.body.classList.add('lector-dm-' + mode)
 }
 
-/** Translate a single block, streaming tokens into a freshly inserted container.
- *  `signal` aborts the in-flight request (cancel / language-switch). */
-async function translateOneBlock(
+/** Translate a single chunk of source text, streaming tokens into a freshly
+ *  inserted `.lector-bilingual` container appended to `block`. `signal` aborts
+ *  the in-flight request (cancel / language-switch / retry).
+ *
+ *  This is the per-chunk worker; `translateBlockChunks` splits a long block
+ *  and calls this once per chunk so a 4000-char section renders as several
+ *  streaming translations instead of being dropped outright.
+ *
+ *  Unchanged-output guard (English→English regression): if the model echoes
+ *  the source verbatim despite being asked to translate, we retry ONCE with a
+ *  forceful "you must actually translate" prefix. `attempt` tracks the depth so
+ *  we never loop; `targetLang` drives the unchanged detector. */
+async function translateOneChunk(
   settings: ByokSettings,
   systemPrompt: string,
   block: HTMLElement,
+  chunkText: string,
+  targetLang: TargetLangCode,
+  attempt: number,
   signal?: AbortSignal
 ): Promise<string> {
-  const original = (block.textContent || '').trim()
+  // Insert placeholder container immediately so the user sees progress.
+  const span = document.createElement('div')
+  span.className = 'lector-bilingual is-loading'
+  const caret = document.createElement('span')
+  caret.className = 'lector-bi-caret'
+  span.appendChild(caret)
+  // Per-chunk hover actions: retry re-runs ONLY this chunk.
+  const actions = document.createElement('span')
+  actions.className = 'lector-bi-actions'
+  const retry = document.createElement('button')
+  retry.type = 'button'
+  retry.textContent = tr('bilingual.retry')
+  retry.onclick = (ev) => {
+    ev.stopPropagation()
+    span.remove()
+    void translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 0).catch(() => {})
+  }
+  const copy = document.createElement('button')
+  copy.type = 'button'
+  copy.textContent = tr('bilingual.copyTranslation')
+  copy.onclick = (ev) => { ev.stopPropagation(); navigator.clipboard.writeText(span.textContent || '').catch(() => {}) }
+  actions.appendChild(retry)
+  actions.appendChild(copy)
+  block.appendChild(span)
+
+  // On the forced retry, prepend an imperative instruction so the model stops
+  // echoing the source. The base system prompt already requires the target
+  // language, but some models need the per-turn nudge on stubborn blocks.
+  const effectiveSystem = attempt > 0
+    ? systemPrompt + `\n\nIMPORTANT: The previous response was identical to the source text, which means you did NOT translate it. You must translate the following text into ${getLanguage(targetLang).en} now. Do not copy the original.`
+    : systemPrompt
+
+  let acc = ''
+  try {
+    await streamChat(
+      settings,
+      [{ role: 'system', content: effectiveSystem }, { role: 'user', content: chunkText }],
+      { maxTokens: maxTokensForChunk(chunkText.length), temperature: 0.2 },
+      (delta) => {
+        acc += delta
+        span.classList.remove('is-loading')
+        span.textContent = acc
+        span.appendChild(actions)
+      },
+      signal
+    )
+  } catch (e) {
+    // Abort is expected (cancel / language-switch) — leave whatever partial
+    // text streamed so far and rethrow without an error marker. A genuine
+    // failure (network / provider) leaves this chunk's span visibly errored
+    // so (a) the user sees which chunk failed and (b) the worker can target
+    // it rather than the first .lector-bilingual (which may be a successful
+    // chunk's translation). Previously the is-loading skeleton stayed forever
+    // and the block became permanently un-translatable.
+    if (signal?.aborted || (e instanceof DOMException && e.name === 'AbortError')) {
+      span.textContent = acc
+      span.appendChild(actions)
+      throw e
+    }
+    span.classList.remove('is-loading')
+    span.classList.add('is-error')
+    span.textContent = tr('bilingual.blockError')
+    span.appendChild(actions)
+    throw e
+  }
+
+  // Unchanged-output guard: if the model echoed the source (the core
+  // English→English symptom) OR returned nothing, retry once with the
+  // forceful system prompt. Only retry on the first attempt and only when a
+  // real script change was expected (the detector handles the same-script case
+  // and treats empty output as "needs retry").
+  if (attempt === 0 && isTranslationLikelyUnchanged(chunkText, acc, targetLang)) {
+    span.remove()
+    return translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 1, signal)
+  }
+
+  // Empty-output fallback: if the model genuinely returned nothing even after
+  // the retry, do NOT show a "(空响应)" placeholder — that leaves a confusing
+  // gap in the page. Fall back to the source text so the block renders its
+  // original content (the model effectively decided "nothing to translate",
+  // e.g. a lone URL/identifier, and the page stays readable).
+  const rendered = acc || chunkText
+  span.textContent = rendered
+  span.appendChild(actions)
+  return rendered
+}
+
+/** Translate a DOM block, splitting long text into chunks first so nothing is
+ *  silently dropped. Marks the host + wraps the original content once, then
+ *  appends one `.lector-bilingual` per chunk in order. `signal` aborts every
+ *  chunk's request. Returns the concatenation of chunk translations. */
+async function translateBlockChunks(
+  settings: ByokSettings,
+  systemPrompt: string,
+  block: HTMLElement,
+  targetLang: TargetLangCode,
+  signal?: AbortSignal
+): Promise<string> {
   // Mark the host so display-mode CSS (translationOnly / hover) can target the
   // block that owns this translation, and wrap the original content in a
   // .lector-bi-source span so translationOnly can hide it via CSS (the
@@ -925,50 +1284,36 @@ async function translateOneBlock(
     while (block.firstChild) sourceWrap.appendChild(block.firstChild)
     block.appendChild(sourceWrap)
   }
-  // Insert placeholder container immediately so the user sees progress.
-  const span = document.createElement('div')
-  span.className = 'lector-bilingual is-loading'
-  const caret = document.createElement('span')
-  caret.className = 'lector-bi-caret'
-  span.appendChild(caret)
-  // Per-block hover actions.
-  const actions = document.createElement('span')
-  actions.className = 'lector-bi-actions'
-  const retry = document.createElement('button')
-  retry.type = 'button'
-  retry.textContent = tr('bilingual.retry')
-  retry.onclick = (ev) => {
-    ev.stopPropagation()
-    span.remove()
-    void translateOneBlock(settings, systemPrompt, block).catch(() => {})
-  }
-  const copy = document.createElement('button')
-  copy.type = 'button'
-  copy.textContent = tr('bilingual.copyTranslation')
-  copy.onclick = (ev) => { ev.stopPropagation(); navigator.clipboard.writeText(span.textContent || '').catch(() => {}) }
-  actions.appendChild(retry)
-  actions.appendChild(copy)
-  block.appendChild(span)
-
+  // IMPORTANT: read the source from the .lector-bi-source wrap, NOT from
+  // block.textContent. On a retry, block.textContent also contains the chunk
+  // translations + loading skeletons already appended below — re-reading it
+  // would re-split a polluted string (source + stale translations) and append
+  // a second, corrupted pass on top. Also drop any leftover chunk outputs /
+  // error markers from the previous attempt so we render fresh.
+  const sourceWrap = block.querySelector(':scope > .lector-bi-source')
+  const original = ((sourceWrap && (sourceWrap.textContent || '')) || block.textContent || '').trim()
+  block.querySelectorAll(':scope > .lector-bilingual').forEach((n) => n.remove())
+  const chunks = splitBlockForTranslation(original)
+  if (chunks.length === 0) return ''
   let acc = ''
-  await streamChat(
-    settings,
-    [{ role: 'system', content: systemPrompt }, { role: 'user', content: original.slice(0, 8000) }],
-    { maxTokens: Math.min(1000, Math.max(200, original.length * 2)), temperature: 0.2 },
-    (delta) => {
-      acc += delta
-      span.classList.remove('is-loading')
-      span.textContent = acc
-      span.appendChild(actions)
-    },
-    signal
-  )
-  span.textContent = acc || tr('err.emptyResponse')
-  span.appendChild(actions)
+  for (const chunk of chunks) {
+    // Stop early if cancelled — don't start fresh chunks after an abort.
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+    acc += await translateOneChunk(settings, systemPrompt, block, chunk, targetLang, 0, signal)
+  }
   return acc
 }
 
 async function runBilingualTranslation() {
+  // Re-entrancy guard: a second toggle (or a side-panel re-send) must abort
+  // any in-flight run FIRST. Otherwise both runs translate the same blocks
+  // (duplicate .lector-bilingual injections) and the second run's controller
+  // assignment clobbers the first's, making the first uncancellable. Aborting
+  // here also short-circuits the first run's runConcurrent via its signal.
+  if (bilingualAbort) {
+    bilingualAbort.abort()
+    bilingualAbort = null
+  }
   const settings = await getSettings()
   if (!settings.apiKey) {
     chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
@@ -994,8 +1339,15 @@ async function runBilingualTranslation() {
   if (candidates.length === 0) return
 
   const page = extractPage()
-  const probeText = page.lang === 'zh' ? '中文示例文本' : 'Hello world sample text'
-  const target = resolveTargetLang(tSettings.targetLanguage, probeText)
+  // Detect translation direction from the ACTUAL page text, not a synthesized
+  // probe. The old code built probeText from page.lang, but page.lang is set by
+  // detectLang() which returns 'zh' if the text contains even ONE CJK char —
+  // so an overwhelmingly-English page with a stray Chinese footer char flipped
+  // page.lang to 'zh', which made probeText Chinese, which made resolveTargetLang
+  // return 'en', which translated the English page to English. Using the real
+  // page text + count-based detectScript (in resolveTargetLang) is robust to a
+  // few stray CJK chars because it compares dominant script counts.
+  const target = resolveTargetLang(tSettings.targetLanguage, page.text || 'Hello world')
   const glossary = await loadGlossary()
   const glossaryBlock = renderGlossaryPrompt(filterGlossaryForDirection(glossary, target))
   const systemPrompt = buildTranslateSystemPrompt(target, glossaryBlock)
@@ -1010,11 +1362,16 @@ async function runBilingualTranslation() {
       .catch(() => {})
   report()
 
+  // Wrap the run in try/finally so the module-level controller is always
+  // released — but only if it is STILL ours. A later run may have already
+  // reassigned bilingualAbort (re-entrancy); nulling it then would orphan the
+  // newer run and make IT uncancellable.
+  try {
   const results = await runConcurrent(
     candidates,
     async (block) => {
       try {
-        await translateOneBlock(settings, systemPrompt, block, controller.signal)
+        await translateBlockChunks(settings, systemPrompt, block, target, controller.signal)
       } catch (e) {
         // Don't retry (or count) once the user has cancelled.
         if (controller.signal.aborted) throw e
@@ -1022,14 +1379,12 @@ async function runBilingualTranslation() {
         await new Promise((r) => setTimeout(r, 500))
         if (controller.signal.aborted) throw e
         try {
-          await translateOneBlock(settings, systemPrompt, block, controller.signal)
+          await translateBlockChunks(settings, systemPrompt, block, target, controller.signal)
         } catch (e2) {
-          const span = block.querySelector('.lector-bilingual')
-          if (span) {
-            span.classList.remove('is-loading')
-            span.classList.add('is-error')
-            span.textContent = tr('bilingual.blockError')
-          }
+          // The failed chunk's own span was already marked is-error inside
+          // translateOneChunk's catch. Don't reach for the first .lector-bilingual
+          // here — that may be a SUCCESSFUL chunk's translation, which we must
+          // not overwrite with the error text.
           throw e2
         }
       } finally {
@@ -1073,7 +1428,12 @@ async function runBilingualTranslation() {
     const msg = firstErr.error instanceof Error ? firstErr.error.message : tr('err.requestFailed')
     chrome.runtime.sendMessage({ action: 'lector-bilingual-error', message: msg }).catch(() => {})
   }
-  bilingualAbort = null
+  } finally {
+    // Release the controller only if it is still ours. If a newer run already
+    // reassigned bilingualAbort (re-entrancy), leave it alone — nulling it
+    // would orphan that newer run and make it uncancellable.
+    if (bilingualAbort === controller) bilingualAbort = null
+  }
 }
 
 function cancelBilingual() {
@@ -1100,8 +1460,14 @@ document.addEventListener('mouseup', (e) => {
     target.closest('#lector-ai-toolbar') ||
     target.closest('#lector-ai-result') ||
     target.closest('#lector-ai-loading') ||
-    target.closest('#lector-ai-fab')
+    target.closest('#lector-ai-fab') ||
+    target.closest('.lector-fab-menu')
   ) {
+    return
+  }
+  // Click outside the FAB menu → close it (and don't show a selection toolbar).
+  if (fabMenu) {
+    closeFabMenu()
     return
   }
 
@@ -1141,6 +1507,7 @@ document.addEventListener('mouseup', (e) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
+    if (fabMenu) closeFabMenu()
     removeToolbar()
     removeResult()
   }
@@ -1152,8 +1519,10 @@ document.addEventListener('mousedown', (e) => {
     !target.closest('#lector-ai-toolbar') &&
     !target.closest('#lector-ai-result') &&
     !target.closest('#lector-ai-loading') &&
-    !target.closest('#lector-ai-fab')
+    !target.closest('#lector-ai-fab') &&
+    !target.closest('.lector-fab-menu')
   ) {
+    if (fabMenu) closeFabMenu()
     const sel = window.getSelection()
     if (!sel || sel.isCollapsed) removeToolbar()
   }

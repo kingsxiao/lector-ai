@@ -34,6 +34,15 @@ export function LogOutIcon({ size = 18, ...p }: IconProps) {
 export function SendIcon({ size = 18, ...p }: IconProps) {
   return (<svg {...svgProps(size)} {...p}><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></svg>)
 }
+export function StopIcon({ size = 18, ...p }: IconProps) {
+  return (<svg {...svgProps(size)} {...p}><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" /></svg>)
+}
+export function RotateIcon({ size = 18, ...p }: IconProps) {
+  return (<svg {...svgProps(size)} {...p}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>)
+}
+export function ExpandIcon({ size = 18, ...p }: IconProps) {
+  return (<svg {...svgProps(size)} {...p}><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 21H3V6" /><path d="M21 15v6h-6" /></svg>)
+}
 export function PlusIcon({ size = 18, ...p }: IconProps) {
   return (<svg {...svgProps(size)} {...p}><path d="M5 12h14" /><path d="M12 5v14" /></svg>)
 }

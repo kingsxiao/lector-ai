@@ -8,13 +8,40 @@
 
 import { t, type StringKey } from './shared/i18n'
 import { getSettings, completeOnce } from './shared/byok'
-import { SENTENCE_CARD_SYSTEM_PROMPT, extractTranslation, extractKeywords, extractCefr, newCardId } from './shared/sentences'
-import { appendHistory, newHistoryId } from './shared/translation'
+import { SENTENCE_CARD_SYSTEM_PROMPT, extractTranslation, extractKeywords, extractCefr, newCardId, type SentenceCard } from './shared/sentences'
+import { appendHistory, newHistoryId, type TranslationHistoryEntry } from './shared/translation'
 import { normalizeTranslationSettings } from './shared/providers'
+import { appendToList, type ListStore } from './shared/storageQueue'
+import type { Highlight } from './shared/highlights'
+import type { VocabEntry } from './shared/vocabulary'
 
-// Serializes translation-history appends so rapid successive relay messages
-// (read-modify-write on chrome.storage) don't clobber each other.
+// Serializes read-modify-write steps on each chrome.storage.local list key so
+// that rapid successive relay messages (e.g. saving two words back-to-back,
+// or a concurrent bilingual pass) don't both observe the same base list and
+// lose one write to a last-write-wins clobber. Each key gets its own chain.
 let historyChain: Promise<void> = Promise.resolve()
+let vocabChain: Promise<void> = Promise.resolve()
+let sentenceChain: Promise<void> = Promise.resolve()
+let highlightChain: Promise<void> = Promise.resolve()
+
+// Thin adapter from chrome.storage.local (callback-style) to the async
+// get/set ListStore interface the serialization helper expects. Lives here so
+// the pure logic in shared/storageQueue.ts stays chrome-free and unit-tested.
+const listStore: ListStore = {
+  get(key) {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([key], (r) => {
+        const v = (r as Record<string, unknown>)[key]
+        resolve(Array.isArray(v) ? v : [])
+      })
+    })
+  },
+  set(key, value) {
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ [key]: value }, () => resolve())
+    })
+  },
+}
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Lector AI installed')
@@ -53,11 +80,17 @@ chrome.runtime.onMessage.addListener((message) => {
     return false
   }
   if (message?.action === 'lector-highlight') {
-    chrome.storage.local.get(['lectorHighlights'], (r) => {
-      const list = Array.isArray(r.lectorHighlights) ? r.lectorHighlights : []
-      list.unshift(message.highlight)
-      chrome.storage.local.set({ lectorHighlights: list.slice(0, 500) })
-    })
+    // Serialized: prevents two quick highlights from losing one to a
+    // read-modify-write race on the shared lectorHighlights list.
+    highlightChain = appendToList<Highlight>(
+      highlightChain,
+      listStore,
+      'lectorHighlights',
+      (list) => {
+        list.unshift(message.highlight)
+        return list.slice(0, 500)
+      }
+    )
     return false
   }
   if (message?.action === 'lector-save-word') {
@@ -70,20 +103,14 @@ chrome.runtime.onMessage.addListener((message) => {
   }
   if (message?.action === 'lector-translation-history') {
     // Queue into storage; the side panel drains & merges into zustand.
-    // Serialize the read-modify-write so rapid successive entries (e.g. a
+    // Serialized via the shared helper so rapid successive entries (e.g. a
     // concurrent bilingual pass) don't lose writes to a shared base list.
-    historyChain = historyChain
-      .then(
-        () =>
-          new Promise<void>((resolve) => {
-            chrome.storage.local.get(['lectorTranslationHistory'], (r) => {
-              const list = Array.isArray(r.lectorTranslationHistory) ? r.lectorTranslationHistory : []
-              const next = appendHistory(list as any[], { ...message.entry, id: newHistoryId() })
-              chrome.storage.local.set({ lectorTranslationHistory: next }, () => resolve())
-            })
-          })
-      )
-      .catch(() => {})
+    historyChain = appendToList(
+      historyChain,
+      listStore,
+      'lectorTranslationHistory',
+      (list) => appendHistory(list as TranslationHistoryEntry[], { ...message.entry, id: newHistoryId() })
+    )
     return false
   }
   if (message?.action === 'lector-set-translation-target') {
@@ -147,7 +174,7 @@ async function handleSaveWordRelay(message: {
   } catch {
     // leave translation empty; flagged at review time
   }
-  const entry = {
+  const entry: VocabEntry = {
     id: 'v' + Date.now().toString(36),
     word: message.word,
     translation,
@@ -156,13 +183,13 @@ async function handleSaveWordRelay(message: {
     title: message.title,
     // Detect the word's own language family (mirrors content.ts detectLang).
     lang: /[\u4e00-\u9fff]/.test(message.word) ? 'zh' : 'en',
-    blockId: message.blockId,
     createdAt: Date.now(),
     srs: { due: Date.now(), interval: 0, ease: 2.5, reps: 0, lapses: 0 },
   }
-  chrome.storage.local.get(['lectorVocab'], (r) => {
-    const list: Array<{ word: string; srs: { interval: number; ease: number; reps: number; lapses: number; due: number }; createdAt: number; context: string; translation: string }> =
-      Array.isArray(r.lectorVocab) ? r.lectorVocab : []
+  // Serialized: prevents two quick word-saves (each preceded by a ~1s
+  // completeOnce translation call) from both reading the same base list and
+  // losing one entry to a last-write-wins clobber.
+  vocabChain = appendToList<VocabEntry>(vocabChain, listStore, 'lectorVocab', (list) => {
     const idx = list.findIndex((x) => x.word.toLowerCase() === entry.word.toLowerCase())
     if (idx === -1) {
       list.unshift(entry)
@@ -176,7 +203,7 @@ async function handleSaveWordRelay(message: {
         srs: existing.srs,
       }
     }
-    chrome.storage.local.set({ lectorVocab: list.slice(0, 2000) })
+    return list.slice(0, 2000)
   })
 }
 
@@ -205,7 +232,7 @@ async function handleExplainSentenceRelay(message: {
   } catch {
     analysis = '' // 空分析；卡片仍创建，UI 显示占位
   }
-  const card = {
+  const card: SentenceCard = {
     id: newCardId(),
     sentence: message.sentence,
     translation: extractTranslation(analysis),
@@ -220,11 +247,16 @@ async function handleExplainSentenceRelay(message: {
     createdAt: Date.now(),
     srs: null,
   }
-  chrome.storage.local.get(['lectorSentences'], (r) => {
-    const list = Array.isArray(r.lectorSentences) ? r.lectorSentences : []
-    list.unshift(card)
-    chrome.storage.local.set({ lectorSentences: list.slice(0, 50) })
-  })
+  // Serialized: prevents two quick sentence-analyses from losing one card.
+  sentenceChain = appendToList<SentenceCard>(
+    sentenceChain,
+    listStore,
+    'lectorSentences',
+    (list) => {
+      list.unshift(card)
+      return list.slice(0, 50)
+    }
+  )
 }
 
 async function openSidePanel(seed: { kind: string; text: string } | null) {

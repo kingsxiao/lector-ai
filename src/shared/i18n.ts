@@ -220,6 +220,23 @@ export const STRINGS = {
 
   // --- content script: FAB & errors ---
   'fab.title': { en: 'Open Lector AI', zh: '打开 Lector AI' },
+  // When the FAB opens Lector in a standalone window (the MV3 fallback, since
+  // chrome.sidePanel.open can't be triggered reliably from a content-script
+  // click), tell the user they can switch to the side-panel form via the
+  // toolbar icon. Kept short to fit a small window.
+  'fab.windowHint': {
+    en: 'Tip: click the toolbar icon to use Lector as a side panel instead.',
+    zh: '提示：点工具栏图标可切换为侧边栏形态。',
+  },
+  // FAB radial quick-action menu (page-level; there's no text selection).
+  'fab.menu': { en: 'Quick actions', zh: '快捷操作' },
+  'fab.menu.translatePage': { en: 'Translate page', zh: '翻译整页' },
+  'fab.menu.summarizePage': { en: 'Summarize page', zh: '摘要整页' },
+  'fab.menu.openPanel': { en: 'Open side panel', zh: '打开侧边栏' },
+  'fab.menu.openStandalone': { en: 'Open in new window', zh: '单独打开页面' },
+  // Side-panel header button that pops Lector out into its own window.
+  'side.header.openStandalone': { en: 'Open in standalone window', zh: '单独窗口打开' },
+  'highlight.markTitle': { en: 'Lector highlight', zh: 'Lector 高亮' },
   'err.addKey': {
     en: 'Add your API Key in Settings to use this.',
     zh: '请在侧栏设置中添加 API Key 后使用。',
@@ -230,6 +247,76 @@ export const STRINGS = {
   'err.extensionNotLoaded': {
     en: 'Extension not loaded; please refresh the page.',
     zh: '扩展未正确加载，请刷新页面。',
+  },
+
+  // --- chat: streaming controls (Stop / cancel / retry) ---
+  'side.chat.stop': { en: 'Stop', zh: '停止' },
+  'side.chat.canceled': { en: '(stopped)', zh: '（已停止）' },
+  'side.chat.retry': { en: 'Retry', zh: '重试' },
+  'side.chat.stoppedShort': {
+    en: 'Response stopped — tap Retry to continue.',
+    zh: '回答已停止 — 点「重试」继续。',
+  },
+
+  // --- onboarding (first-run hint + empty-state CTA) ---
+  'side.onboard.cta': { en: 'Open Settings', zh: '打开设置' },
+  'side.onboard.hintTitle': {
+    en: 'Quick tour',
+    zh: '快速上手',
+  },
+  'side.onboard.hintBody': {
+    en: 'Select text on any page for the toolbar (translate / explain / highlight / save word), tap the language icon for bilingual page translation, or just chat here.',
+    zh: '在任意网页选中文字即可呼出工具栏（翻译／解释／高亮／存词），点语言图标做整页双语翻译，或直接在此对话。',
+  },
+  'side.onboard.hintDismiss': { en: 'Got it', zh: '知道了' },
+
+  // --- aria-labels / titles for icon-only controls (screen-reader names) ---
+  'aria.views': { en: 'Views', zh: '视图' },
+  'aria.library': { en: 'Library', zh: '会话库' },
+  'aria.translationHistory': { en: 'Translation history', zh: '翻译历史' },
+  'aria.glossary': { en: 'Glossary', zh: '术语表' },
+  'aria.templates': { en: 'Templates', zh: '模板' },
+  'aria.deleteConversation': { en: 'Delete conversation', zh: '删除会话' },
+  'aria.deleteHighlight': { en: 'Delete highlight', zh: '删除高亮' },
+  'aria.copyTranslation': { en: 'Copy translation', zh: '复制译文' },
+  'aria.deleteWord': { en: 'Delete word', zh: '删除词条' },
+  'aria.makeCard': { en: 'Make sentence card', zh: '生成句卡' },
+  'aria.viewSource': { en: 'View source on page', zh: '查看原文' },
+  'aria.sendToAnki': { en: 'Send to Anki', zh: '发送到 Anki' },
+  'aria.edit': { en: 'Edit', zh: '编辑' },
+  'aria.delete': { en: 'Delete', zh: '删除' },
+  'aria.enableGlossary': { en: 'Enable glossary entry', zh: '启用术语' },
+
+  // --- provider descriptions (localized; providers.ts holds an English fallback) ---
+  'provider.desc.openai': {
+    en: 'GPT-4o, o-series, and more.',
+    zh: 'GPT-4o、o 系列等。',
+  },
+  'provider.desc.anthropic': { en: 'Claude models.', zh: 'Claude 模型。' },
+  'provider.desc.openrouter': {
+    en: 'One key, every model (GPT, Claude, Gemini, Llama, …). Recommended.',
+    zh: '一把钥匙，所有模型（GPT / Claude / Gemini / Llama …）。推荐。',
+  },
+  'provider.desc.deepseek': {
+    en: 'DeepSeek-V3 / R1. Excellent value.',
+    zh: 'DeepSeek-V3 / R1。性价比极高。',
+  },
+  'provider.desc.groq': {
+    en: 'Ultra-fast Llama / Mixtral / Gemma inference.',
+    zh: '极速 Llama / Mixtral / Gemma 推理。',
+  },
+  'provider.desc.together': {
+    en: 'Open models at scale (Llama, Qwen, DeepSeek, …).',
+    zh: '大规模开源模型（Llama / Qwen / DeepSeek …）。',
+  },
+  'provider.desc.mistral': {
+    en: 'Mistral family (Large, Small, Codestral, …).',
+    zh: 'Mistral 系列（Large / Small / Codestral …）。',
+  },
+  'provider.desc.xai': { en: 'Grok models.', zh: 'Grok 模型。' },
+  'provider.desc.moonshot': {
+    en: 'Kimi / Moonshot models (CJK-friendly).',
+    zh: 'Kimi / Moonshot 模型（中文友好）。',
   },
 
   // --- background: context menus ---
@@ -350,7 +437,14 @@ export const STRINGS = {
   'settings.translation.concurrency': { en: 'Parallel requests', zh: '并发请求数' },
 
   // --- bilingual page translation ---
-  'toolbar.bilingual': { en: 'Bilingual', zh: '双语' },
+  'toolbar.bilingual': {
+    en: 'Translate page paragraphs (bilingual)',
+    zh: '整页双语翻译',
+  },
+  'toolbar.bilingual.disabledHint': {
+    en: 'Open a page first',
+    zh: '请先打开一个网页',
+  },
   'bilingual.progress': { en: 'Translated {done}/{total}', zh: '已翻译 {done}/{total} 段' },
   'bilingual.cancel': { en: 'Cancel', zh: '取消' },
   'bilingual.retry': { en: 'Retry', zh: '重试' },

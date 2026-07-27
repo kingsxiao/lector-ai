@@ -119,8 +119,8 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
   },
   deepseek: {
     id: 'deepseek',
-    label: 'DeepSeek (深度求索)',
-    description: 'DeepSeek-V3 / R1。性价比极高。',
+    label: 'DeepSeek',
+    description: 'DeepSeek-V3 / R1. Excellent value.',
     docsUrl: 'https://api-docs.deepseek.com',
     keyUrl: 'https://platform.deepseek.com/api_keys',
     baseUrl: 'https://api.deepseek.com',
@@ -128,8 +128,8 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     format: 'openai',
     defaultModel: 'deepseek-chat',
     models: [
-      { id: 'deepseek-chat', label: 'DeepSeek-V3 (对话)' },
-      { id: 'deepseek-reasoner', label: 'DeepSeek-R1 (推理)' },
+      { id: 'deepseek-chat', label: 'DeepSeek-V3 (chat)' },
+      { id: 'deepseek-reasoner', label: 'DeepSeek-R1 (reasoning)' },
     ],
   },
   groq: {
@@ -196,7 +196,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
   moonshot: {
     id: 'moonshot',
     label: 'Moonshot (Kimi)',
-    description: 'Kimi / Moonshot models (中文友好).',
+    description: 'Kimi / Moonshot models (CJK-friendly).',
     docsUrl: 'https://platform.moonshot.cn/docs',
     keyUrl: 'https://platform.moonshot.cn/console/api-keys',
     baseUrl: 'https://api.moonshot.cn/v1',

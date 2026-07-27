@@ -247,3 +247,42 @@ describe('translation history', () => {
     expect(useStore.getState().translationHistory).toHaveLength(0)
   })
 })
+
+describe('persist migration (B5)', () => {
+  // The store is persisted to localStorage under 'lector-ai-storage'. An
+  // upgrade from an old persisted shape must not corrupt saved data: missing
+  // slices are filled with defaults, present slices are preserved.
+  it('rehydrates an old (version-less) persisted state, preserving saved data and filling defaults', async () => {
+    localStorage.clear()
+    // Simulate a v0 persisted blob: has sessions + vocab, but no version,
+    // no hasOpened, no glossary.
+    const oldState = {
+      state: {
+        sessions: [{ id: 's1', title: 'Old', url: 'u', createdAt: 1, messages: [] }],
+        vocab: [{ id: 'v1', word: 'hello', translation: '你好', context: '', url: '', title: '', lang: 'en', createdAt: 1, srs: { due: 1, interval: 0, ease: 2.5, reps: 0, lapses: 0 } }],
+      },
+      version: 0,
+    }
+    localStorage.setItem('lector-ai-storage', JSON.stringify(oldState))
+
+    // Force rehydration of the existing store, which runs migrate.
+    await useStore.persist.rehydrate()
+
+    expect(useStore.getState().sessions.length).toBe(1)
+    expect(useStore.getState().sessions[0].id).toBe('s1')
+    expect(useStore.getState().vocab.length).toBe(1)
+    expect(useStore.getState().vocab[0].word).toBe('hello')
+    // Missing slices get defaults, not undefined.
+    expect(Array.isArray(useStore.getState().glossary)).toBe(true)
+    expect(useStore.getState().glossary.length).toBe(0)
+    expect(useStore.getState().hasOpened).toBe(false)
+    // Builtin templates are restored when absent.
+    expect(useStore.getState().templates.length).toBeGreaterThan(0)
+  })
+
+  it('markOpened flips hasOpened to true', () => {
+    useStore.setState({ hasOpened: false })
+    useStore.getState().markOpened()
+    expect(useStore.getState().hasOpened).toBe(true)
+  })
+})

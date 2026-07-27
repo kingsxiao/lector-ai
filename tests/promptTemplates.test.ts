@@ -35,6 +35,38 @@ describe('fillTemplate', () => {
   it('replaces repeated placeholders', () => {
     expect(fillTemplate('{selection}-{selection}', ctx)).toBe('hello-hello')
   })
+
+  // Regression: String.prototype.replace with a STRING replacement interprets
+  // $&, $', $`, $$, $n as special patterns. User content (selection/page)
+  // containing $ — prices, shell vars, code — was silently corrupted before
+  // reaching the AI. A function replacement (or split/join) treats the value
+  // verbatim.
+  it('does not mangle selection content containing $ patterns', () => {
+    expect(fillTemplate('{selection}', { selection: '$$', page: '', lang: '' })).toBe('$$')
+    expect(fillTemplate('{selection}', { selection: 'a$&b', page: '', lang: '' })).toBe('a$&b')
+    expect(fillTemplate('{selection}', { selection: "x$'y", page: '', lang: '' })).toBe("x$'y")
+    expect(fillTemplate('Total: {selection}', { selection: '$5.00', page: '', lang: '' })).toBe(
+      'Total: $5.00'
+    )
+    expect(fillTemplate('{selection}', { selection: 'echo $HOME', page: '', lang: '' })).toBe(
+      'echo $HOME'
+    )
+  })
+
+  // Regression: the three .replace() calls ran sequentially, so a selection
+  // value that literally contained "{page}" or "{lang}" got re-substituted by
+  // the next stage (cross-contamination). A single-pass replace eliminates it.
+  it('does not re-substitute a placeholder-shaped selection value', () => {
+    expect(
+      fillTemplate('{selection}', { selection: '{page}', page: 'INJECTED', lang: '' })
+    ).toBe('{page}')
+    expect(
+      fillTemplate('{selection}', { selection: '{lang}', page: '', lang: 'INJECTED' })
+    ).toBe('{lang}')
+    expect(
+      fillTemplate('{selection} {page}', { selection: '{page}', page: 'P', lang: '' })
+    ).toBe('{page} P')
+  })
 })
 
 describe('filterTemplates', () => {
