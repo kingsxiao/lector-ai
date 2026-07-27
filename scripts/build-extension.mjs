@@ -1,5 +1,5 @@
 import { execSync } from 'child_process'
-import { copyFileSync, mkdirSync, existsSync, rmSync, readdirSync, cpSync } from 'fs'
+import { copyFileSync, mkdirSync, existsSync, rmSync, readdirSync, cpSync, readFileSync, writeFileSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
@@ -28,12 +28,15 @@ execSync('npx vite build --config vite.content.config.ts', {
   stdio: 'inherit',
 })
 
-// Copy manifest.json to dist
+// Copy manifest.json to dist, stripping the `key` field. The key is kept in
+// src/manifest.json so local development uses a stable extension ID, but the
+// Chrome Web Store rejects uploads that include it.
 console.log('Copying manifest.json...')
-copyFileSync(
-  resolve(rootDir, 'src/manifest.json'),
-  resolve(distDir, 'manifest.json')
-)
+const manifestSrc = resolve(rootDir, 'src/manifest.json')
+const manifestDest = resolve(distDir, 'manifest.json')
+const manifest = JSON.parse(readFileSync(manifestSrc, 'utf8'))
+delete manifest.key
+writeFileSync(manifestDest, JSON.stringify(manifest, null, 2) + '\n')
 
 // Copy icons
 console.log('Copying icons...')
