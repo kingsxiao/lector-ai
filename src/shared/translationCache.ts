@@ -1,8 +1,8 @@
 // Translation result cache (pure, chrome-free).
 //
-// Caches translation results by a content hash of (source + targetLang + model
-// + glossaryHash) so a re-translation (page reload, same paragraph on another
-// page) does NOT re-pay the provider. Persisted by the content script /
+// Caches translation results by a content hash of (strategy version + source +
+// targetLang + model + glossary + persona) so a re-translation (page reload,
+// same paragraph on another page) does NOT re-pay the provider. Persisted by the content script /
 // background into chrome.storage.local under `lectorCache`; this module owns
 // only the pure logic (keying, TTL, LRU trim, serialization, hit/miss).
 //
@@ -22,6 +22,10 @@ export interface CacheEntry {
 export interface CacheStore {
   [key: string]: CacheEntry
 }
+
+/** Bump whenever prompt semantics or output validation changes. Keeping it in
+ * the key prevents an old source-language echo from surviving a quality fix. */
+export const TRANSLATION_CACHE_VERSION = 'page-translation-v2'
 
 /**
  * A tiny, dependency-free, synchronous string hash (FNV-1a 32-bit, base36).
@@ -57,7 +61,7 @@ export function cacheKey(
   personaPrompt: string = ''
 ): string {
   return hashString(
-    [targetLang, model, glossaryBlock, personaPrompt, source].join('\u0000')
+    [TRANSLATION_CACHE_VERSION, targetLang, model, glossaryBlock, personaPrompt, source].join('\u0000')
   )
 }
 

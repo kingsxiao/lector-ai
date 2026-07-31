@@ -10,6 +10,7 @@ import {
   buildTranslateSystemPrompt,
   buildTranslateUserPrompt,
   isTranslationLikelyUnchanged,
+  isTextAlreadyInTargetLanguage,
   maxTokensForChunk,
   filterGlossaryForDirection,
   runConcurrent,
@@ -96,6 +97,8 @@ describe('detectSourceLang', () => {
   it('maps dominant scripts to a representative source code', () => {
     expect(detectSourceLang('Hello world')).toBe('en')
     expect(detectSourceLang('你好世界')).toBe('zh')
+    expect(detectSourceLang('こんにちは世界')).toBe('ja')
+    expect(detectSourceLang('안녕하세요 세계')).toBe('ko')
     expect(detectSourceLang('Привет')).toBe('ru')
     expect(detectSourceLang('สวัสดี')).toBe('th')
     expect(detectSourceLang('नमस्ते')).toBe('hi')
@@ -128,6 +131,14 @@ describe('detectScript', () => {
   })
   it('detects thai', () => {
     expect(detectScript('สวัสดีชาวโลกนี่คือข้อความ')).toBe('thai')
+  })
+  it('detects additional non-Latin scripts from the target-language catalog', () => {
+    expect(detectScript('বাংলা ভাষা')).toBe('bengali')
+    expect(detectScript('ગુજરાતી ભાષા')).toBe('gujarati')
+    expect(detectScript('தமிழ் மொழி')).toBe('tamil')
+    expect(detectScript('ພາສາລາວ')).toBe('lao')
+    expect(detectScript('မြန်မာဘာသာ')).toBe('myanmar')
+    expect(detectScript('ქართული ენა')).toBe('georgian')
   })
 })
 
@@ -232,33 +243,78 @@ describe('isTranslationLikelyUnchanged', () => {
     const out = '信任是每个成功软件产品的基石。'
     expect(isTranslationLikelyUnchanged(src, out, 'zh')).toBe(false)
   })
-  it('does NOT flag a partial translation that differs substantially', () => {
+  it('flags a partial translation that leaves most prose in English', () => {
     const src = 'The quick brown fox jumps over the lazy dog near the riverbank.'
-    // A real translation would share almost no words; even a half-translation
-    // that changed >30% of the text is not "unchanged".
+    // A few translated nouns must not make a mostly-English response pass the
+    // Chinese-target quality guard.
     const out = 'The quick brown 狐狸 jumps over the 懒狗 by the riverbank.'
+    expect(isTranslationLikelyUnchanged(src, out, 'zh')).toBe(true)
+  })
+  it('flags completely different English wording when the target is Chinese', () => {
+    const src = 'A developer tool for building reliable AI agents.'
+    const out = 'This software helps programmers create dependable autonomous systems.'
+    // Lexical similarity alone is insufficient: an all-English paraphrase is
+    // still not a Chinese translation.
+    expect(isTranslationLikelyUnchanged(src, out, 'zh')).toBe(true)
+  })
+  it('flags an English echo with only a Chinese prefix added', () => {
+    const src = 'Trust is the foundation of every successful software product.'
+    const out = '译文：Trust is the foundation of every successful software product.'
+    expect(isTranslationLikelyUnchanged(src, out, 'zh')).toBe(true)
+  })
+  it('accepts Chinese prose that legitimately retains English proper nouns', () => {
+    const src = 'Lector AI uses TypeScript to build reliable developer tools.'
+    const out = 'Lector AI 使用 TypeScript 构建可靠的开发者工具，正文其余部分均为中文。'
     expect(isTranslationLikelyUnchanged(src, out, 'zh')).toBe(false)
+  })
+  it('validates supported non-Latin targets using their actual script', () => {
+    const src = 'Trust is earned through consistent behavior.'
+    expect(isTranslationLikelyUnchanged(src, 'বিশ্বাস ধারাবাহিক আচরণের মাধ্যমে অর্জিত হয়।', 'bn')).toBe(false)
+    expect(isTranslationLikelyUnchanged(src, 'This is still an English response.', 'bn')).toBe(true)
+  })
+  it('flags an empty response even for a short human-language label', () => {
+    // GitHub Trending contains this label. Its normalized length is only seven,
+    // but an empty provider response still needs a retry.
+    expect(isTranslationLikelyUnchanged('Built by', '', 'zh')).toBe(true)
   })
   it('flags case-only / punctuation-only differences as unchanged', () => {
     const src = 'Configuration Options Reference'
     expect(isTranslationLikelyUnchanged(src, 'configuration options reference.', 'zh')).toBe(true)
   })
-  it('does NOT flag when source and target share a script (e.g. en→en is allowed)', () => {
-    // If the user explicitly asked to translate English to English (or the
-    // direction couldn't be inferred), echoing is not a failure — don't retry
-    // forever. We only flag when the target is a DIFFERENT script from the
-    // source, i.e. a real translation was expected.
+  it('flags an exact human-language echo even for a same-script target', () => {
+    // This also catches Spanish/French/German echoed unchanged when the target
+    // is English. Standalone code identifiers are filtered separately.
     const src = 'Hello world'
-    expect(isTranslationLikelyUnchanged(src, src, 'en')).toBe(false)
+    expect(isTranslationLikelyUnchanged(src, src, 'en')).toBe(true)
   })
   it('does NOT flag very short sources (too noisy to judge)', () => {
     // A 3-char source like "API" legitimately has no translation; retrying
     // would loop. Only judge sources long enough to be meaningful.
     expect(isTranslationLikelyUnchanged('API', 'API', 'zh')).toBe(false)
   })
+  it('flags short natural-language labels echoed for a cross-script target', () => {
+    expect(isTranslationLikelyUnchanged('Run', 'Run', 'zh')).toBe(true)
+    expect(isTranslationLikelyUnchanged('New', 'Execute', 'zh')).toBe(true)
+  })
   it('flags CJK source echoed verbatim when target is English', () => {
     const src = '信任是每个成功软件产品的基石。'
     expect(isTranslationLikelyUnchanged(src, src, 'en')).toBe(true)
+  })
+  it('flags Japanese text echoed verbatim when target is Chinese', () => {
+    const src = '信頼は優れたソフトウェア製品の基盤です。'
+    expect(isTranslationLikelyUnchanged(src, src, 'zh')).toBe(true)
+  })
+})
+
+describe('isTextAlreadyInTargetLanguage', () => {
+  it('skips reliable target-script blocks on mixed pages', () => {
+    expect(isTextAlreadyInTargetLanguage('这段正文已经是中文。', 'zh')).toBe(true)
+    expect(isTextAlreadyInTargetLanguage('This paragraph still needs Chinese.', 'zh')).toBe(false)
+    expect(isTextAlreadyInTargetLanguage('この段落はすでに日本語です。', 'ja')).toBe(true)
+  })
+  it('does not guess for scripts shared by many languages', () => {
+    expect(isTextAlreadyInTargetLanguage('Bonjour tout le monde', 'en')).toBe(false)
+    expect(isTextAlreadyInTargetLanguage('Привіт світе', 'ru')).toBe(false)
   })
 })
 
@@ -397,11 +453,11 @@ describe('shouldTranslateBlock', () => {
   it('rejects already-translated', () => {
     expect(shouldTranslateBlock(cand({ isAlreadyTranslated: true }))).toBe(false)
   })
-  it('rejects low text ratio for SHORT non-listish blocks (below 0.4)', () => {
-    // Short + low ratio = a markup-heavy fragment (nav/button). The default
-    // cand text is ≥40 chars so it would hit the absolute-length floor; use a
-    // genuinely short text here to exercise the ratio path.
-    expect(shouldTranslateBlock(cand({ text: 'a short nav label', textRatio: 0.35 }))).toBe(false)
+  it('trusts semantic short paragraphs instead of long outerHTML attributes', () => {
+    // Structural navigation/control filtering happens in the DOM collector.
+    // A real <p> must not disappear merely because tracking attributes make
+    // its outerHTML ratio small.
+    expect(shouldTranslateBlock(cand({ text: 'Fast local search', textRatio: 0.05 }))).toBe(true)
   })
   it('accepts text ratio of 0.4 (relaxed for markup-heavy tech docs)', () => {
     // Technical docs have inline <code>/<a> that bloat outerHTML; the previous
@@ -437,18 +493,26 @@ describe('shouldTranslateBlock', () => {
     // these as text leaves and opts into the tag bypass.
     expect(shouldTranslateBlock(cand({ tag: 'DIV', text: 'A meaningful sentence inside a div container', textRatio: 0.3 }), true)).toBe(true)
     expect(shouldTranslateBlock(cand({ tag: 'SPAN', text: 'A meaningful sentence inside a span container', textRatio: 0.2 }), true)).toBe(true)
+    expect(shouldTranslateBlock(cand({ tag: 'STRONG', text: 'Release notes', textRatio: 0.1 }), true)).toBe(true)
   })
-  it('still rejects too-short text under allowAnyTag but trusts prevalidated leaf ratios', () => {
-    // The DOM collector pre-validates direct text leaves, so outerHTML-heavy
-    // labels must not be rejected a second time by the generic ratio rule.
+  it('rejects short or metadata-like text leaves under allowAnyTag', () => {
+    // A generic div/span leaf needs a stronger prose signal than length alone;
+    // otherwise GitHub metadata labels and technology badges become requests.
     expect(shouldTranslateBlock(cand({ tag: 'DIV', text: 'hi', textRatio: 0.9 }), true)).toBe(false)
-    expect(shouldTranslateBlock(cand({ tag: 'DIV', text: 'Built by', textRatio: 0.01 }), true)).toBe(true)
+    expect(shouldTranslateBlock(cand({ tag: 'DIV', text: 'Built by', textRatio: 0.01 }), true)).toBe(false)
   })
   it('rejects non-translatable tag', () => {
     expect(shouldTranslateBlock(cand({ tag: 'DIV' }))).toBe(false)
   })
   it('accepts a heading', () => {
     expect(shouldTranslateBlock(cand({ tag: 'H2', text: 'A meaningful heading here' }))).toBe(true)
+  })
+  it('translates natural-language headings but preserves code-like identifiers', () => {
+    expect(shouldTranslateBlock(cand({ tag: 'H1', text: 'Trending', textRatio: 0.01 }))).toBe(true)
+    expect(shouldTranslateBlock(cand({ tag: 'H2', text: 'TypeScript', textRatio: 0.9 }))).toBe(false)
+    expect(shouldTranslateBlock(cand({ tag: 'H2', text: 'OpenAI', textRatio: 0.9 }))).toBe(false)
+    expect(shouldTranslateBlock(cand({ tag: 'H2', text: 'Input / Output', textRatio: 0.9 }))).toBe(true)
+    expect(shouldTranslateBlock(cand({ tag: 'H2', text: 'owner / repository', textRatio: 0.9 }))).toBe(false)
   })
 })
 

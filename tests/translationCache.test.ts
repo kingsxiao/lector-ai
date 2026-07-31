@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   hashString,
   cacheKey,
+  TRANSLATION_CACHE_VERSION,
   estimateTokens,
   isExpired,
   putEntry,
@@ -30,6 +31,19 @@ describe('hashString', () => {
 })
 
 describe('cacheKey', () => {
+  it('includes the translation strategy version so legacy outputs are invalidated', () => {
+    const source = 'Built by'
+    const target = 'zh'
+    const model = 'm'
+    const glossary = ''
+    const persona = ''
+    const legacyKey = hashString(
+      [target, model, glossary, persona, source].join('\u0000')
+    )
+
+    expect(TRANSLATION_CACHE_VERSION).toBeTruthy()
+    expect(cacheKey(source, target, model, glossary, persona)).not.toBe(legacyKey)
+  })
   it('changes when targetLang changes', () => {
     expect(cacheKey('hi', 'zh', 'gpt-4o', '')).not.toBe(cacheKey('hi', 'en', 'gpt-4o', ''))
   })

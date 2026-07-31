@@ -496,6 +496,10 @@ export const STRINGS = {
   'bilingual.retry': { en: 'Retry', zh: '重试' },
   'bilingual.copyTranslation': { en: 'Copy translation', zh: '复制译文' },
   'bilingual.blockError': { en: 'Translation failed', zh: '翻译失败' },
+  'bilingual.qualityError': {
+    en: 'The result is still not in the target language. Retry or switch models.',
+    zh: '译文仍未转换为目标语言，请重试或更换模型。',
+  },
   'bilingual.canceled': { en: 'Canceled', zh: '已取消' },
   'bilingual.unavailable': {
     en: 'This page cannot be translated. Refresh the page and try again.',

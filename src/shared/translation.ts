@@ -35,7 +35,83 @@ export { isValidLangCode, searchLanguages }
 
 export type Script =
   | 'cjk' | 'cyrillic' | 'arabic' | 'latin'
-  | 'hebrew' | 'greek' | 'devanagari' | 'thai'
+  | 'hebrew' | 'greek' | 'devanagari' | 'bengali' | 'gurmukhi'
+  | 'gujarati' | 'tamil' | 'telugu' | 'kannada' | 'malayalam'
+  | 'sinhala' | 'thai' | 'lao' | 'myanmar' | 'khmer'
+  | 'georgian' | 'armenian' | 'ethiopic'
+
+const SCRIPTS: Script[] = [
+  'cjk', 'cyrillic', 'arabic', 'latin',
+  'hebrew', 'greek', 'devanagari', 'bengali', 'gurmukhi',
+  'gujarati', 'tamil', 'telugu', 'kannada', 'malayalam',
+  'sinhala', 'thai', 'lao', 'myanmar', 'khmer',
+  'georgian', 'armenian', 'ethiopic',
+]
+
+function scriptForCodePoint(c: number): Script | null {
+  if (
+    (c >= 0x4e00 && c <= 0x9fff) || (c >= 0x3400 && c <= 0x4dbf) ||
+    (c >= 0xf900 && c <= 0xfaff) || (c >= 0x3040 && c <= 0x30ff) ||
+    (c >= 0xac00 && c <= 0xd7af)
+  ) return 'cjk'
+  if (c >= 0x0400 && c <= 0x04ff) return 'cyrillic'
+  if (c >= 0x0600 && c <= 0x06ff) return 'arabic'
+  if (c >= 0x0590 && c <= 0x05ff) return 'hebrew'
+  if (c >= 0x0370 && c <= 0x03ff) return 'greek'
+  if (c >= 0x0900 && c <= 0x097f) return 'devanagari'
+  if (c >= 0x0980 && c <= 0x09ff) return 'bengali'
+  if (c >= 0x0a00 && c <= 0x0a7f) return 'gurmukhi'
+  if (c >= 0x0a80 && c <= 0x0aff) return 'gujarati'
+  if (c >= 0x0b80 && c <= 0x0bff) return 'tamil'
+  if (c >= 0x0c00 && c <= 0x0c7f) return 'telugu'
+  if (c >= 0x0c80 && c <= 0x0cff) return 'kannada'
+  if (c >= 0x0d00 && c <= 0x0d7f) return 'malayalam'
+  if (c >= 0x0d80 && c <= 0x0dff) return 'sinhala'
+  if (c >= 0x0e00 && c <= 0x0e7f) return 'thai'
+  if (c >= 0x0e80 && c <= 0x0eff) return 'lao'
+  if (c >= 0x1000 && c <= 0x109f) return 'myanmar'
+  if (c >= 0x1780 && c <= 0x17ff) return 'khmer'
+  if (c >= 0x10a0 && c <= 0x10ff) return 'georgian'
+  if (c >= 0x0530 && c <= 0x058f) return 'armenian'
+  if (c >= 0x1200 && c <= 0x137f) return 'ethiopic'
+  if ((c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) ||
+      (c >= 0x00c0 && c <= 0x024f)) return 'latin'
+  return null
+}
+
+/** Count letters by script. Punctuation, digits and emoji are intentionally
+ * ignored so identifiers/statistics cannot make an output look translated. */
+export function countScriptCharacters(text: string): Record<Script, number> {
+  const counts: Record<Script, number> = {
+    cjk: 0,
+    cyrillic: 0,
+    arabic: 0,
+    latin: 0,
+    hebrew: 0,
+    greek: 0,
+    devanagari: 0,
+    bengali: 0,
+    gurmukhi: 0,
+    gujarati: 0,
+    tamil: 0,
+    telugu: 0,
+    kannada: 0,
+    malayalam: 0,
+    sinhala: 0,
+    thai: 0,
+    lao: 0,
+    myanmar: 0,
+    khmer: 0,
+    georgian: 0,
+    armenian: 0,
+    ethiopic: 0,
+  }
+  for (const ch of text) {
+    const script = scriptForCodePoint(ch.codePointAt(0)!)
+    if (script) counts[script]++
+  }
+  return counts
+}
 
 /**
  * Detect the dominant script of a text by counting characters in each range.
@@ -49,30 +125,7 @@ export type Script =
  * direction (regression: English pages "translated" back to English).
  */
 export function detectScript(text: string): Script {
-  let cjk = 0, cyrillic = 0, arabic = 0, latin = 0
-  let hebrew = 0, greek = 0, devanagari = 0, thai = 0
-  for (const ch of text) {
-    const c = ch.codePointAt(0)!
-    if ((c >= 0x4e00 && c <= 0x9fff) || (c >= 0x3400 && c <= 0x4dbf) ||
-        (c >= 0xf900 && c <= 0xfaff) || (c >= 0x3040 && c <= 0x30ff) ||
-        (c >= 0xac00 && c <= 0xd7af)) {
-      cjk++
-    } else if (c >= 0x0400 && c <= 0x04ff) {
-      cyrillic++
-    } else if (c >= 0x0600 && c <= 0x06ff) {
-      arabic++
-    } else if (c >= 0x0590 && c <= 0x05ff) {
-      hebrew++
-    } else if (c >= 0x0370 && c <= 0x03ff) {
-      greek++
-    } else if (c >= 0x0900 && c <= 0x097f) {
-      devanagari++
-    } else if (c >= 0x0e00 && c <= 0x0e7f) {
-      thai++
-    } else if ((c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)) {
-      latin++
-    }
-  }
+  const counts = countScriptCharacters(text)
   // Pick the DOMINANT script by raw count, comparing ALL scripts against each
   // other (including latin). The previous logic compared cjk only to cyrillic
   // and arabic — never to latin — so a single stray CJK char in an otherwise
@@ -80,16 +133,9 @@ export function detectScript(text: string): Script {
   // an English page (with e.g. a Chinese footer char) to "translate to
   // English" → the page came back untranslated. Compare against latin too so
   // the majority script wins.
-  const max = Math.max(cjk, cyrillic, arabic, latin, hebrew, greek, devanagari, thai)
+  const max = Math.max(...SCRIPTS.map((script) => counts[script]))
   if (max === 0) return 'latin'
-  if (cjk === max) return 'cjk'
-  if (cyrillic === max) return 'cyrillic'
-  if (arabic === max) return 'arabic'
-  if (hebrew === max) return 'hebrew'
-  if (greek === max) return 'greek'
-  if (devanagari === max) return 'devanagari'
-  if (thai === max) return 'thai'
-  return 'latin'
+  return SCRIPTS.find((script) => script !== 'latin' && counts[script] === max) || 'latin'
 }
 
 import type { GlossaryEntry } from './glossary'
@@ -114,13 +160,30 @@ export function resolveTargetLang(setting: TargetLangSetting, sourceText: string
  */
 export function detectSourceLang(text: string): string {
   switch (detectScript(text)) {
-    case 'cjk': return 'zh'
+    case 'cjk':
+      if (/[\u3040-\u30ff]/u.test(text)) return 'ja'
+      if (/[\uac00-\ud7af]/u.test(text)) return 'ko'
+      return 'zh'
     case 'cyrillic': return 'ru'
     case 'arabic': return 'ar'
     case 'hebrew': return 'he'
     case 'greek': return 'el'
     case 'devanagari': return 'hi'
+    case 'bengali': return 'bn'
+    case 'gurmukhi': return 'pa'
+    case 'gujarati': return 'gu'
+    case 'tamil': return 'ta'
+    case 'telugu': return 'te'
+    case 'kannada': return 'kn'
+    case 'malayalam': return 'ml'
+    case 'sinhala': return 'si'
     case 'thai': return 'th'
+    case 'lao': return 'lo'
+    case 'myanmar': return 'my'
+    case 'khmer': return 'km'
+    case 'georgian': return 'ka'
+    case 'armenian': return 'hy'
+    case 'ethiopic': return 'am'
     default: return 'en'
   }
 }
@@ -156,7 +219,7 @@ export function buildTranslateSystemPrompt(
   personaPrompt: string = ''
 ): string {
   const name = getLanguage(targetLang).en
-  const base = `You are a professional translator. Translate the user text into ${name}. Preserve meaning, tone, and formatting. Your entire output MUST be written in ${name} — never echo the source language. Leave code snippets, URLs, email addresses, and HTML tags verbatim, but translate ALL surrounding prose, including sentences that contain code or links. Output ONLY the translation, no explanations, no quotes.`
+  const base = `You are a professional translator. Translate every natural-language phrase in the user text into ${name}. Preserve meaning, tone, and formatting. The translated prose MUST visibly use ${name}; never paraphrase prose in the source language. Keep proper names, product names, code snippets, commands, URLs, email addresses, numbers, version strings, repository/package identifiers, and HTML tags verbatim, but translate ALL surrounding prose, including sentences that contain those items. Output ONLY the translation, no explanations, no quotes.`
   const parts = [base]
   if (personaPrompt.trim()) parts.push(personaPrompt.trim())
   if (glossaryBlock) parts.push(glossaryBlock)
@@ -190,26 +253,42 @@ export function buildTranslateUserPrompt(text: string): string {
 function scriptOfLang(lang: TargetLangCode): Script {
   // CJK variants (incl. Traditional/Cantonese/Min Nan/Classical) all share the
   // Han script; ru/uk/be/mk/bg/sr use Cyrillic; Arabic-script langs (ar, fa,
-  // ur, ps) share Arabic; Hebrew (he, yi); Greek (el); Devanagari (hi, bn, mr,
-  // gu, ne, sa); Thai (th, lo). Everything else defaults to Latin.
+  // ur, ps) share Arabic; Hebrew (he, yi); Greek (el). South/Southeast Asian
+  // targets use their actual Unicode scripts below. Everything else defaults
+  // to Latin.
   if (
     lang === 'zh' || lang === 'zh-TW' || lang === 'ja' || lang === 'ko' ||
     lang === 'yue' || lang === 'nan' || lang === 'wyw'
   ) return 'cjk'
   if (lang === 'ru' || lang === 'uk' || lang === 'be' || lang === 'mk' ||
-      lang === 'bg' || lang === 'sr') return 'cyrillic'
+      lang === 'bg' || lang === 'sr' || lang === 'kk' || lang === 'mn') return 'cyrillic'
   if (lang === 'ar' || lang === 'fa' || lang === 'ur' || lang === 'ps') return 'arabic'
   if (lang === 'he' || lang === 'yi') return 'hebrew'
   if (lang === 'el') return 'greek'
-  if (lang === 'hi' || lang === 'bn' || lang === 'mr' || lang === 'gu' || lang === 'ne') return 'devanagari'
-  if (lang === 'th' || lang === 'lo') return 'thai'
+  if (lang === 'hi' || lang === 'mr' || lang === 'ne' || lang === 'sa') return 'devanagari'
+  if (lang === 'bn') return 'bengali'
+  if (lang === 'pa') return 'gurmukhi'
+  if (lang === 'gu') return 'gujarati'
+  if (lang === 'ta') return 'tamil'
+  if (lang === 'te') return 'telugu'
+  if (lang === 'kn') return 'kannada'
+  if (lang === 'ml') return 'malayalam'
+  if (lang === 'si') return 'sinhala'
+  if (lang === 'th') return 'thai'
+  if (lang === 'lo') return 'lao'
+  if (lang === 'my') return 'myanmar'
+  if (lang === 'km') return 'khmer'
+  if (lang === 'ka') return 'georgian'
+  if (lang === 'hy') return 'armenian'
+  if (lang === 'am') return 'ethiopic'
   return 'latin' // en, fr, de, es, pt, it, vi, and the rest of the catalog
 }
 
-// Below this length (after whitespace trim) a source is too short to judge
-// reliably — "API", "OK", a lone URL — so we don't flag it. This also prevents
-// retry loops on legitimately untranslatable identifiers.
-const UNCHANGED_MIN_SOURCE_LEN = 8
+// A three-letter identifier such as API is too noisy to judge. Candidate
+// selection removes these before requests; this last guard protects selection
+// translation and custom site selectors.
+const UNCHANGED_MIN_SOURCE_LETTERS = 3
+const MIN_TARGET_SCRIPT_SHARE = 0.18
 
 /**
  * Decide whether a translation output looks like the model just echoed the
@@ -217,13 +296,11 @@ const UNCHANGED_MIN_SOURCE_LEN = 8
  * can be unit-tested; the page translator calls this per chunk to trigger a
  * single forceful retry when it returns true.
  *
- * Rules:
- *  - Source too short (< 8 non-space chars) → false (too noisy).
- *  - Target script equals source script → false (e.g. user asked en→en, or
- *    a Latin→Latin pair where echoing is ambiguous, not a definite failure).
- *  - Otherwise compare the two on a normalized form (lowercased, whitespace +
- *    punctuation stripped). If they match exactly OR differ by very little
- *    (≤20% of the longer string's length) → true (the model didn't translate).
+ * For cross-script translation this is deliberately stricter than an
+ * unchanged-text comparison. A model can paraphrase English into different
+ * English and still have failed an English→Chinese request. We therefore
+ * require a meaningful amount of the target script, while allowing product
+ * names, code and URLs to remain in their original script.
  */
 export function isTranslationLikelyUnchanged(
   source: string,
@@ -233,27 +310,41 @@ export function isTranslationLikelyUnchanged(
   const norm = (s: string) => s.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '')
   const ns = norm(source)
   const no = norm(output)
-  if (ns.length < UNCHANGED_MIN_SOURCE_LEN) return false
-  // Only flag when a real script change was expected.
-  if (scriptOfLang(targetLang) === detectScript(source)) return false
-  if (!no) return true // empty output after normalization = nothing translated
-  if (ns === no) return true
-  // A successful cross-script translation is immediately distinguishable by
-  // its dominant output script. Avoid the quadratic similarity pass for the
-  // overwhelmingly common success path (e.g. English → Chinese on every page
-  // block), which otherwise performs millions of DP operations per chunk.
-  if (detectScript(output) === scriptOfLang(targetLang)) return false
-  // Character-level diff ratio (cheap Levenshtein-free proxy via LCS length).
-  // Bound the fallback comparison: source chunks can be 2,000 chars and model
-  // output even longer, making full LCS O(m*n) expensive on the page's main
-  // thread. Echoes are already caught exactly above; a 512-char prefix is
-  // ample to catch the "minor wrapper/punctuation change" retry case.
-  const sampleSource = ns.slice(0, 512)
-  const sampleOutput = no.slice(0, 512)
-  const lcs = longestCommonSubsequence(sampleSource, sampleOutput)
-  const longer = Math.max(sampleSource.length, sampleOutput.length)
-  const diffRatio = 1 - lcs / longer
-  return diffRatio <= 0.2
+  const sourceIsIdentifier = isLikelyIdentifierText(source)
+  if (!no) return ns.length > 0 && !sourceIsIdentifier
+
+  const sourceCounts = countScriptCharacters(source)
+  const sourceLetters = SCRIPTS.reduce((n, script) => n + sourceCounts[script], 0)
+
+  const targetScript = scriptOfLang(targetLang)
+  const sourceScript = detectScript(source)
+  // Exact source echoes are failures for every real language pair, including
+  // short labels such as "Run" and same-script pairs such as Spanish→English.
+  // Standalone identifiers (API, C++, package names) are the exception.
+  if (ns === no) return !sourceIsIdentifier
+  if (sourceLetters < UNCHANGED_MIN_SOURCE_LETTERS) return false
+
+  // Same-script language pairs cannot be validated by character coverage.
+  // Similarity still catches wrappers/case changes; substantially different
+  // output needs a real language detector and is left to the model/prompt.
+  if (targetScript === sourceScript) {
+    const sampleSource = ns.slice(0, 512)
+    const sampleOutput = no.slice(0, 512)
+    const lcs = longestCommonSubsequence(sampleSource, sampleOutput)
+    const longer = Math.max(sampleSource.length, sampleOutput.length)
+    return longer > 0 && 1 - lcs / longer <= 0.2
+  }
+
+  const outputCounts = countScriptCharacters(output)
+  const outputLetters = SCRIPTS.reduce((n, script) => n + outputCounts[script], 0)
+  const targetLetters = outputCounts[targetScript]
+  if (targetLetters === 0 || outputLetters === 0) return true
+
+  // Scale the minimum with source prose, but cap it so technical descriptions
+  // containing many preserved names (OpenAI, MCP, TypeScript…) still pass.
+  const minTargetLetters = Math.max(1, Math.min(8, Math.ceil(sourceLetters * 0.08)))
+  if (targetLetters < minTargetLetters) return true
+  return targetLetters / outputLetters < MIN_TARGET_SCRIPT_SHARE
 }
 
 /** LCS length (dynamic programming). Used for the unchanged-output similarity. */
@@ -422,6 +513,75 @@ const MIN_TEXT_RATIO_LISTISH = 0.18
 // under this), so it doesn't pull in nav/button fragments.
 const ABSOLUTE_TEXT_LEN_FLOOR = 30
 
+/** Text that should stay verbatim even when it appears in a normally
+ * translatable tag. DOM-specific metadata (programming-language badges,
+ * counters, controls) is filtered by content.ts; these patterns cover the
+ * context-free cases such as repository slugs, URLs and handles. */
+export function isLikelyIdentifierText(text: string): boolean {
+  const t = text.replace(/\s+/g, ' ').trim()
+  if (!t || !/\p{L}/u.test(t)) return true
+  if (/^(?:https?:\/\/|www\.)\S+$/iu.test(t)) return true
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(t)) return true
+  if (/^@[\p{L}\p{N}_.-]+$/u.test(t)) return true
+  const slashIdentifier = t.match(/^(@?[\p{L}\p{N}_.-]+)(\s*)\/(\s*)([\p{L}\p{N}_.-]+)$/u)
+  if (slashIdentifier) {
+    const [, left, beforeSlash, afterSlash, right] = slashIdentifier
+    // owner/repo and @scope/package are identifiers. With spaces around the
+    // slash, preserve natural headings such as "Input / Output" unless both
+    // sides look like lowercase slugs.
+    if ((!beforeSlash && !afterSlash) ||
+        (/^[a-z\d_.-]+$/u.test(left.replace(/^@/, '')) && /^[a-z\d_.-]+$/u.test(right))) {
+      return true
+    }
+  }
+  if (/^v?\d+(?:\.\d+){1,4}(?:[-+][\p{L}\p{N}.-]+)?$/iu.test(t)) return true
+  if (/^(?:[a-f0-9]{7,64}|#[a-f0-9]{6,8})$/iu.test(t)) return true
+  if (!/\s/u.test(t) && (
+    /\p{Ll}\p{Lu}/u.test(t) ||
+    /^(?:--?|[.#])[\p{L}_][\p{L}\p{N}_.-]*$/u.test(t) ||
+    /^(?=[\p{Lu}\d_.+-]+$)(?=.*\p{Lu})[\p{Lu}\d_.+-]{2,}$/u.test(t)
+  )) return true
+  if (!/\s/u.test(t) && (
+    /(?:^|[./\\])[\p{L}\p{N}_-]+\.[\p{L}\p{N}]{1,8}$/u.test(t) ||
+    /[_\\]|::|=>|<\/?[a-z][^>]*>/iu.test(t)
+  )) return true
+  return false
+}
+
+/**
+ * Modern component pages often put prose directly in div/span nodes. Only
+ * recover those leaves when they have sentence-like signals; a six-character
+ * cutoff made TypeScript, counters and long menu option names look
+ * "translatable" by accident.
+ */
+export function isLikelyProseLeafText(text: string): boolean {
+  const t = text.replace(/\s+/g, ' ').trim()
+  if (isLikelyIdentifierText(t)) return false
+  const letters = (t.match(/\p{L}/gu) || []).length
+  if (letters < 4) return false
+  if (detectScript(t) !== 'latin') return letters >= 4
+  const words = t.match(/\p{L}+(?:['’'-]\p{L}+)*/gu) || []
+  return (letters >= 10 && words.length >= 2) ||
+    (letters >= 8 && /[.!?;:]/u.test(t))
+}
+
+const RELIABLE_TARGET_SCRIPTS = new Set<Script>([
+  'cjk', 'bengali', 'gurmukhi', 'gujarati', 'tamil', 'telugu',
+  'kannada', 'malayalam', 'sinhala', 'thai', 'lao', 'myanmar',
+  'khmer', 'georgian', 'armenian', 'ethiopic',
+])
+
+/** Conservative block-level no-op detection. We only skip scripts whose
+ * representative language can be inferred reliably from characters alone;
+ * Latin/Cyrillic/Arabic are shared by many languages and must still be sent. */
+export function isTextAlreadyInTargetLanguage(
+  text: string,
+  targetLang: TargetLangCode
+): boolean {
+  const script = scriptOfLang(targetLang)
+  return RELIABLE_TARGET_SCRIPTS.has(script) && detectSourceLang(text) === targetLang
+}
+
 /**
  * Decide whether a candidate DOM block should be translated. Pure function so
  * the DOM-querying (content.ts) is decoupled from the policy (here, unit-tested).
@@ -448,11 +608,21 @@ export function shouldTranslateBlock(c: BlockCandidate, allowAnyTag = false): bo
   if (t.length < MIN_BLOCK_LEN) return false
   if (c.isInsideExcluded) return false
   if (c.isAlreadyTranslated) return false
+  if (isLikelyIdentifierText(t)) return false
   // `allowAnyTag` is only used after the DOM collector has verified a direct
-  // text leaf outside controls/navigation. Re-applying the outerHTML ratio
-  // here drops short labels and links with long attributes even though their
-  // direct text is exactly what the user expects translated.
-  if (allowAnyTag) return true
+  // text leaf outside controls/navigation. Require prose signals here too:
+  // caller mistakes must not turn a programming-language badge or counter
+  // into an API request.
+  if (allowAnyTag) return isLikelyProseLeafText(t)
+  // Semantic headings are trustworthy after structural/noise filtering. Their
+  // class and tracking attributes should not make a short title such as
+  // "Trending" fail an outerHTML ratio test.
+  if (/^H[1-6]$/i.test(c.tag)) return true
+  if (c.tag.toUpperCase() === 'P' ||
+      c.tag.toUpperCase() === 'BLOCKQUOTE' ||
+      c.tag.toUpperCase() === 'FIGCAPTION') {
+    return t.length >= ABSOLUTE_TEXT_LEN_FLOOR || isLikelyProseLeafText(t)
+  }
   if (t.length >= ABSOLUTE_TEXT_LEN_FLOOR) return true
   const isListish = LISTISH_TAGS.has(c.tag.toUpperCase())
   const threshold = isListish ? MIN_TEXT_RATIO_LISTISH : MIN_TEXT_RATIO

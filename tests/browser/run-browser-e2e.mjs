@@ -62,6 +62,7 @@ const CHROME_STUB = `
 window.__lectorMsgs = [];
 window.__lectorMsgHandlers = {};
 window.__fetchCalls = [];
+window.__translationResponseMode = 'translated';
 // Capture window.open so the FAB test can assert the reliable MV3 opener path
 // (chrome.sidePanel.open can't be triggered from a content-script click; the
 // FAB falls back to window.open(chrome.runtime.getURL('sidepanel/index.html'))).
@@ -90,13 +91,23 @@ window.fetch = function (url, opts) {
   // Capture the request body so tests can assert translation direction (the
   // system prompt's target language) — guards against the English→English
   // regression caused by detectScript mis-classifying mixed-script pages.
-  try { window.__fetchBodies = window.__fetchBodies || []; window.__fetchBodies.push(opts && opts.body ? JSON.parse(opts.body) : null); } catch (e) {}
+  let parsedBody = null;
+  try {
+    parsedBody = opts && opts.body ? JSON.parse(opts.body) : null;
+    window.__fetchBodies = window.__fetchBodies || [];
+    window.__fetchBodies.push(parsedBody);
+  } catch (e) {}
+  const messages = parsedBody && Array.isArray(parsedBody.messages) ? parsedBody.messages : [];
+  const sourceText = messages.length ? String(messages[messages.length - 1].content || '') : '';
+  const tokens = window.__translationResponseMode === 'echo'
+    ? [sourceText]
+    : ['这是完整的中文译文，', '用于浏览器回归测试。'];
   // Every BYOK call (translate/explain/summarize/bilingual/testConnection)
   // hits {baseUrl}/chat/completions with stream:true. Return a 200 SSE body.
   return Promise.resolve({
     ok: true,
     status: 200,
-    body: sseStream(['[译文] ', 'mock-', 'translated']),
+    body: sseStream(tokens),
     json: () => Promise.resolve({ data: [{ id: 'mock-model' }] }),
     text: () => Promise.resolve(''),
   });
@@ -342,10 +353,21 @@ async function main() {
     // finds no untranslated candidates and this concurrency check is vacuous.
     await evalIn(page, `(()=>{
       document.querySelectorAll('.lector-bilingual-host').forEach(host => {
-        const source = host.querySelector(':scope > .lector-bi-source');
-        if (source) host.replaceChildren(...Array.from(source.childNodes));
-        host.classList.remove('lector-bilingual-host');
+        host.querySelectorAll(':scope > .lector-bilingual').forEach(n => n.remove());
+        Array.from(host.querySelectorAll(':scope > .lector-bi-source-node')).forEach(node => {
+          node.classList.remove('lector-bi-source', 'lector-bi-source-node');
+          if (node.dataset.lectorSourceText === 'true') node.replaceWith(...Array.from(node.childNodes));
+        });
+        host.classList.remove('lector-bilingual-host', 'lector-translation-error');
       });
+      const li = document.createElement('li');
+      li.id = 'dom-structure-fixture';
+      li.innerHTML = '<strong id="dom-direct-child">Read the detailed migration guidance before upgrading.</strong>';
+      document.querySelector('article').appendChild(li);
+      const alreadyTarget = document.createElement('p');
+      alreadyTarget.id = 'already-target-fixture';
+      alreadyTarget.textContent = '这段正文已经是中文，不应再追加重复译文。';
+      document.querySelector('article').appendChild(alreadyTarget);
     })()`)
     await evalIn(page, `window.__fetchCalls = []`)
     await fireContentMessage(page, { action: 'lector-toggle-bilingual' })
@@ -357,17 +379,70 @@ async function main() {
 
     // §9.3 display modes: each translated block is marked a host so the
     // translationOnly / hover CSS can target it, and the original text is
-    // wrapped in a .lector-bi-source span so translationOnly can hide it.
+    // marked with .lector-bi-source-node so translationOnly can hide it
+    // without reparenting existing element children.
     const hostCount = await evalIn(page, `document.querySelectorAll('.lector-bilingual-host').length`)
     const hostedChunks = await evalIn(page, `document.querySelectorAll('.lector-bilingual-host .lector-bilingual').length`)
     check('§9.3a translated chunks belong to marked hosts', hostedChunks >= 1 && hostedChunks === bilingualFetches.length, `hosts=${hostCount} hostedChunks=${hostedChunks} requests=${bilingualFetches.length}`)
+    const directChildPreserved = await evalIn(page, `!!document.querySelector('#dom-structure-fixture > #dom-direct-child')`)
+    check('§9.3a translation preserves existing direct-child DOM structure', directChildPreserved === true)
+    const alreadyTargetSkipped = await evalIn(page, `!document.querySelector('#already-target-fixture.lector-bilingual-host, #already-target-fixture > .lector-bilingual')`)
+    check('§9.3a blocks already in the target language are skipped', alreadyTargetSkipped === true)
     await evalIn(page, `document.body.classList.remove('lector-dm-bilingual'); document.body.classList.add('lector-dm-translationOnly')`)
-    const origHiddenInTranslationOnly = await evalIn(page, `(() => { const s = document.querySelector('.lector-bilingual-host .lector-bi-source'); return !!s && getComputedStyle(s).display === 'none' })()`)
+    const origHiddenInTranslationOnly = await evalIn(page, `(() => { const s = document.querySelector('.lector-bilingual-host > .lector-bi-source-node'); return !!s && getComputedStyle(s).display === 'none' })()`)
     check('§9.3b translationOnly hides the original text', origHiddenInTranslationOnly === true)
     const trVisibleInTranslationOnly = await evalIn(page, `(() => { const h = document.querySelector('.lector-bilingual-host .lector-bilingual'); return !!h && getComputedStyle(h).display !== 'none' })()`)
     check('§9.3c translationOnly keeps the translation visible', trVisibleInTranslationOnly === true)
     // restore default mode for any later checks
     await evalIn(page, `document.body.classList.remove('lector-dm-translationOnly'); document.body.classList.add('lector-dm-bilingual')`)
+
+    // §9.4 Quality guard: a provider that returns different/source-language
+    // English must not be rendered or cached as a successful Chinese
+    // translation. The semantic retry happens exactly once, then a localized
+    // error remains while the source stays readable.
+    await evalIn(page, `(()=>{
+      document.querySelectorAll('.lector-bilingual-host').forEach(host => {
+        host.querySelectorAll(':scope > .lector-bilingual').forEach(n => n.remove());
+        Array.from(host.querySelectorAll(':scope > .lector-bi-source-node')).forEach(node => {
+          node.classList.remove('lector-bi-source', 'lector-bi-source-node');
+          if (node.dataset.lectorSourceText === 'true') node.replaceWith(...Array.from(node.childNodes));
+        });
+        host.classList.remove('lector-bilingual-host', 'lector-translation-error');
+      });
+      document.querySelector('article').setAttribute('translate', 'no');
+      const p = document.createElement('p');
+      p.id = 'quality-echo-fixture';
+      p.textContent = 'This provider response remains entirely in English after translation.';
+      document.body.appendChild(p);
+      window.__translationResponseMode = 'echo';
+      window.__fetchCalls = [];
+      window.__lectorMsgs = [];
+    })()`)
+    await fireContentMessage(page, { action: 'lector-toggle-bilingual' })
+    await sleep(900)
+    const qualityFetches = JSON.parse(await evalIn(page, `JSON.stringify((window.__fetchCalls||[]).filter(u=>String(u).endsWith('/chat/completions')))`) || '[]')
+    const qualityState = JSON.parse(await evalIn(page, `JSON.stringify((()=>{
+      const host = document.querySelector('#quality-echo-fixture');
+      const out = host && host.querySelector(':scope > .lector-bilingual');
+      const source = host ? Array.from(host.querySelectorAll(':scope > .lector-bi-source-node')).map(n => n.textContent || '').join('') : '';
+      return {
+        isError: !!out && out.classList.contains('is-error'),
+        output: out ? out.childNodes[0]?.textContent || '' : '',
+        source,
+      };
+    })())`) || '{}')
+    check('§9.4 source-language echo gets exactly one semantic retry', qualityFetches.length === 2, `calls=${qualityFetches.length}`)
+    check('§9.4 second English echo is shown as quality error, not fake translation',
+      qualityState.isError && /目标语言|target language/i.test(qualityState.output) && !/provider response remains/i.test(qualityState.output),
+      `state=${JSON.stringify(qualityState)}`)
+    check('§9.4 quality failure preserves readable source text',
+      /provider response remains entirely in English/i.test(qualityState.source),
+      `source="${qualityState.source}"`)
+    await evalIn(page, `document.body.classList.remove('lector-dm-bilingual'); document.body.classList.add('lector-dm-translationOnly')`)
+    const failedSourceVisible = await evalIn(page, `Array.from(document.querySelectorAll('#quality-echo-fixture > .lector-bi-source-node')).every(n => getComputedStyle(n).display !== 'none')`)
+    check('§9.4 quality failure keeps source visible in translation-only mode', failedSourceVisible === true)
+    await evalIn(page, `document.body.classList.remove('lector-dm-translationOnly'); document.body.classList.add('lector-dm-bilingual')`)
+    await evalIn(page, `window.__translationResponseMode = 'translated'`)
 
     // ---- §2.3 Escape closes popups ----
     await evalIn(page, `document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`)

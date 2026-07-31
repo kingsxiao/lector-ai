@@ -58,7 +58,7 @@ function injectStyles() {
     #lector-ai-result .copy-btn { flex:1; padding:8px 12px; border:none; border-radius:10px; font-size:12px; font-weight:600; background:#F5EFE3; color:#6B6155; cursor:pointer; transition:background-color .15s ease, transform .1s ease; }
     #lector-ai-result .copy-btn:active { transform: translateY(1px); }
     #lector-ai-result .copy-btn:hover { background:#E8DECC; }
-    .lector-bilingual { font-size:.92em; line-height:1.6; color:#6B6155; border-left:3px solid #9C6B3C; padding:4px 0 4px 12px; margin:8px 0 8px 4px; border-radius:0 3px 3px 0; position:relative; transition:opacity .2s ease; }
+    .lector-bilingual { display:block; font-size:.92em; line-height:1.6; color:#6B6155; border-left:3px solid #9C6B3C; padding:4px 0 4px 12px; margin:8px 0 8px 4px; border-radius:0 3px 3px 0; position:relative; transition:opacity .2s ease; }
     .lector-bilingual.is-loading { opacity:.6; }
     .lector-bilingual.is-error { border-left-color:#c0392b; color:#c0392b; }
     .lector-bi-caret { display:inline-block; width:2px; height:1em; background:#9C6B3C; vertical-align:text-bottom; margin-left:1px; animation:lectorBlink 1s steps(2) infinite; }
@@ -68,7 +68,8 @@ function injectStyles() {
     .lector-bi-actions button { border:none; background:transparent; color:#9C6B3C; cursor:pointer; font-size:11px; padding:2px 4px; border-radius:4px; }
     .lector-bi-actions button:hover { background:rgba(156,107,60,.12); }
     /* display modes (toggled via body class set by content script) */
-    body.lector-dm-translationOnly .lector-bi-source { display:none !important; }
+    body.lector-dm-translationOnly .lector-bilingual-host > .lector-bi-source-node { display:none !important; }
+    body.lector-dm-translationOnly .lector-bilingual-host.lector-translation-error > .lector-bi-source-node { display:initial !important; }
     body.lector-dm-hover .lector-bilingual { display:none; }
     body.lector-dm-hover .lector-bilingual-host:hover .lector-bilingual { display:block; }
   `
@@ -914,6 +915,8 @@ import { renderGlossaryPrompt, type GlossaryEntry } from './shared/glossary'
 import {
   runConcurrent,
   shouldTranslateBlock,
+  isLikelyProseLeafText,
+  isTextAlreadyInTargetLanguage,
   splitBlockForTranslation,
   buildTranslateSystemPrompt,
   filterGlossaryForDirection,
@@ -1177,9 +1180,26 @@ let bilingualAbort: AbortController | null = null
 
 const EXCLUDED_SELECTOR = Array.from(EXCLUDED_ANCESTOR_TAGS).map((t) => t.toLowerCase()).join(',')
 const BASE_TRANSLATABLE_SELECTOR =
-  'p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, dt, dd, figcaption, summary'
+  'p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, dt, dd, figcaption'
 const TRANSLATION_NOISE_SELECTOR =
-  'nav, header, footer, menu, [role="navigation"], [role="banner"], [role="menu"], [role="menubar"]'
+  [
+    'nav', 'header', 'footer', 'aside', 'menu', 'form',
+    '[role="navigation"]', '[role="banner"]', '[role="contentinfo"]',
+    '[role="menu"]', '[role="menubar"]', '[role="menuitem"]',
+    '[role="menuitemradio"]', '[role="menuitemcheckbox"]',
+    '[role="listbox"]', '[role="option"]', '[role="tablist"]', '[role="tab"]',
+    '[role="toolbar"]', '[role="textbox"]', '[role="combobox"]',
+    'details-menu', '.select-menu-modal', 'dialog:not([open])',
+    '[hidden]', '[aria-hidden="true"]', '[inert]',
+    '.sr-only', '.visually-hidden', '[translate="no"]', '.notranslate',
+    '[contenteditable]:not([contenteditable="false"])',
+  ].join(',')
+const TRANSLATION_SELF_SELECTOR =
+  [
+    '#lector-ai-result', '#lector-ai-toolbar', '#lector-ai-loading', '#lector-ai-fab',
+    '[data-lector-no-translate]', '.lector-bilingual-host', '.lector-bi-source',
+    '.lector-bilingual', '.lector-bi-actions',
+  ].join(',')
 
 function buildBlockCandidate(el: HTMLElement) {
   const text = (el.textContent || '').trim()
@@ -1209,6 +1229,103 @@ function closestSafe(el: Element, selector: string): Element | null {
   }
 }
 
+function directTextOf(el: Element): string {
+  return Array.from(el.childNodes)
+    .filter((n) => n.nodeType === Node.TEXT_NODE)
+    .map((n) => n.textContent || '')
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Content after a closed <details> summary is present in the DOM but not
+ * rendered. GitHub's three language/date filters contain more than a thousand
+ * such labels, which previously became hundreds of pointless API requests. */
+function isInsideClosedDetailsContent(el: Element): boolean {
+  for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+    if (!parent.matches('details:not([open])')) continue
+    const summary = queryAllSafe(parent, ':scope > summary')[0]
+    if (!summary?.contains(el)) return true
+  }
+  return false
+}
+
+function createVisibilityChecker(scopeRoot: Element): (el: HTMLElement) => boolean {
+  const doc = scopeRoot.ownerDocument
+  const win = doc.defaultView
+  const viewportRect = doc.documentElement.getBoundingClientRect()
+  // jsdom intentionally has no layout and returns zero rects for every node;
+  // only use client rects when a real rendering engine is present.
+  const hasLayout = viewportRect.width > 0 || viewportRect.height > 0
+  const hiddenByStyle = new WeakMap<Element, boolean>()
+
+  const styleHides = (el: Element): boolean => {
+    const cached = hiddenByStyle.get(el)
+    if (cached !== undefined) return cached
+    if (!win || !(el instanceof win.HTMLElement)) {
+      hiddenByStyle.set(el, false)
+      return false
+    }
+    const style = win.getComputedStyle(el)
+    const hidden = style.display === 'none' ||
+      style.visibility === 'hidden' ||
+      style.visibility === 'collapse'
+    hiddenByStyle.set(el, hidden)
+    return hidden
+  }
+
+  return (el: HTMLElement) => {
+    if (isInsideClosedDetailsContent(el)) return false
+    for (let current: Element | null = el; current; current = current.parentElement) {
+      if (styleHides(current)) return false
+      if (current === scopeRoot) break
+    }
+    if (!hasLayout || el.getClientRects().length > 0) return true
+    // `display: contents` has no element box even though its text/children are
+    // rendered. A Range observes those rendered contents without accepting
+    // genuinely hidden elements.
+    try {
+      const range = doc.createRange()
+      range.selectNodeContents(el)
+      return range.getClientRects().length > 0
+    } catch {
+      return false
+    }
+  }
+}
+
+function isStructurallyExcluded(el: HTMLElement): boolean {
+  return Boolean(
+    closestSafe(el, EXCLUDED_SELECTOR) ||
+    closestSafe(el, TRANSLATION_NOISE_SELECTOR) ||
+    closestSafe(el, TRANSLATION_SELF_SELECTOR)
+  )
+}
+
+/** DOM semantics that text alone cannot classify. Keep programming-language
+ * badges, icon-backed counters and contributor/avatar metadata verbatim. */
+function isNonProseMetadata(el: HTMLElement, text: string): boolean {
+  if (closestSafe(el, '[itemprop="programmingLanguage"]')) return true
+  const compact = directTextOf(el) || text.replace(/\s+/g, ' ').trim()
+  if (compact.length < 24 && el.querySelector('a img[alt^="@"]')) return true
+  if (
+    el.querySelector('svg, [role="img"]') &&
+    /^[\d\s.,+%-]*(?:stars?|forks?|views?|likes?|comments?|downloads?|watchers?|issues?|votes?|points?)(?:\s+\p{L}+){0,3}$/iu.test(compact)
+  ) return true
+  if (el.querySelector('input, button, select, textarea, [contenteditable]:not([contenteditable="false"]), [role="button"]')) {
+    return true
+  }
+  // GitHub repository identity headings are navigation identifiers, including
+  // mixed-case slugs that cannot be classified from text alone.
+  if (
+    /^H[1-6]$/u.test(el.tagName) &&
+    el.closest('article.Box-row') &&
+    el.querySelector('a[href^="/"]') &&
+    compact.includes('/')
+  ) return true
+  return false
+}
+
 /**
  * Collect non-overlapping translation hosts.
  *
@@ -1224,18 +1341,31 @@ export function collectTranslationCandidates(
   extraSelectors: string[] = [],
   excludeSelectors: string[] = []
 ): HTMLElement[] {
+  const isVisible = createVisibilityChecker(scopeRoot)
   const validExtra = extraSelectors.map((s) => s.trim()).filter(Boolean)
   const extraRoots = new Set<HTMLElement>()
   for (const selector of validExtra) {
-    for (const el of queryAllSafe(scopeRoot, selector)) extraRoots.add(el)
-    if (closestSafe(scopeRoot, selector) === scopeRoot) extraRoots.add(scopeRoot as HTMLElement)
+    for (const el of queryAllSafe(scopeRoot, selector)) {
+      if (!isStructurallyExcluded(el) && isVisible(el)) extraRoots.add(el)
+    }
+    if (
+      closestSafe(scopeRoot, selector) === scopeRoot &&
+      !isStructurallyExcluded(scopeRoot as HTMLElement) &&
+      isVisible(scopeRoot as HTMLElement)
+    ) extraRoots.add(scopeRoot as HTMLElement)
   }
 
   const standardRoots = new Set<HTMLElement>()
-  if (closestSafe(scopeRoot, BASE_TRANSLATABLE_SELECTOR) === scopeRoot) {
+  if (
+    closestSafe(scopeRoot, BASE_TRANSLATABLE_SELECTOR) === scopeRoot &&
+    !isStructurallyExcluded(scopeRoot as HTMLElement) &&
+    isVisible(scopeRoot as HTMLElement)
+  ) {
     standardRoots.add(scopeRoot as HTMLElement)
   }
-  for (const el of queryAllSafe(scopeRoot, BASE_TRANSLATABLE_SELECTOR)) standardRoots.add(el)
+  for (const el of queryAllSafe(scopeRoot, BASE_TRANSLATABLE_SELECTOR)) {
+    if (!isStructurallyExcluded(el) && isVisible(el)) standardRoots.add(el)
+  }
   for (const el of extraRoots) standardRoots.add(el)
 
   const hasStandardAncestor = (el: HTMLElement) => {
@@ -1260,53 +1390,67 @@ export function collectTranslationCandidates(
     }
   }
 
-  const textLeaves = queryAllSafe(scopeRoot, 'div, span, a').filter((el) => {
-    if (closestSafe(el, EXCLUDED_SELECTOR)) return false
-    if (closestSafe(el, TRANSLATION_NOISE_SELECTOR)) return false
+  const textLeaves = queryAllSafe(scopeRoot, 'div, span, strong, em, b, i, small').filter((el) => {
+    if (isStructurallyExcluded(el)) return false
     if (!standardRoots.has(el) && hasStandardAncestor(el)) return false
     if (hasStandardDescendant.has(el)) return false
-    const directText = Array.from(el.childNodes)
-      .filter((n) => n.nodeType === Node.TEXT_NODE)
-      .map((n) => n.textContent || '')
-      .join('')
-      .trim()
-    // Navigation is already excluded, so content links can use the same
-    // threshold as div/span. A 25-char anchor floor skipped useful labels.
-    return directText.length >= 6
+    const directText = directTextOf(el)
+    if (isNonProseMetadata(el, directText)) return false
+    if (!isLikelyProseLeafText(directText)) return false
+    // Defer synchronous style/layout reads until cheap semantic filters pass.
+    return isVisible(el)
   })
 
   const unique = [...new Set<HTMLElement>([...standardRoots, ...textLeaves])]
   const textLeafSet = new Set(textLeaves)
   const eligible = unique.filter((el) => {
+    if (isStructurallyExcluded(el) || !isVisible(el)) return false
+    const text = (el.textContent || '').trim()
+    if (isNonProseMetadata(el, text)) return false
     const allowAnyTag = textLeafSet.has(el) || extraRoots.has(el)
     if (!shouldTranslateBlock(buildBlockCandidate(el), allowAnyTag)) return false
-    if (closestSafe(el, '#lector-ai-result, #lector-ai-toolbar, #lector-ai-loading, #lector-ai-fab, [data-lector-no-translate]')) {
-      return false
-    }
     return !excludeSelectors.some((selector) => Boolean(closestSafe(el, selector)))
   })
 
   const eligibleSet = new Set(eligible)
-  const hasEligibleDescendant = new Set<HTMLElement>()
+  const rejectedForOverlap = new Set<HTMLElement>()
+  const hasMeaningfulDirectText = new Set(
+    eligible.filter((el) => isLikelyProseLeafText(directTextOf(el)))
+  )
   for (const el of eligible) {
     let parent = el.parentElement
     while (parent) {
-      if (eligibleSet.has(parent)) hasEligibleDescendant.add(parent)
+      if (eligibleSet.has(parent)) {
+        if (hasMeaningfulDirectText.has(parent)) {
+          // The ancestor owns prose outside this descendant. Translate the
+          // ancestor once so its direct text is not silently lost.
+          rejectedForOverlap.add(el)
+        } else {
+          rejectedForOverlap.add(parent)
+        }
+      }
       if (parent === scopeRoot) break
       parent = parent.parentElement
     }
   }
 
+  const nonOverlapping = eligible.filter((el) => !rejectedForOverlap.has(el))
+  // Read layout once per candidate. The old sort comparator forced O(n log n)
+  // layout reads and became expensive on large application pages.
   const vh = window.innerHeight
-  return eligible
-    .filter((el) => !hasEligibleDescendant.has(el))
-    .sort((a, b) => {
-      const ra = a.getBoundingClientRect()
-      const rb = b.getBoundingClientRect()
-      const aIn = ra.top < vh && ra.bottom > 0 ? 0 : 1
-      const bIn = rb.top < vh && rb.bottom > 0 ? 0 : 1
-      return aIn - bIn
+  const positions = new Map<HTMLElement, { bucket: number; top: number }>()
+  for (const el of nonOverlapping) {
+    const rect = el.getBoundingClientRect()
+    positions.set(el, {
+      bucket: rect.top < vh && rect.bottom > 0 ? 0 : 1,
+      top: rect.top,
     })
+  }
+  return nonOverlapping.sort((a, b) => {
+    const pa = positions.get(a)!
+    const pb = positions.get(b)!
+    return pa.bucket - pb.bucket || pa.top - pb.top
+  })
 }
 
 function applyDisplayMode(mode: DisplayMode) {
@@ -1442,6 +1586,13 @@ interface CacheCtx {
   persist: (next: CacheStore) => void
 }
 
+class TranslationQualityError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TranslationQualityError'
+  }
+}
+
 /** Translate a single chunk of source text, streaming tokens into a freshly
  *  inserted `.lector-bilingual` container appended to `block`. `signal` aborts
  *  the in-flight request (cancel / language-switch / retry).
@@ -1454,10 +1605,10 @@ interface CacheCtx {
  *  (no provider call, no skeleton) and a miss streams + writes the result back
  *  into the shared store via `cache.persist`.
  *
- *  Unchanged-output guard (English→English regression): if the model echoes
- *  the source verbatim despite being asked to translate, we retry ONCE with a
- *  forceful "you must actually translate" prefix. `attempt` tracks the depth so
- *  we never loop; `targetLang` drives the unchanged detector. */
+ *  Output-language guard (English→English regression): if the model echoes or
+ *  paraphrases in the source language, we retry ONCE with a forceful target
+ *  instruction. `attempt` tracks the depth so we never loop; a second invalid
+ *  result becomes an explicit quality error and is never cached. */
 async function translateOneChunk(
   settings: ByokSettings,
   systemPrompt: string,
@@ -1469,26 +1620,40 @@ async function translateOneChunk(
   cache?: CacheCtx
 ): Promise<string> {
   // Cache hit fast-path: resolve instantly without touching the provider.
-  if (cache?.enabled) {
+  if (attempt === 0 && cache?.enabled) {
     const key = cacheKey(chunkText, cache.keyInputs.targetLang, cache.keyInputs.model, cache.keyInputs.glossaryBlock, cache.keyInputs.personaPrompt)
     const { value, store: touched } = getEntry(cache.store, key, cache.ttlDays)
     if (value !== null) {
-      cache.store = touched
-      const span = document.createElement('div')
-      span.className = 'lector-bilingual'
-      span.textContent = value
-      const actions = makeChunkActions(span, () => {
-        span.remove()
-        void translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 0, undefined, cache ? cacheDisabled(cache) : undefined).catch(() => {})
-      })
-      span.appendChild(actions)
-      block.appendChild(span)
-      return value
+      // Old versions could cache an English echo as a successful Chinese
+      // translation. Validate every hit and evict it immediately when it no
+      // longer satisfies the current target-language quality policy.
+      if (isTranslationLikelyUnchanged(chunkText, value, targetLang)) {
+        const cleaned = { ...touched }
+        delete cleaned[key]
+        cache.store = cleaned
+        cache.persist(cleaned)
+      } else {
+        block.classList.remove('lector-translation-error')
+        cache.store = touched
+        cache.persist(touched)
+        const span = document.createElement('span')
+        span.className = 'lector-bilingual'
+        span.textContent = value
+        const actions = makeChunkActions(span, () => {
+          span.remove()
+          void translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 0, undefined, cache ? cacheDisabled(cache) : undefined).catch(() => {})
+        })
+        span.appendChild(actions)
+        block.appendChild(span)
+        return value
+      }
     }
   }
 
   // Insert placeholder container immediately so the user sees progress.
-  const span = document.createElement('div')
+  // Always use a span styled as a block: a div is invalid inside p/h*/span/a
+  // hosts and used to break GitHub card/control layout.
+  const span = document.createElement('span')
   span.className = 'lector-bilingual is-loading'
   const caret = document.createElement('span')
   caret.className = 'lector-bi-caret'
@@ -1506,7 +1671,7 @@ async function translateOneChunk(
   // echoing the source. The base system prompt already requires the target
   // language, but some models need the per-turn nudge on stubborn blocks.
   const effectiveSystem = attempt > 0
-    ? systemPrompt + `\n\nIMPORTANT: The previous response was identical to the source text, which means you did NOT translate it. You must translate the following text into ${getLanguage(targetLang).en} now. Do not copy the original.`
+    ? systemPrompt + `\n\nIMPORTANT: The previous response failed the target-language check. Translate every natural-language phrase into ${getLanguage(targetLang).en} now. The result must visibly use ${getLanguage(targetLang).en} writing. Keep only proper names, code, URLs, email addresses, numbers, and technical identifiers verbatim. Do not paraphrase in the source language.`
     : systemPrompt
 
   let acc = ''
@@ -1514,7 +1679,7 @@ async function translateOneChunk(
     await streamChat(
       settings,
       [{ role: 'system', content: effectiveSystem }, { role: 'user', content: chunkText }],
-      { maxTokens: maxTokensForChunk(chunkText.length), temperature: 0.2 },
+      { maxTokens: maxTokensForChunk(chunkText.length), temperature: attempt > 0 ? 0 : 0.2 },
       (delta) => {
         acc += delta
         span.classList.remove('is-loading')
@@ -1538,28 +1703,35 @@ async function translateOneChunk(
     }
     span.classList.remove('is-loading')
     span.classList.add('is-error')
+    block.classList.add('lector-translation-error')
     span.textContent = tr('bilingual.blockError')
     span.appendChild(actions)
     throw e
   }
 
-  // Unchanged-output guard: if the model echoed the source (the core
-  // English→English symptom) OR returned nothing, retry once with the
-  // forceful system prompt. Only retry on the first attempt and only when a
-  // real script change was expected (the detector handles the same-script case
-  // and treats empty output as "needs retry"). Disable cache on the retry so a
-  // bad cached value can't poison it.
-  if (attempt === 0 && isTranslationLikelyUnchanged(chunkText, acc, targetLang)) {
-    span.remove()
-    return translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 1, signal, cache ? cacheDisabled(cache) : undefined)
+  // Output-language guard: an echo, source-language paraphrase, substantially
+  // untranslated result, or empty response gets one stricter retry. Cache
+  // lookup is disabled by `attempt`, while a successful retry may safely write
+  // the newly validated output.
+  if (isTranslationLikelyUnchanged(chunkText, acc, targetLang)) {
+    if (attempt === 0) {
+      span.remove()
+      return translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 1, signal, cache)
+    }
+    // A second source-language/empty result is not a translation. Do not show
+    // or cache it as if it succeeded; keep the original above and surface a
+    // retryable, localized quality error instead.
+    const message = tr('bilingual.qualityError')
+    span.classList.remove('is-loading')
+    span.classList.add('is-error')
+    block.classList.add('lector-translation-error')
+    span.textContent = message
+    span.appendChild(actions)
+    throw new TranslationQualityError(message)
   }
 
-  // Empty-output fallback: if the model genuinely returned nothing even after
-  // the retry, do NOT show a "(空响应)" placeholder — that leaves a confusing
-  // gap in the page. Fall back to the source text so the block renders its
-  // original content (the model effectively decided "nothing to translate",
-  // e.g. a lone URL/identifier, and the page stays readable).
-  const rendered = acc || chunkText
+  const rendered = acc
+  block.classList.remove('lector-translation-error')
   span.textContent = rendered
   span.appendChild(actions)
 
@@ -1573,10 +1745,47 @@ async function translateOneChunk(
   return rendered
 }
 
+function sourceNodesFor(block: HTMLElement): Element[] {
+  return Array.from(block.querySelectorAll(':scope > .lector-bi-source-node'))
+}
+
+/** Mark original direct children without moving element nodes. Bare text nodes
+ * need a tiny span wrapper so translation-only mode can hide them, while
+ * existing LI/TD/div children retain their parent and direct-child CSS. */
+function ensureSourceNodes(block: HTMLElement): Element[] {
+  const existing = sourceNodesFor(block)
+  if (existing.length > 0) return existing
+
+  // Tolerate a wrapper left on a live page by an older content-script version.
+  const legacy = block.querySelector(':scope > .lector-bi-source')
+  if (legacy) {
+    legacy.classList.add('lector-bi-source-node')
+    return [legacy]
+  }
+
+  for (const node of Array.from(block.childNodes)) {
+    if (node instanceof Element && node.classList.contains('lector-bilingual')) continue
+    if (node.nodeType === Node.TEXT_NODE) {
+      const wrapper = document.createElement('span')
+      wrapper.className = 'lector-bi-source lector-bi-source-node'
+      wrapper.dataset.lectorSourceText = 'true'
+      node.replaceWith(wrapper)
+      wrapper.appendChild(node)
+    } else if (node instanceof Element) {
+      node.classList.add('lector-bi-source', 'lector-bi-source-node')
+    }
+  }
+  return sourceNodesFor(block)
+}
+
+function readBlockSourceText(block: HTMLElement): string {
+  return sourceNodesFor(block).map((node) => node.textContent || '').join('').trim()
+}
+
 /** Translate a DOM block, splitting long text into chunks first so nothing is
- *  silently dropped. Marks the host + wraps the original content once, then
- *  appends one `.lector-bilingual` per chunk in order. `signal` aborts every
- *  chunk's request. Returns the concatenation of chunk translations. */
+ *  silently dropped. Marks original direct children in place, then appends one
+ *  `.lector-bilingual` per chunk in order. `signal` aborts every chunk's
+ *  request. Returns the concatenation of chunk translations. */
 async function translateBlockChunks(
   settings: ByokSettings,
   systemPrompt: string,
@@ -1585,25 +1794,15 @@ async function translateBlockChunks(
   signal?: AbortSignal,
   cache?: CacheCtx
 ): Promise<string> {
-  // Mark the host so display-mode CSS (translationOnly / hover) can target the
-  // block that owns this translation, and wrap the original content in a
-  // .lector-bi-source span so translationOnly can hide it via CSS (the
-  // original is a bare text node, which display:none can't reach directly).
+  // Mark the host so display-mode CSS (translationOnly / hover) can target it.
+  // Source element children stay exactly where they are; only bare text nodes
+  // receive a span wrapper for CSS visibility control.
   block.classList.add('lector-bilingual-host')
-  if (!block.querySelector(':scope > .lector-bi-source')) {
-    const sourceWrap = document.createElement('span')
-    sourceWrap.className = 'lector-bi-source'
-    while (block.firstChild) sourceWrap.appendChild(block.firstChild)
-    block.appendChild(sourceWrap)
-  }
-  // IMPORTANT: read the source from the .lector-bi-source wrap, NOT from
-  // block.textContent. On a retry, block.textContent also contains the chunk
-  // translations + loading skeletons already appended below — re-reading it
-  // would re-split a polluted string (source + stale translations) and append
-  // a second, corrupted pass on top. Also drop any leftover chunk outputs /
-  // error markers from the previous attempt so we render fresh.
-  const sourceWrap = block.querySelector(':scope > .lector-bi-source')
-  const original = ((sourceWrap && (sourceWrap.textContent || '')) || block.textContent || '').trim()
+  block.classList.remove('lector-translation-error')
+  ensureSourceNodes(block)
+  // Read only marked source nodes: block.textContent also includes translations
+  // from a previous retry and would pollute the next request.
+  const original = readBlockSourceText(block)
   block.querySelectorAll(':scope > .lector-bilingual').forEach((n) => n.remove())
   const chunks = splitBlockForTranslation(original)
   if (chunks.length === 0) return ''
@@ -1654,10 +1853,10 @@ async function runBilingualTranslation() {
   bilingualScopeOverride = null
   const host = location.hostname
   const siteRule = findRuleForHost(tSettings.siteRules, host) || undefined
-  // 'whole' (default) → translate every block in the document. 'smart' → try
-  // the detected main-content root, but FALL BACK to the whole document when
-  // the root is missing OR yields no candidates, so smart never silently drops
-  // text (the regression that left list/app pages untranslated).
+  // 'whole' (default) → translate every eligible prose block in the document.
+  // 'smart' → use the detected main-content root. If no root exists we already
+  // use body; if a real root exists but contains no prose, do not fall back to
+  // translating the site's UI chrome.
   const smartRoot = effectiveScope === 'smart' ? extractPageRoot() : null
   const scopeRoot: Element = (effectiveScope === 'whole' || !smartRoot) ? document.body : smartRoot
   const excludeExtra = siteRule?.excludeSelectors?.length
@@ -1668,16 +1867,6 @@ async function runBilingualTranslation() {
     siteRule?.selectors || [],
     excludeExtra
   )
-  // Smart-scope safety net: if the detected main-content root yielded nothing
-  // (common on list/app/dashboard pages where prose lives outside the scored
-  // root), fall back to the WHOLE document so text is never silently dropped.
-  if (candidates.length === 0 && effectiveScope === 'smart') {
-    candidates = collectTranslationCandidates(
-      document.body,
-      siteRule?.selectors || [],
-      excludeExtra
-    )
-  }
   if (candidates.length === 0) {
     chrome.runtime.sendMessage({
       action: 'lector-bilingual-progress',
@@ -1693,15 +1882,32 @@ async function runBilingualTranslation() {
   }
 
   const page = extractPage()
-  // Detect translation direction from the ACTUAL page text, not a synthesized
-  // probe. The old code built probeText from page.lang, but page.lang is set by
-  // detectLang() which returns 'zh' if the text contains even ONE CJK char —
-  // so an overwhelmingly-English page with a stray Chinese footer char flipped
-  // page.lang to 'zh', which made probeText Chinese, which made resolveTargetLang
-  // return 'en', which translated the English page to English. Using the real
-  // page text + count-based detectScript (in resolveTargetLang) is robust to a
-  // few stray CJK chars because it compares dominant script counts.
-  const target = resolveTargetLang(tSettings.targetLanguage, page.text || 'Hello world')
+  // Resolve auto direction from the same visible, filtered candidates that
+  // will actually be translated. Hidden menus and navigation text must not
+  // decide the direction of the real page prose.
+  const candidateText = candidates
+    .map((el) => (el.textContent || '').trim())
+    .filter(Boolean)
+    .join('\n')
+    .slice(0, 20000)
+  const target = resolveTargetLang(tSettings.targetLanguage, candidateText || page.text || 'Hello world')
+  candidates = candidates.filter((el) => {
+    const text = (el.textContent || '').trim()
+    return text.length > 0 && !isTextAlreadyInTargetLanguage(text, target)
+  })
+  if (candidates.length === 0) {
+    chrome.runtime.sendMessage({
+      action: 'lector-bilingual-progress',
+      done: 0,
+      total: 0,
+      complete: true,
+    }).catch(() => {})
+    chrome.runtime.sendMessage({
+      action: 'lector-bilingual-error',
+      message: tr('bilingual.noContent'),
+    }).catch(() => {})
+    return
+  }
   const glossary = await loadGlossary()
   const glossaryBlock = renderGlossaryPrompt(filterGlossaryForDirection(glossary, target))
   const persona = personaPrompt(tSettings.persona)
@@ -1762,6 +1968,9 @@ async function runBilingualTranslation() {
       } catch (e) {
         // Don't retry (or count) once the user has cancelled.
         if (controller.signal.aborted) throw e
+        // Semantic retry already happened inside translateOneChunk. Retrying
+        // the whole block would make two more identical paid requests.
+        if (e instanceof TranslationQualityError) throw e
         // Retry once with a short backoff (still abortable).
         await new Promise((r) => setTimeout(r, 500))
         if (controller.signal.aborted) throw e
@@ -1790,9 +1999,7 @@ async function runBilingualTranslation() {
   const firstOkIdx = results.findIndex((r) => r.ok)
   if (firstOkIdx >= 0) {
     const sample = candidates[firstOkIdx]
-    const source = (
-      sample.querySelector(':scope > .lector-bi-source')?.textContent || ''
-    ).trim()
+    const source = readBlockSourceText(sample)
     const tgt = Array.from(sample.querySelectorAll(':scope > .lector-bilingual'))
       .map(readChunkTranslation)
       .join('')

@@ -108,6 +108,9 @@ describe('extractPage', () => {
 })
 
 describe('collectTranslationCandidates', () => {
+  const candidateIds = (root: Element): string[] =>
+    collectTranslationCandidates(root).map((el) => el.id).sort()
+
   it('keeps one non-overlapping host for a paragraph with nested spans', () => {
     document.body.innerHTML = `
       <main>
@@ -118,7 +121,7 @@ describe('collectTranslationCandidates', () => {
     expect(candidates.map((el) => el.id)).toEqual(['paragraph'])
   })
 
-  it('recovers short content labels and links even when attributes dominate outerHTML', () => {
+  it('skips short metadata labels and technology names even when attributes dominate outerHTML', () => {
     document.body.innerHTML = `
       <main>
         <div id="label" data-long-attribute="${'x'.repeat(200)}">Built by</div>
@@ -126,18 +129,173 @@ describe('collectTranslationCandidates', () => {
       </main>
     `
     const ids = collectTranslationCandidates(document.querySelector('main')!).map((el) => el.id)
-    expect(ids).toContain('label')
-    expect(ids).toContain('language')
+    expect(ids).not.toContain('label')
+    expect(ids).not.toContain('language')
   })
 
-  it('keeps the deepest identical nested text leaf instead of dropping both', () => {
+  it('keeps the deepest identical nested prose leaf instead of dropping both', () => {
     document.body.innerHTML = `
       <main>
-        <div id="outer"><span id="inner">Built by</span></div>
+        <div id="outer"><span id="inner">Read the complete project overview</span></div>
       </main>
     `
     const candidates = collectTranslationCandidates(document.querySelector('main')!)
     expect(candidates.map((el) => el.id)).toEqual(['inner'])
+  })
+
+  it('recovers prose in semantic inline wrappers and preserves ancestor direct prose', () => {
+    document.body.innerHTML = `
+      <main>
+        <div><strong id="release-notes">Release notes</strong></div>
+        <div id="ancestor">
+          Read the complete migration guide
+          <span id="descendant">with important compatibility details</span>
+        </div>
+      </main>
+    `
+    expect(candidateIds(document.querySelector('main')!)).toEqual([
+      'ancestor',
+      'release-notes',
+    ])
+  })
+
+  it('does not mistake ordinary icon/avatar prose for repository counters', () => {
+    document.body.innerHTML = `
+      <main>
+        <p id="icon-heading"><svg aria-hidden="true"></svg>What's new in 2026</p>
+        <p id="avatar-comment">
+          <img alt="@octocat">
+          This contributor explains the release clearly and includes actionable migration advice.
+        </p>
+        <span id="actual-counter"><svg aria-hidden="true"></svg>12,444 stars this week</span>
+      </main>
+    `
+    expect(candidateIds(document.querySelector('main')!)).toEqual([
+      'avatar-comment',
+      'icon-heading',
+    ])
+  })
+
+  it('selects GitHub Trending prose while skipping repository names and metadata', () => {
+    document.body.innerHTML = `
+      <main>
+        <div class="container-lg p-responsive text-center py-6">
+          <h1 id="trending-title" class="h3">Trending</h1>
+          <p id="page-description">
+            See what the GitHub community is most excited about this week.
+          </p>
+        </div>
+
+        <article class="Box-row">
+          <h2 id="repo-heading-1" class="h3 lh-condensed">
+            <a href="/extremely-long-organization-name/exceptionally-long-repository-name">
+              <svg aria-hidden="true"></svg>
+              <span class="text-normal">extremely-long-organization-name /</span>
+              exceptionally-long-repository-name
+            </a>
+          </h2>
+          <p id="repo-description-1" class="col-9 color-fg-muted my-1 pr-4">
+            A hive mind communication platform
+          </p>
+          <div class="f6 color-fg-muted mt-2">
+            <span id="programming-language" itemprop="programmingLanguage">TypeScript</span>
+            <a id="star-count" class="Link--muted d-inline-block mr-3" href="/stars">18,594</a>
+            <a id="fork-count" class="Link--muted d-inline-block mr-3" href="/forks">1,821</a>
+            <span id="built-by" class="d-inline-block mr-3">
+              Built by
+              <a href="/octocat"><img alt="@octocat"></a>
+            </span>
+            <span id="weekly-stars" class="d-inline-block float-sm-right">
+              <svg aria-hidden="true"></svg>
+              12,444 stars this week
+            </span>
+          </div>
+        </article>
+
+        <article class="Box-row">
+          <h2 id="repo-heading-2" class="h3 lh-condensed">
+            <a href="/owner/repository"><span class="text-normal">owner /</span> repository</a>
+          </h2>
+          <p
+            id="repo-description-2"
+            class="col-9 color-fg-muted my-1 pr-4"
+            data-hydro-click="${'x'.repeat(240)}"
+          >
+            The most RAM efficient harness
+          </p>
+        </article>
+      </main>
+    `
+
+    expect(candidateIds(document.querySelector('main')!)).toEqual([
+      'page-description',
+      'repo-description-1',
+      'repo-description-2',
+      'trending-title',
+    ])
+  })
+
+  it('skips page chrome, closed menus, hidden text, assistive text, and editable content', () => {
+    document.body.innerHTML = `
+      <header>
+        <p id="header-copy">Sign in to explore all of the available GitHub navigation features.</p>
+      </header>
+      <nav>
+        <ul>
+          <li id="nav-copy">Browse repositories, developers, topics, collections, and events.</li>
+        </ul>
+      </nav>
+      <main>
+        <p id="visible-prose">This visible repository description belongs in the translation pass.</p>
+
+        <details id="language-filter">
+          <summary id="closed-menu-trigger">Choose a programming language filter</summary>
+          <div>
+            <a id="closed-menu-option" href="/trending/javascript">JavaScript repositories</a>
+          </div>
+        </details>
+
+        <section hidden>
+          <p id="hidden-copy">This hidden explanatory paragraph must never be translated.</p>
+        </section>
+        <section aria-hidden="true">
+          <p id="aria-hidden-copy">This aria-hidden explanatory paragraph must never be translated.</p>
+        </section>
+        <span id="screen-reader-copy" class="sr-only">Repository star count for screen readers</span>
+        <div id="editor" contenteditable="true">
+          <p id="editable-copy">Draft text inside an editor must not be modified by page translation.</p>
+        </div>
+      </main>
+    `
+
+    expect(candidateIds(document.body)).toEqual(['visible-prose'])
+  })
+
+  it('never re-collects Lector UI, source wrappers, or rendered translations', () => {
+    document.body.innerHTML = `
+      <main>
+        <p id="visible-prose">A normal visible paragraph should still be translated.</p>
+
+        <div id="lector-ai-result">
+          <p id="lector-result-copy">Text rendered inside the Lector result popup.</p>
+        </div>
+
+        <div id="translated-host" class="lector-bilingual-host">
+          <span id="lector-source-copy" class="lector-bi-source">
+            Previously translated source content
+          </span>
+          <div id="lector-translated-copy" class="lector-bilingual">
+            Already rendered translation output
+          </div>
+        </div>
+
+        <div data-lector-no-translate>
+          <p id="explicitly-excluded-copy">Content explicitly excluded by Lector.</p>
+        </div>
+      </main>
+    `
+
+    expect(candidateIds(document.querySelector('main')!)).toEqual(['visible-prose'])
   })
 
   it('tolerates invalid custom selectors and respects valid exclusions', () => {
