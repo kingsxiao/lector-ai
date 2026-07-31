@@ -214,53 +214,81 @@ export default function App() {
   }, [showTools])
 
   // Pull the page from the active tab's content script + read any seed.
+  //
+  // Performance: the zustand store is hydrated SYNCHRONOUSLY from localStorage
+  // (persist w/ default storage), so `byok` is already populated on first paint
+  // and the header/chrome render immediately. The async work here is the
+  // "background/content sync" — it must NOT block first paint, so we:
+  //   - do NOT await getSettings() before anything else (the synchronous byok is
+  //     the source of truth for the UI; the storage read only reconciles values
+  //     the content/background wrote);
+  //   - run the independent awaits in PARALLEL (tab query, seed read, settings
+  //     reconcile) instead of sequentially;
+  //   - avoid the redundant SECOND getSettings() call the old code made inside
+  //     the seed branch (it re-used the locale already in byok).
   useEffect(() => {
+    let cancelled = false
     ;(async () => {
-      // Settings are persisted by zustand, but the background/content scripts
-      // also read them from chrome.storage; sync once on load.
-      const stored = await getSettings()
-      setByok(stored)
-
-      try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-        if (tab?.id) {
-          chrome.tabs.sendMessage(tab.id, { action: 'lector-get-page' }, (resp) => {
-            if (chrome.runtime.lastError || !resp?.page) return
-            setPage(resp.page)
-          })
+      // Fire the three independent reads concurrently.
+      const settingsP = getSettings()
+      const tabP = (async () => {
+        try {
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+          if (tab?.id) {
+            chrome.tabs.sendMessage(tab.id, { action: 'lector-get-page' }, (resp) => {
+              if (cancelled || chrome.runtime.lastError || !resp?.page) return
+              setPage(resp.page)
+            })
+          }
+          // Capture the active tab's hostname for the current-site rule chip.
+          if (tab?.url) {
+            try { if (!cancelled) setCurrentHost(new URL(tab.url).hostname) } catch { /* ignore non-url */ }
+          }
+        } catch {
+          // ignore — no active tab (e.g. a chrome:// page)
         }
-        // Capture the active tab's hostname for the current-site rule chip.
-        if (tab?.url) {
-          try { setCurrentHost(new URL(tab.url).hostname) } catch { /* ignore non-url */ }
+      })()
+      const seedP = chrome.storage.local.get('lectorSeed') as Promise<{
+        lectorSeed?: { kind: string; text: string }
+      }>
+
+      // Reconcile settings from chrome.storage (the content/background may have
+      // written a newer value). Use the already-pending promise; no extra call.
+      try {
+        const stored = await settingsP
+        if (!cancelled) setByok(stored)
+      } catch {
+        // ignore — keep the synchronous zustand value
+      }
+
+      // Seed the composer from a one-shot relay value (selection-toolbar
+      // translate/explain/summarize → open panel with a prefilled prompt).
+      try {
+        const seed = await seedP
+        if (cancelled) return
+        await tabP // ensure the tab read is done before we finish (best-effort)
+        if (seed.lectorSeed?.text) {
+          chrome.storage.local.remove('lectorSeed')
+          // Re-use the locale already resolved from byok (no second getSettings).
+          const loc = resolveLocale(byok.locale)
+          const translateTarget = loc === 'zh' ? 'English' : '中文'
+          const s = seed.lectorSeed
+          const seedPrompt =
+            s.kind === 'summarize'
+              ? 'Summarize this in a few bullets:\n\n'
+              : s.kind === 'translate'
+                ? `Translate this to ${translateTarget}:\n\n`
+                : s.kind === 'explain'
+                  ? 'Explain this clearly:\n\n'
+                  : ''
+          setInput(`${seedPrompt}${s.text}`.slice(0, 4000))
         }
       } catch {
         // ignore
       }
-
-      const seed = (await chrome.storage.local.get('lectorSeed')) as {
-        lectorSeed?: { kind: string; text: string }
-      }
-      if (seed.lectorSeed?.text) {
-        const s = seed.lectorSeed
-        chrome.storage.local.remove('lectorSeed')
-        // These prefixes seed the composer as editable user text. The
-        // instructions are English (prompt-engineering works best in English
-        // and the user can edit them), but the translate target respects the
-        // active locale rather than being hardcoded to 中文.
-        const loc = resolveLocale((await getSettings()).locale)
-        const translateTarget = loc === 'zh' ? 'English' : '中文'
-        const seedPrompt =
-          s.kind === 'summarize'
-            ? 'Summarize this in a few bullets:\n\n'
-            : s.kind === 'translate'
-              ? `Translate this to ${translateTarget}:\n\n`
-              : s.kind === 'explain'
-                ? 'Explain this clearly:\n\n'
-                : ''
-        setInput(`${seedPrompt}${s.text}`.slice(0, 4000))
-      }
     })()
-  }, [setByok])
+    return () => { cancelled = true }
+  }, [setByok, byok.locale])
 
   // Sync knowledge captured by the content→background relay (chrome.storage)
   // into the zustand store so the Highlights / Vocab drawers stay live.
@@ -311,8 +339,14 @@ export default function App() {
         drain('lectorTranslationHistory', list)
       }
     }
+    // Guard: chrome.storage.onChanged may be undefined in some contexts (e.g.
+    // when the extension context is invalidated, or in test/stub environments).
+    // An unguarded addListener throws "Cannot read properties of undefined
+    // (reading 'addListener')" and crashes the panel render. Best-effort: if the
+    // API is missing we simply skip live syncing (the store still loads once).
+    if (typeof chrome === 'undefined' || !chrome.storage?.onChanged?.addListener) return
     chrome.storage.onChanged.addListener(onStorage)
-    return () => chrome.storage.onChanged.removeListener(onStorage)
+    return () => chrome.storage.onChanged?.removeListener?.(onStorage)
   }, [addHighlight])
 
   // Mirror the glossary out of zustand into chrome.storage.local so the content
@@ -370,8 +404,11 @@ export default function App() {
         }
       }
     }
+    // Guard (same reason as the storage listener above): a missing
+    // onMessage API must not crash the panel render.
+    if (typeof chrome === 'undefined' || !chrome.runtime?.onMessage?.addListener) return
     chrome.runtime.onMessage.addListener(onMessage)
-    return () => chrome.runtime.onMessage.removeListener(onMessage)
+    return () => chrome.runtime.onMessage?.removeListener?.(onMessage)
   }, [])
 
   // First-run onboarding gate: mark the panel opened once so the one-time
