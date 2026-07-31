@@ -899,7 +899,17 @@ import {
   type DisplayMode,
   type TargetLangCode,
 } from './shared/translation'
-import { normalizeTranslationSettings, type ByokSettings } from './shared/providers'
+import { buildThemeStylesheet, TRANSLATION_THEMES } from './shared/translationThemes'
+import { personaPrompt } from './shared/translationPersonas'
+import {
+  cacheKey,
+  putEntry,
+  getEntry,
+  parseStore,
+  type CacheStore,
+} from './shared/translationCache'
+import { findRuleForHost } from './shared/siteRules'
+import { normalizeTranslationSettings, type ByokSettings, type TranslationSettings } from './shared/providers'
 
 // --- i18n: content script reads the locale pref from storage once per action ---
 let cachedPref: LocalePref = 'auto'
@@ -1085,11 +1095,13 @@ async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: 
     const tSettings = normalizeTranslationSettings(settings.translation)
     const initialTarget = resolveTargetLang(tSettings.targetLanguage, text)
     const glossary = await loadGlossary()
+    const persona = personaPrompt(tSettings.persona)
     // Show the streaming popup immediately with a target-language selector.
     showStreamingTranslateResult(r()?.left || 100, r()?.top || 100, text, initialTarget, async (selTarget, sink, signal) => {
       const sp = buildTranslateSystemPrompt(
         selTarget,
-        renderGlossaryPrompt(filterGlossaryForDirection(glossary, selTarget))
+        renderGlossaryPrompt(filterGlossaryForDirection(glossary, selTarget)),
+        persona
       )
       await streamChat(
         settings,
@@ -1154,6 +1166,132 @@ function applyDisplayMode(mode: DisplayMode) {
   document.body.classList.add('lector-dm-' + mode)
 }
 
+/**
+ * Apply the full translation styling: display mode + theme + font size +
+ * reading-focus + injected custom CSS. Called on initial run and whenever the
+ * side panel broadcasts a settings change (so theme/font swaps are live).
+ *
+ * The theme stylesheet is (re)generated into a dedicated <style> block
+ * (#lector-ai-theme-styles) kept separate from #lector-ai-styles so a hot-swap
+ * only replaces the theme rules, not the base UI CSS.
+ */
+function applyTranslationStyle(ts: TranslationSettings) {
+  applyDisplayMode(ts.displayMode)
+  // Strip every known theme class, then set the active one.
+  document.body.classList.remove(...TRANSLATION_THEMES.map((t) => `lector-theme-${t.id}`))
+  document.body.classList.add(`lector-theme-${ts.theme}`)
+  document.body.classList.toggle('lector-focus-on', !!ts.readingFocus)
+  // (Re)inject the theme stylesheet.
+  let styleEl = document.getElementById('lector-ai-theme-styles') as HTMLStyleElement | null
+  if (!styleEl) {
+    styleEl = document.createElement('style')
+    styleEl.id = 'lector-ai-theme-styles'
+    document.head.appendChild(styleEl)
+  }
+  styleEl.textContent = buildThemeStylesheet(ts.fontSize, ts.customCss, ts.readingFocus)
+}
+
+/** Build the per-chunk hover action cluster (retry + copy). Shared by the
+ *  streaming path and the cache-hit fast-path so a cached translation gets the
+ *  same per-chunk controls. `onRetry` re-runs just this chunk. */
+function makeChunkActions(span: HTMLElement, onRetry: () => void): HTMLElement {
+  const actions = document.createElement('span')
+  actions.className = 'lector-bi-actions'
+  const retry = document.createElement('button')
+  retry.type = 'button'
+  retry.textContent = tr('bilingual.retry')
+  retry.onclick = (ev) => { ev.stopPropagation(); onRetry() }
+  const copy = document.createElement('button')
+  copy.type = 'button'
+  copy.textContent = tr('bilingual.copyTranslation')
+  copy.onclick = (ev) => { ev.stopPropagation(); navigator.clipboard.writeText(span.textContent || '').catch(() => {}) }
+  actions.appendChild(retry)
+  actions.appendChild(copy)
+  return actions
+}
+
+/** Return a copy of a CacheCtx with caching disabled (for retries that must
+ *  bypass a possibly-bad cached value). Type-safe replacement for a spread,
+ *  which TS would widen to optional fields. */
+function cacheDisabled(cache: CacheCtx): CacheCtx {
+  return {
+    enabled: false,
+    ttlDays: cache.ttlDays,
+    store: cache.store,
+    keyInputs: cache.keyInputs,
+    persist: cache.persist,
+  }
+}
+
+/** Best-effort main-content root for the `smart` page scope. Reuses the same
+ *  density-scoring heuristic as extractPage() so the "smart" translation scope
+ *  matches what "chat with this page" reads. Returns the element or null. */
+function extractPageRoot(): Element | null {
+  const candidates = document.querySelectorAll('article, main, [role="main"], .post, .article, .content, .entry-content, div')
+  let best: Element | null = null
+  let bestScore = 0
+  candidates.forEach((el) => {
+    if (el === document.body) return
+    const text = (el.textContent || '').trim()
+    if (!text) return
+    const commas = (text.match(/[,.，。、；:;?!]/g) || []).length
+    const links = el.querySelectorAll('a').length
+    const linkDensity = links / Math.max(1, text.split(/\s+/).length)
+    const s = text.length + commas * 8 - linkDensity * 200
+    if (s > bestScore) { bestScore = s; best = el }
+  })
+  return best
+}
+
+/** Read the translation cache from chrome.storage.local. Returns {} on any
+ *  error so callers safely treat it as empty (no caching). */
+async function loadCache(): Promise<CacheStore> {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.storage) return {}
+    const r = await chrome.storage.local.get('lectorCache')
+    const raw = (r as Record<string, unknown>).lectorCache
+    if (!raw) return {}
+    // Stored as parsed JSON already (object) OR a JSON string.
+    return typeof raw === 'string' ? parseStoreFromString(raw) : parseStore(raw)
+  } catch {
+    return {}
+  }
+}
+
+/** Parse a JSON string into a CacheStore (tolerant). Kept inline to avoid an
+ *  extra import indirection; the pure parseStore is used for object input. */
+function parseStoreFromString(raw: string): CacheStore {
+  try {
+    const obj = JSON.parse(raw)
+    // Reuse the pure parseStore for validation/tolerance.
+    return parseStore(obj)
+  } catch {
+    return {}
+  }
+}
+
+/** Persist the cache to chrome.storage.local (best-effort, fire-and-forget). */
+async function saveCache(store: CacheStore): Promise<void> {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.storage) return
+    await chrome.storage.local.set({ lectorCache: store })
+  } catch {
+    /* storage unavailable — caching is best-effort */
+  }
+}
+
+/** Cache context threaded through the chunk workers. `keyInputs` are the
+ *  values folded into the cache key (everything that affects output); the
+ *  caller owns the store + persist so a run shares one store and writes once. */
+interface CacheCtx {
+  enabled: boolean
+  ttlDays: number
+  store: CacheStore
+  /** (targetLang, model, glossaryBlock, personaPrompt) — source added per chunk. */
+  keyInputs: { targetLang: TargetLangCode; model: string; glossaryBlock: string; personaPrompt: string }
+  persist: (next: CacheStore) => void
+}
+
 /** Translate a single chunk of source text, streaming tokens into a freshly
  *  inserted `.lector-bilingual` container appended to `block`. `signal` aborts
  *  the in-flight request (cancel / language-switch / retry).
@@ -1161,6 +1299,10 @@ function applyDisplayMode(mode: DisplayMode) {
  *  This is the per-chunk worker; `translateBlockChunks` splits a long block
  *  and calls this once per chunk so a 4000-char section renders as several
  *  streaming translations instead of being dropped outright.
+ *
+ *  Cache (Phase 5): when `cache?.enabled`, a cache hit resolves immediately
+ *  (no provider call, no skeleton) and a miss streams + writes the result back
+ *  into the shared store via `cache.persist`.
  *
  *  Unchanged-output guard (English→English regression): if the model echoes
  *  the source verbatim despite being asked to translate, we retry ONCE with a
@@ -1173,8 +1315,28 @@ async function translateOneChunk(
   chunkText: string,
   targetLang: TargetLangCode,
   attempt: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  cache?: CacheCtx
 ): Promise<string> {
+  // Cache hit fast-path: resolve instantly without touching the provider.
+  if (cache?.enabled) {
+    const key = cacheKey(chunkText, cache.keyInputs.targetLang, cache.keyInputs.model, cache.keyInputs.glossaryBlock, cache.keyInputs.personaPrompt)
+    const { value, store: touched } = getEntry(cache.store, key, cache.ttlDays)
+    if (value !== null) {
+      cache.store = touched
+      const span = document.createElement('div')
+      span.className = 'lector-bilingual'
+      span.textContent = value
+      const actions = makeChunkActions(span, () => {
+        span.remove()
+        void translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 0, signal, cache ? cacheDisabled(cache) : undefined).catch(() => {})
+      })
+      span.appendChild(actions)
+      block.appendChild(span)
+      return value
+    }
+  }
+
   // Insert placeholder container immediately so the user sees progress.
   const span = document.createElement('div')
   span.className = 'lector-bilingual is-loading'
@@ -1182,22 +1344,10 @@ async function translateOneChunk(
   caret.className = 'lector-bi-caret'
   span.appendChild(caret)
   // Per-chunk hover actions: retry re-runs ONLY this chunk.
-  const actions = document.createElement('span')
-  actions.className = 'lector-bi-actions'
-  const retry = document.createElement('button')
-  retry.type = 'button'
-  retry.textContent = tr('bilingual.retry')
-  retry.onclick = (ev) => {
-    ev.stopPropagation()
+  const actions = makeChunkActions(span, () => {
     span.remove()
-    void translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 0).catch(() => {})
-  }
-  const copy = document.createElement('button')
-  copy.type = 'button'
-  copy.textContent = tr('bilingual.copyTranslation')
-  copy.onclick = (ev) => { ev.stopPropagation(); navigator.clipboard.writeText(span.textContent || '').catch(() => {}) }
-  actions.appendChild(retry)
-  actions.appendChild(copy)
+    void translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 0, signal, cache ? cacheDisabled(cache) : undefined).catch(() => {})
+  })
   block.appendChild(span)
 
   // On the forced retry, prepend an imperative instruction so the model stops
@@ -1245,10 +1395,11 @@ async function translateOneChunk(
   // English→English symptom) OR returned nothing, retry once with the
   // forceful system prompt. Only retry on the first attempt and only when a
   // real script change was expected (the detector handles the same-script case
-  // and treats empty output as "needs retry").
+  // and treats empty output as "needs retry"). Disable cache on the retry so a
+  // bad cached value can't poison it.
   if (attempt === 0 && isTranslationLikelyUnchanged(chunkText, acc, targetLang)) {
     span.remove()
-    return translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 1, signal)
+    return translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 1, signal, cache ? cacheDisabled(cache) : undefined)
   }
 
   // Empty-output fallback: if the model genuinely returned nothing even after
@@ -1259,6 +1410,14 @@ async function translateOneChunk(
   const rendered = acc || chunkText
   span.textContent = rendered
   span.appendChild(actions)
+
+  // Cache the successful translation (only the genuine model output, not the
+  // source-fallback, so we don't cache "nothing to translate").
+  if (cache?.enabled && acc) {
+    const key = cacheKey(chunkText, cache.keyInputs.targetLang, cache.keyInputs.model, cache.keyInputs.glossaryBlock, cache.keyInputs.personaPrompt)
+    cache.store = putEntry(cache.store, key, acc, chunkText.length)
+    cache.persist(cache.store)
+  }
   return rendered
 }
 
@@ -1271,7 +1430,8 @@ async function translateBlockChunks(
   systemPrompt: string,
   block: HTMLElement,
   targetLang: TargetLangCode,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  cache?: CacheCtx
 ): Promise<string> {
   // Mark the host so display-mode CSS (translationOnly / hover) can target the
   // block that owns this translation, and wrap the original content in a
@@ -1299,7 +1459,7 @@ async function translateBlockChunks(
   for (const chunk of chunks) {
     // Stop early if cancelled — don't start fresh chunks after an abort.
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-    acc += await translateOneChunk(settings, systemPrompt, block, chunk, targetLang, 0, signal)
+    acc += await translateOneChunk(settings, systemPrompt, block, chunk, targetLang, 0, signal, cache)
   }
   return acc
 }
@@ -1320,14 +1480,31 @@ async function runBilingualTranslation() {
     return
   }
   const tSettings = normalizeTranslationSettings(settings.translation)
-  applyDisplayMode(tSettings.displayMode)
+  applyTranslationStyle(tSettings)
+
+  // Site rules: per-domain extra selectors / exclusions augment the default
+  // block query. `pageScope` controls whether we translate the smart main
+  // content root only (default) or the whole document.body.
+  const host = location.hostname
+  const siteRule = findRuleForHost(tSettings.siteRules, host) || undefined
+  const scopeRoot = tSettings.pageScope === 'whole' || !extractPageRoot()
+    ? document.body
+    : (extractPageRoot() as HTMLElement)
+  const baseSelector = 'p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, dt, dd, figcaption, summary'
+  const extraSelector = siteRule?.selectors?.length ? ', ' + siteRule.selectors.join(', ') : ''
+  const scope = (scopeRoot || document.body).matches(baseSelector)
+    ? [scopeRoot as HTMLElement]
+    : Array.from((scopeRoot || document.body).querySelectorAll<HTMLElement>(baseSelector + extraSelector))
 
   // Gather candidates, viewport-first ordering.
-  const all = Array.from(document.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, dt, dd, figcaption, summary')) as HTMLElement[]
   const vh = window.innerHeight
-  const candidates = all
+  const excludeExtra = siteRule?.excludeSelectors?.length
+    ? siteRule.excludeSelectors.map((s) => s.trim()).filter(Boolean)
+    : []
+  const candidates = scope
     .map((el) => ({ el, c: buildBlockCandidate(el) }))
     .filter((x) => shouldTranslateBlock(x.c) && !x.el.closest('#lector-ai-result, #lector-ai-toolbar, #lector-ai-loading, #lector-ai-fab, [data-lector-no-translate]'))
+    .filter((x) => !excludeExtra.some((sel) => x.el.closest(sel)))
     .sort((a, b) => {
       const ra = a.el.getBoundingClientRect()
       const rb = b.el.getBoundingClientRect()
@@ -1350,7 +1527,27 @@ async function runBilingualTranslation() {
   const target = resolveTargetLang(tSettings.targetLanguage, page.text || 'Hello world')
   const glossary = await loadGlossary()
   const glossaryBlock = renderGlossaryPrompt(filterGlossaryForDirection(glossary, target))
-  const systemPrompt = buildTranslateSystemPrompt(target, glossaryBlock)
+  const persona = personaPrompt(tSettings.persona)
+  const systemPrompt = buildTranslateSystemPrompt(target, glossaryBlock, persona)
+
+  // Translation cache (Phase 5): load once per run, persist after. A hit skips
+  // the provider call entirely; a miss streams + writes back. ttlDays 0 = off.
+  const cacheOn = tSettings.cacheTtlDays > 0
+  let cache: CacheStore = cacheOn ? await loadCache() : {}
+  const persistCache = (() => {
+    let scheduled = false
+    let snapshot = cache
+    return (next: CacheStore) => {
+      snapshot = next
+      if (scheduled) return
+      scheduled = true
+      // Debounce persistence so a burst of chunk completements writes once.
+      setTimeout(() => {
+        scheduled = false
+        void saveCache(snapshot)
+      }, 800)
+    }
+  })()
 
   bilingualAbort = new AbortController()
   const controller = bilingualAbort
@@ -1370,8 +1567,21 @@ async function runBilingualTranslation() {
   const results = await runConcurrent(
     candidates,
     async (block) => {
+      // Build the cache context fresh per worker so it reads the latest shared
+      // `cache` store (workers run concurrently and each may add entries). The
+      // store field is a getter so a worker always sees sibling writes.
+      const cacheCtx: CacheCtx | undefined = cacheOn
+        ? {
+            enabled: true,
+            ttlDays: tSettings.cacheTtlDays,
+            get store() { return cache },
+            set store(v) { cache = v },
+            keyInputs: { targetLang: target, model: settings.model, glossaryBlock, personaPrompt: persona },
+            persist: persistCache,
+          }
+        : undefined
       try {
-        await translateBlockChunks(settings, systemPrompt, block, target, controller.signal)
+        await translateBlockChunks(settings, systemPrompt, block, target, controller.signal, cacheCtx)
       } catch (e) {
         // Don't retry (or count) once the user has cancelled.
         if (controller.signal.aborted) throw e
@@ -1379,7 +1589,7 @@ async function runBilingualTranslation() {
         await new Promise((r) => setTimeout(r, 500))
         if (controller.signal.aborted) throw e
         try {
-          await translateBlockChunks(settings, systemPrompt, block, target, controller.signal)
+          await translateBlockChunks(settings, systemPrompt, block, target, controller.signal, cacheCtx)
         } catch (e2) {
           // The failed chunk's own span was already marked is-error inside
           // translateOneChunk's catch. Don't reach for the first .lector-bilingual
@@ -1555,11 +1765,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false
   }
   if (message?.action === 'lector-translation-settings-changed') {
-    // Re-apply display mode live without re-translating.
+    // Re-apply the full translation styling live (theme/font/focus/mode)
+    // without re-translating.
     void (async () => {
       const s = await getSettings()
       const ts = normalizeTranslationSettings(s.translation)
-      applyDisplayMode(ts.displayMode)
+      applyTranslationStyle(ts)
     })()
     sendResponse({ ok: true })
     return false
