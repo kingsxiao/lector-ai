@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, type ReactNode, type DragEvent } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo, type ReactNode, type DragEvent } from 'react'
 import { useStore, type ChatMessage, type ChatSession } from '../shared/store'
 import { renderMarkdown } from './markdown'
 import { renderCitations, type PageBlock } from '../shared/citations'
@@ -36,7 +36,17 @@ import {
 } from '../shared/providers'
 import { streamChat, completeOnce, getSettings, saveSettings, testConnection, fetchModels, type ChatMessage as WireMessage, type FetchedModel } from '../shared/byok'
 import { t, resolveLocale, type StringKey, type LocalePref } from '../shared/i18n'
-import { LANGUAGES, getLanguage, type TranslationHistoryEntry } from '../shared/translation'
+import { getLanguage, searchLanguages, type TranslationHistoryEntry } from '../shared/translation'
+import { TRANSLATION_THEMES } from '../shared/translationThemes'
+import { TRANSLATION_PERSONAS } from '../shared/translationPersonas'
+import {
+  matchHost,
+  siteToggleState,
+  newSiteRuleId,
+  normalizeSiteRules,
+  type SiteRule,
+} from '../shared/siteRules'
+import { totalSavedTokens } from '../shared/translationCache'
 import {
   fillTemplate, filterTemplates, sortTemplates, validateTemplate,
   type PromptTemplate, type TemplateContext,
@@ -154,6 +164,8 @@ export default function App() {
   const [activeView, setActiveView] = useState<View>('chat')
   const [showTools, setShowTools] = useState(false) // MoreMenu 下拉开关（局部）
   const [errorBanner, setErrorBanner] = useState<string | null>(null)
+  // Hostname of the active tab, for the current-site rule chip in the header.
+  const [currentHost, setCurrentHost] = useState('')
   // Inline loading for the 举一反三 → make-card action: tracks the exact
   // example sentence currently being turned into a card, so its row shows a
   // spinner and the others stay clickable. Null when nothing is generating.
@@ -216,6 +228,10 @@ export default function App() {
             if (chrome.runtime.lastError || !resp?.page) return
             setPage(resp.page)
           })
+        }
+        // Capture the active tab's hostname for the current-site rule chip.
+        if (tab?.url) {
+          try { setCurrentHost(new URL(tab.url).hostname) } catch { /* ignore non-url */ }
         }
       } catch {
         // ignore
@@ -705,6 +721,14 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
     if (lastUser) handleSend(lastUser.content)
   }
 
+  // Apply a partial byok patch + persist it (header chip + quick toggles use
+  // this so they don't each re-implement the setByok + saveSettings dance).
+  const saveByok = useCallback(async (patch: Partial<ByokSettings>) => {
+    const next = { ...useStore.getState().byok, ...patch }
+    setByok(next)
+    await saveSettings(next)
+  }, [setByok])
+
   // Pop Lector out into its own standalone window (the old FAB behavior, now
   // surfaced as a header button). Runs in the extension context, so
   // getURL is safe; reuse a named window so repeats focus it instead of
@@ -735,6 +759,19 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               ? `${getProvider(byok.provider).label} · ${byok.model || 'model'}`
               : tr('side.header.noKey')}
           </div>
+          {/* Current-site quick toggle (Immersive-parity site rules). Cycles
+              auto → always → never for the active tab's host. */}
+          {currentHost && (
+            <CurrentSiteChip
+              host={currentHost}
+              rules={normalizeTranslationSettings(byok.translation).siteRules}
+              locale={byok.locale}
+              onToggle={(next) => {
+                const ts = normalizeTranslationSettings(byok.translation)
+                void saveByok({ translation: { ...ts, siteRules: next } })
+              }}
+            />
+          )}
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">
           <button
@@ -2187,6 +2224,247 @@ function GlossaryView({
 // ---------------------------------------------------------------------------
 // BYOK Settings drawer
 // ---------------------------------------------------------------------------
+// LanguageSelect — searchable language picker. 100+ langs are unwieldy in a
+// flat <select>, so we render a search box + a filtered, scrollable list.
+function LanguageSelect({
+  value,
+  locale,
+  autoLabel,
+  onChange,
+}: {
+  value: string
+  locale: LocalePref
+  autoLabel: string
+  onChange: (code: string) => void
+}) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const loc = resolveLocale(locale)
+  const current = value === 'auto' ? null : getLanguage(value)
+  const matches = useMemo(() => searchLanguages(query), [query])
+  // Cap the rendered list for perf/snappiness on long queries.
+  const shown = matches.slice(0, 60)
+  return (
+    <div className="relative mb-3">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="field w-full text-left flex items-center justify-between"
+      >
+        <span>{current ? (loc === 'zh' ? current.zh : current.en) : autoLabel}</span>
+        <span className="text-ink-faint text-[10px]">▾</span>
+      </button>
+      {open && (
+        <div className="absolute z-10 mt-1 w-full bg-surface border border-line rounded-lg shadow-lg max-h-64 flex flex-col">
+          <input
+            type="text"
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search languages…"
+            className="px-2 py-1.5 text-[11px] border-b border-line outline-none bg-transparent"
+          />
+          <div className="overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => { onChange('auto'); setOpen(false); setQuery('') }}
+              className={`w-full text-left px-2 py-1.5 text-[11px] hover:bg-surface-muted ${value === 'auto' ? 'text-accent font-medium' : 'text-ink-soft'}`}
+            >
+              {autoLabel}
+            </button>
+            {shown.map((l) => (
+              <button
+                key={l.code}
+                type="button"
+                onClick={() => { onChange(l.code); setOpen(false); setQuery('') }}
+                className={`w-full text-left px-2 py-1.5 text-[11px] hover:bg-surface-muted ${value === l.code ? 'text-accent font-medium' : 'text-ink-soft'}`}
+              >
+                {loc === 'zh' ? l.zh : l.en} <span className="text-ink-faint">({l.en})</span>
+              </button>
+            ))}
+            {matches.length > shown.length && (
+              <p className="px-2 py-1 text-[10px] text-ink-faint">…{matches.length - shown.length} more — refine search</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// CacheControls — shows the saved-tokens/saved-$ readout and a Clear button.
+// Reads the cache directly from chrome.storage.local; pure display + clear.
+function CacheControls({ ttlDays }: { ttlDays: number }) {
+  const [tokens, setTokens] = useState(0)
+  const [cleared, setCleared] = useState(false)
+
+  const refresh = useCallback(() => {
+    if (typeof chrome === 'undefined' || !chrome.storage) return
+    chrome.storage.local.get('lectorCache', (r) => {
+      const raw = (r as Record<string, unknown>).lectorCache
+      const store = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+      setTokens(totalSavedTokens(store as never))
+    })
+  }, [])
+  useEffect(() => { refresh() }, [refresh, ttlDays])
+
+  const clear = () => {
+    if (typeof chrome === 'undefined' || !chrome.storage) return
+    chrome.storage.local.set({ lectorCache: {} }, () => {
+      setTokens(0)
+      setCleared(true)
+      setTimeout(() => setCleared(false), 1500)
+    })
+  }
+  const savedUsd = (tokens * 2) / 1_000_000
+  return (
+    <div className="flex items-center justify-between text-[10px] text-ink-faint mb-3">
+      <span>
+        {tokens > 0
+          ? `≈ ${tokens.toLocaleString()} tokens cached · ~$${savedUsd.toFixed(3)} saved`
+          : 'No cached translations yet'}
+      </span>
+      <button
+        type="button"
+        onClick={clear}
+        className="px-2 py-0.5 rounded border border-line text-ink-soft hover:bg-surface-muted"
+      >
+        {cleared ? '✓' : t('settings.translation.cacheClear', 'en')}
+      </button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// SiteRulesControls — editable list of per-domain rules + "add current site".
+function SiteRulesControls({
+  rules,
+  onChange,
+}: {
+  rules: SiteRule[]
+  onChange: (next: SiteRule[]) => void
+}) {
+  const [currentHost, setCurrentHost] = useState('')
+  useEffect(() => {
+    // The side panel runs in its own origin; ask the active tab for its host.
+    if (typeof chrome === 'undefined' || !chrome.tabs) return
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const url = tabs[0]?.url
+      if (url) {
+        try { setCurrentHost(new URL(url).hostname) } catch { /* ignore */ }
+      }
+    })
+  }, [])
+
+  const addCurrent = (mode: 'always' | 'never') => {
+    if (!currentHost) return
+    // Replace any existing rule for the same host, then prepend.
+    const filtered = rules.filter((r) => !matchHost(r.hostPattern, currentHost) || r.hostPattern !== currentHost)
+    onChange([{ id: newSiteRuleId(), hostPattern: currentHost, mode, createdAt: Date.now() }, ...filtered])
+  }
+  const removeRule = (id: string) => onChange(rules.filter((r) => r.id !== id))
+  const setMode = (id: string, mode: SiteRule['mode']) =>
+    onChange(rules.map((r) => (r.id === id ? { ...r, mode } : r)))
+
+  const cleanRules = normalizeSiteRules(rules)
+  return (
+    <div className="mb-2">
+      {currentHost && (
+        <div className="flex gap-1.5 mb-2">
+          <button
+            type="button"
+            onClick={() => addCurrent('always')}
+            className="flex-1 px-1 py-1 text-[10.5px] font-medium rounded-lg border border-line text-ink-soft hover:border-accent hover:bg-accent-softer hover:text-accent"
+          >
+            + {t('settings.translation.siteRules.always', 'en')} ({currentHost})
+          </button>
+          <button
+            type="button"
+            onClick={() => addCurrent('never')}
+            className="flex-1 px-1 py-1 text-[10.5px] font-medium rounded-lg border border-line text-ink-soft hover:border-accent hover:bg-accent-softer hover:text-accent"
+          >
+            + {t('settings.translation.siteRules.never', 'en')}
+          </button>
+        </div>
+      )}
+      {cleanRules.length === 0 ? (
+        <p className="text-[10px] text-ink-faint mb-2">
+          No site rules. Add the current site, or it follows your global setting.
+        </p>
+      ) : (
+        <ul className="space-y-1 mb-2">
+          {cleanRules.map((r) => (
+            <li key={r.id} className="flex items-center gap-1.5 text-[10.5px]">
+              <span className="flex-1 truncate text-ink-soft" title={r.hostPattern}>{r.hostPattern}</span>
+              <select
+                value={r.mode}
+                onChange={(e) => setMode(r.id, e.target.value as SiteRule['mode'])}
+                className="field text-[10px] py-0.5"
+              >
+                <option value="always">{t('settings.translation.siteRules.always', 'en')}</option>
+                <option value="never">{t('settings.translation.siteRules.never', 'en')}</option>
+                <option value="customEngine">custom</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => removeRule(r.id)}
+                className="text-ink-faint hover:text-danger"
+                aria-label="remove"
+              >✕</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// CurrentSiteChip — a header chip that cycles the active-tab host's translation
+// rule: auto → always → never → auto. Writes a SiteRule (or removes it) via the
+// parent's onToggle, which persists the whole siteRules list.
+function CurrentSiteChip({
+  host,
+  rules,
+  locale,
+  onToggle,
+}: {
+  host: string
+  rules: SiteRule[]
+  locale: LocalePref
+  onToggle: (next: SiteRule[]) => void
+}) {
+  const state = siteToggleState(rules, host)
+  // Cycle auto → always → never → auto.
+  const cycle = () => {
+    const filtered = rules.filter((r) => r.hostPattern !== host)
+    if (state === 'auto') {
+      onToggle([{ id: newSiteRuleId(), hostPattern: host, mode: 'always', createdAt: Date.now() }, ...filtered])
+    } else if (state === 'always') {
+      onToggle([{ id: newSiteRuleId(), hostPattern: host, mode: 'never', createdAt: Date.now() }, ...filtered])
+    } else {
+      onToggle(filtered) // never → auto (remove rule)
+    }
+  }
+  const label = locale === 'zh'
+    ? (state === 'always' ? '本站：总是翻译' : state === 'never' ? '本站：从不翻译' : `本站：自动`)
+    : (state === 'always' ? 'Site: always' : state === 'never' ? 'Site: never' : `Site: auto`)
+  const tone =
+    state === 'always' ? 'text-accent' : state === 'never' ? 'text-danger' : 'text-ink-faint'
+  return (
+    <button
+      type="button"
+      onClick={cycle}
+      title={locale === 'zh' ? '点击切换：自动 → 总是 → 从不' : 'Click to cycle: auto → always → never'}
+      className={`mt-1 inline-flex items-center gap-1 text-[10px] ${tone} hover:underline`}
+    >
+      <span className="truncate max-w-[160px]">{label}</span>
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
 type SettingsViewProps = {
   byok: ByokSettings
   onChange: (next: Partial<ByokSettings>) => void
@@ -2491,20 +2769,14 @@ function SettingsView({ byok, onChange }: SettingsViewProps) {
               <div className="pt-1 border-t border-line">
                 <label className="label mb-1.5 block">{t('settings.translation.title', byok.locale)}</label>
 
-                {/* Target language */}
+                {/* Target language (searchable — 100+ langs need search) */}
                 <label className="text-[11px] text-ink-soft mb-1 block">{t('settings.translation.targetLanguage', byok.locale)}</label>
-                <select
+                <LanguageSelect
                   value={ts.targetLanguage}
-                  onChange={(e) => setTs({ targetLanguage: e.target.value as TranslationSettings['targetLanguage'] })}
-                  className="field w-full mb-3"
-                >
-                  <option value="auto">{t('settings.translation.targetLanguage.auto', byok.locale)}</option>
-                  {LANGUAGES.map((l) => (
-                    <option key={l.code} value={l.code}>
-                      {byok.locale === 'zh' ? l.zh : l.en} ({l.en})
-                    </option>
-                  ))}
-                </select>
+                  locale={byok.locale}
+                  autoLabel={t('settings.translation.targetLanguage.auto', byok.locale)}
+                  onChange={(code) => setTs({ targetLanguage: code as TranslationSettings['targetLanguage'] })}
+                />
 
                 {/* Display mode */}
                 <label className="text-[11px] text-ink-soft mb-1 block">{t('settings.translation.displayMode', byok.locale)}</label>
@@ -2546,6 +2818,110 @@ function SettingsView({ byok, onChange }: SettingsViewProps) {
                   value={ts.concurrency}
                   onChange={(e) => setTs({ concurrency: Number(e.target.value) })}
                   className="w-full accent-[#9C6B3C]"
+                />
+
+                {/* Translation theme (style) picker — Immersive-parity */}
+                <label className="text-[11px] text-ink-soft mb-1 mt-3 block">{t('settings.translation.theme', byok.locale)}</label>
+                <select
+                  value={ts.theme}
+                  onChange={(e) => setTs({ theme: e.target.value })}
+                  className="field w-full mb-2"
+                >
+                  {TRANSLATION_THEMES.map((th) => (
+                    <option key={th.id} value={th.id}>
+                      {byok.locale === 'zh' ? th.zh : th.en}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Font size slider */}
+                <label className="text-[11px] text-ink-soft mb-1 block">
+                  {t('settings.translation.fontSize', byok.locale)}: {ts.fontSize.toFixed(2)}
+                </label>
+                <input
+                  type="range"
+                  min={0.6}
+                  max={1.6}
+                  step={0.02}
+                  value={ts.fontSize}
+                  onChange={(e) => setTs({ fontSize: Number(e.target.value) })}
+                  className="w-full accent-[#9C6B3C] mb-2"
+                />
+
+                {/* Reading-focus toggle (surpass-feature) */}
+                <label className="flex items-center gap-2 text-[11px] text-ink-soft mb-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={ts.readingFocus}
+                    onChange={(e) => setTs({ readingFocus: e.target.checked })}
+                    className="accent-[#9C6B3C]"
+                  />
+                  {t('settings.translation.readingFocus', byok.locale)}
+                </label>
+
+                {/* AI Expert persona */}
+                <label className="text-[11px] text-ink-soft mb-1 block">{t('settings.translation.persona', byok.locale)}</label>
+                <select
+                  value={ts.persona}
+                  onChange={(e) => setTs({ persona: e.target.value })}
+                  className="field w-full mb-2"
+                >
+                  {TRANSLATION_PERSONAS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {byok.locale === 'zh' ? p.zh : p.en}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Page scope (smart vs whole) */}
+                <label className="text-[11px] text-ink-soft mb-1 block">{t('settings.translation.pageScope', byok.locale)}</label>
+                <div className="grid grid-cols-2 gap-1.5 mb-2">
+                  {(['smart', 'whole'] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setTs({ pageScope: s })}
+                      className={`px-1 py-1.5 text-[10.5px] font-medium rounded-lg border transition-colors duration-150 ease-out leading-tight ${
+                        ts.pageScope === s
+                          ? 'border-accent bg-accent-softer text-accent'
+                          : 'border-line text-ink-soft hover:bg-surface-muted hover:text-ink'
+                      }`}
+                    >
+                      {t(('settings.translation.pageScope.' + s) as StringKey, byok.locale)}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Custom CSS (advanced) */}
+                <label className="text-[11px] text-ink-soft mb-1 block">{t('settings.translation.customCss', byok.locale)}</label>
+                <textarea
+                  value={ts.customCss}
+                  onChange={(e) => setTs({ customCss: e.target.value })}
+                  rows={2}
+                  placeholder=".lector-bilingual { color: #c0392b; }"
+                  className="field w-full mb-1 font-mono text-[10.5px]"
+                />
+                <p className="text-[10px] text-ink-faint mb-2">{t('settings.translation.customCssHint', byok.locale)}</p>
+
+                {/* Translation cache */}
+                <label className="text-[11px] text-ink-soft mb-1 block">
+                  {t('settings.translation.cacheTtl', byok.locale)}: {ts.cacheTtlDays}
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={90}
+                  value={ts.cacheTtlDays}
+                  onChange={(e) => setTs({ cacheTtlDays: Number(e.target.value) })}
+                  className="w-full accent-[#9C6B3C] mb-1"
+                />
+                <p className="text-[10px] text-ink-faint mb-1">{t('settings.translation.cacheHint', byok.locale)}</p>
+                <CacheControls ttlDays={ts.cacheTtlDays} />
+
+                {/* Site rules */}
+                <label className="text-[11px] text-ink-soft mb-1 mt-1 block">{t('settings.translation.siteRules', byok.locale)}</label>
+                <SiteRulesControls
+                  rules={ts.siteRules}
+                  onChange={(next) => setTs({ siteRules: next })}
                 />
               </div>
             )
