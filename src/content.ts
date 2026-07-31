@@ -1503,16 +1503,25 @@ async function runBilingualTranslation() {
     ? [scopeRoot as HTMLElement]
     : Array.from(scopeRoot.querySelectorAll<HTMLElement>(baseSelector + extraSelector))
 
-  // Modern sites (and component UIs like GitHub's) often put translatable
-  // prose in <div>/<span> instead of <p>/<li>. The fixed TRANSLATABLE_TAGS set
-  // misses these, so the text is never collected. Recover text-LEAF div/span
-  // containers: a div/span that (a) has substantial DIRECT text, (b) holds no
-  // block-level child we'd already translate (avoids double-translating a
-  // wrapper that contains a <p>), and (c) isn't inside an excluded ancestor.
-  // This mirrors how Immersive Translate handles arbitrary markup.
-  const textLeaves = Array.from(scopeRoot.querySelectorAll<HTMLElement>('div, span'))
+  // Modern sites (and component UIs like GitHub's) put translatable text in
+  // <div>/<span>/<a> instead of <p>/<li>/<h*>. The fixed TRANSLATABLE_TAGS set
+  // misses these (e.g. "Built by" in a <div>, "TypeScript" in a <a>/<span>), so
+  // the text is never collected. Recover text-LEAF div/span/a containers:
+  //   (a) has meaningful DIRECT text (≥ a short-label threshold),
+  //   (b) holds no block-level child we'd already translate (no duplication),
+  //   (c) isn't inside an excluded ancestor (code/button/etc), AND
+  //   (d) isn't in a nav/header/footer/menu region (those are noise).
+  // This mirrors how Immersive Translate handles arbitrary markup. The two
+  // thresholds: a higher one for <a> (links are everywhere in nav/menus, so we
+  // require a real clause to avoid translating every nav link) and a lower one
+  // for div/span (labels/headings live here and are short).
+  const NAV_SELECTOR = 'nav, header, footer, menu, [role="navigation"], [role="banner"], [role="menu"], [role="menubar"]'
+  const textLeaves = Array.from(scopeRoot.querySelectorAll<HTMLElement>('div, span, a'))
     .filter((el) => {
       if (el.closest(EXCLUDED_SELECTOR)) return false
+      // Skip noise regions (nav/header/footer/menus) so we don't pull in nav
+      // links / menu items. Genuine content labels live in <main>/<article>.
+      if (el.closest(NAV_SELECTOR)) return false
       // Has a block-level translatable child? Then it's a wrapper, not a leaf —
       // skip so we translate the inner block instead of duplicating.
       if (el.querySelector('p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, dt, dd, figcaption, summary')) return false
@@ -1521,8 +1530,11 @@ async function runBilingualTranslation() {
         .map((n) => n.textContent || '')
         .join('')
         .trim()
-      // Substantial prose directly in this div/span (not just whitespace).
-      return directText.length >= 30
+      if (!directText) return false
+      // <a> elements require a longer direct text (they're prolific in nav);
+      // div/span accept short labels too (e.g. "Built by", a language chip).
+      const minLen = el.tagName === 'A' ? 25 : 6
+      return directText.length >= minLen
     })
 
   // Gather candidates, viewport-first ordering.
@@ -1532,7 +1544,7 @@ async function runBilingualTranslation() {
     : []
   const gatherFrom = (roots: HTMLElement[]) =>
     roots
-      .map((el) => ({ el, c: buildBlockCandidate(el), isTextLeaf: el.tagName === 'DIV' || el.tagName === 'SPAN' }))
+      .map((el) => ({ el, c: buildBlockCandidate(el), isTextLeaf: el.tagName === 'DIV' || el.tagName === 'SPAN' || el.tagName === 'A' }))
       // Text-leaf divs/spans bypass the tag whitelist (their quality was checked
       // at collection time); standard tags use the whitelist as before.
       .filter((x) => shouldTranslateBlock(x.c, x.isTextLeaf) && !x.el.closest('#lector-ai-result, #lector-ai-toolbar, #lector-ai-loading, #lector-ai-fab, [data-lector-no-translate]'))
