@@ -141,9 +141,21 @@ chrome.commands?.onCommand.addListener((cmd) => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tabId = tabs[0]?.id
     if (tabId === undefined) return
-    // Alt+T triggers bilingual page translation directly.
-    const action =
-      cmd === 'lector-translate' ? { action: 'lector-toggle-bilingual' } : { action: 'lector-command', command: cmd }
+    // Map the manifest command id to the content-script action.
+    //   lector-translate / lector-toggle-bilingual → smart bilingual toggle
+    //   lector-translate-whole-page               → whole-page bilingual
+    //   lector-translate-selection                 → translate the selection
+    let action: { action: string; scope?: 'smart' | 'whole'; command?: string }
+    if (cmd === 'lector-translate' || cmd === 'lector-toggle-bilingual') {
+      action = { action: 'lector-toggle-bilingual', scope: 'smart' }
+    } else if (cmd === 'lector-translate-whole-page') {
+      action = { action: 'lector-toggle-bilingual', scope: 'whole' }
+    } else if (cmd === 'lector-translate-selection') {
+      action = { action: 'lector-translate-selection' }
+    } else {
+      // highlight-selection / save-word
+      action = { action: 'lector-command', command: cmd }
+    }
     chrome.tabs.sendMessage(tabId, action, () => {
       void chrome.runtime.lastError
     })

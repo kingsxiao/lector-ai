@@ -28,6 +28,24 @@
         "default": "Alt+T"
       },
       "description": "Translate this page (bilingual mode)"
+    },
+    "lector-toggle-bilingual": {
+      "suggested_key": {
+        "default": "Alt+A"
+      },
+      "description": "Toggle bilingual translation on this page (smart content)"
+    },
+    "lector-translate-whole-page": {
+      "suggested_key": {
+        "default": "Alt+W"
+      },
+      "description": "Translate the whole page (not just the main content)"
+    },
+    "lector-translate-selection": {
+      "suggested_key": {
+        "default": "Alt+Q"
+      },
+      "description": "Translate the current text selection"
     }
   },
   "host_permissions": [

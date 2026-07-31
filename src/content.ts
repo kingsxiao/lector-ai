@@ -1484,10 +1484,13 @@ async function runBilingualTranslation() {
 
   // Site rules: per-domain extra selectors / exclusions augment the default
   // block query. `pageScope` controls whether we translate the smart main
-  // content root only (default) or the whole document.body.
+  // content root only (default) or the whole document.body. A keyboard override
+  // (Alt+A smart / Alt+W whole) wins for this run, then is cleared.
+  const effectiveScope = bilingualScopeOverride || tSettings.pageScope
+  bilingualScopeOverride = null
   const host = location.hostname
   const siteRule = findRuleForHost(tSettings.siteRules, host) || undefined
-  const scopeRoot = tSettings.pageScope === 'whole' || !extractPageRoot()
+  const scopeRoot = effectiveScope === 'whole' || !extractPageRoot()
     ? document.body
     : (extractPageRoot() as HTMLElement)
   const baseSelector = 'p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, dt, dd, figcaption, summary'
@@ -1656,10 +1659,173 @@ function cancelBilingual() {
     .catch(() => {})
 }
 
+/** When set, overrides the configured pageScope for the next bilingual run.
+ *  Used by the Alt+W "whole page" shortcut (and Alt+A "smart" shortcut) so the
+ *  same toggleBilingual path can target either scope without a settings write.
+ *  Cleared after each run. */
+let bilingualScopeOverride: 'smart' | 'whole' | null = null
+
 /** Backwards-compat entry point; the side panel / command send lector-toggle-bilingual. */
 async function toggleBilingual() {
   await runBilingualTranslation()
 }
+
+// ---------------------------------------------------------------------------
+// Shift+hover paragraph translation (Phase 6)
+// ---------------------------------------------------------------------------
+// Distinct from the CSS-only `hover` display mode: this is an on-demand TRIGGER
+// that translates just the paragraph under the cursor when the user holds Shift
+// and hovers — no pre-rendering of the whole page. Reuses translateBlockChunks
+// so a hovered block gets the same chunking/cache/persona treatment.
+let hoverCfg = { enabled: true, holdKey: 'Shift' as 'Shift' | 'Control' | 'Alt', debounceMs: 350 }
+let hoverTimer: ReturnType<typeof setTimeout> | null = null
+let lastHoverBlock: HTMLElement | null = null
+
+/** On-demand single-block translation for Shift+hover. Idempotent: if the block
+ *  already has a `.lector-bilingual` translation, it's a no-op (the user is just
+ *  reading it). Translates only this block, scoped to its own abort so leaving
+ *  the block cancels any in-flight chunk. */
+async function translateBlockOnHover(block: HTMLElement) {
+  // Skip if already translated (avoid duplicate injection on repeated hovers).
+  if (block.querySelector(':scope > .lector-bilingual')) return
+  const settings = await getSettings()
+  if (!settings.apiKey) return
+  const tSettings = normalizeTranslationSettings(settings.translation)
+  const text = (block.textContent || '').trim()
+  if (text.length < 3) return
+  const target = resolveTargetLang(tSettings.targetLanguage, text)
+  const glossary = await loadGlossary()
+  const glossaryBlock = renderGlossaryPrompt(filterGlossaryForDirection(glossary, target))
+  const persona = personaPrompt(tSettings.persona)
+  const systemPrompt = buildTranslateSystemPrompt(target, glossaryBlock, persona)
+  const controller = new AbortController()
+  try {
+    await translateBlockChunks(settings, systemPrompt, block, target, controller.signal)
+  } catch {
+    /* abort or provider error — leave whatever streamed; user can re-hover */
+  }
+}
+
+document.addEventListener('mousemove', (e) => {
+  if (!hoverCfg.enabled) return
+  // Only trigger when the configured hold key is currently pressed.
+  const held =
+    (hoverCfg.holdKey === 'Shift' && e.shiftKey) ||
+    (hoverCfg.holdKey === 'Control' && e.ctrlKey) ||
+    (hoverCfg.holdKey === 'Alt' && e.altKey)
+  if (!held) return
+  const target = e.target as HTMLElement
+  if (!target || !target.closest) return
+  // Find the nearest translatable block ancestor.
+  const block = target.closest('p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, dt, dd, figcaption, summary') as HTMLElement | null
+  if (!block || block === lastHoverBlock) return
+  // Skip our own UI + already-excluded regions.
+  if (block.closest('#lector-ai-result, #lector-ai-toolbar, #lector-ai-loading, #lector-ai-fab, [data-lector-no-translate]')) return
+  lastHoverBlock = block
+  if (hoverTimer) clearTimeout(hoverTimer)
+  hoverTimer = setTimeout(() => {
+    void translateBlockOnHover(block)
+  }, hoverCfg.debounceMs)
+})
+
+document.addEventListener('keyup', () => {
+  // Cancel a pending hover-translation if the user releases the hold key early.
+  if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null }
+})
+
+// ---------------------------------------------------------------------------
+// Input-box translation (Phase 7)
+// ---------------------------------------------------------------------------
+// Immersive-style: triple-space (configurable symbol) triggers translation of
+// the active input/textarea; `/xx` slash commands set the target for the call;
+// `//word` partial-translates just that token. Some sites swallow multiple
+// spaces, so the trigger symbol is configurable. Per-site disable is handled
+// via the site rules (checked at trigger time).
+let inputCfg = {
+  enabled: true,
+  /** Trigger string; default three spaces. Some sites (Quora) collapse these. */
+  trigger: '   ',
+  /** On trigger: 'replace' overwrites the field, 'append' adds a bilingual line. */
+  mode: 'replace' as 'replace' | 'append',
+}
+
+/** Known-incompatible site hosts where input-box translation is off by default
+ *  (matches Immersive's documented limits). The user can still force-enable it
+ *  per-site via a rule, but this avoids flaky behavior on the listed domains. */
+const INPUT_BLACKLIST = ['chrome.google.com', 'notion.so', 'notion.so/', 'larksuite.com', 'feishu.cn']
+
+function inputBoxDisabledForHost(): boolean {
+  const h = location.hostname.toLowerCase()
+  return INPUT_BLACKLIST.some((b) => h.includes(b))
+}
+
+/** Translate the value of an editable field and write it back. The whole source
+ *  value is translated (so `/ja hello world` → Japanese for "hello world",
+ *  dropping the command prefix). Partial `//word` is handled per-token before
+ *  this is called. */
+async function translateInputField(el: HTMLInputElement | HTMLTextAreaElement, targetOverride?: string) {
+  const settings = await getSettings()
+  if (!settings.apiKey) return
+  const tSettings = normalizeTranslationSettings(settings.translation)
+  const raw = el.value
+  if (!raw.trim()) return
+  const target = (targetOverride && targetOverride !== 'auto'
+    ? targetOverride
+    : resolveTargetLang(tSettings.targetLanguage, raw))
+  const glossary = await loadGlossary()
+  const glossaryBlock = renderGlossaryPrompt(filterGlossaryForDirection(glossary, target))
+  const persona = personaPrompt(tSettings.persona)
+  const systemPrompt = buildTranslateSystemPrompt(target, glossaryBlock, persona)
+  try {
+    const out = await completeOnce(
+      settings,
+      systemPrompt,
+      raw.slice(0, 4000),
+      { maxTokens: Math.min(2000, Math.max(200, raw.length * 2)), temperature: 0.2 }
+    )
+    if (!out) return
+    if (inputCfg.mode === 'append') {
+      el.value = raw + '\n' + out
+    } else {
+      el.value = out
+    }
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+  } catch {
+    /* provider error — leave the field unchanged */
+  }
+}
+
+/** Keydown listener for editable fields: detects the triple-space trigger,
+ *  slash commands (`/xx `), and partial `//word`. Attached to the document so
+ *  dynamically-added fields are covered; we filter to INPUT/TEXTAREA + contenteditable. */
+document.addEventListener('keydown', (e) => {
+  if (!inputCfg.enabled || inputBoxDisabledForHost()) return
+  if (e.key !== ' ' && e.key !== 'Spacebar') return
+  const el = e.target as HTMLElement | null
+  if (!el) return
+  const isField =
+    el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' ||
+    el.isContentEditable === true
+  if (!isField) return
+  const value = (el as HTMLInputElement | HTMLTextAreaElement).value ?? ''
+  // Triple-space: the field already ends with two trailing spaces and this is
+  // the third → fire translation, then swallow the key so the third space
+  // doesn't itself land in the field.
+  if (inputCfg.trigger === '   ' && value.endsWith('  ')) {
+    e.preventDefault()
+    // Strip the two leading trigger spaces before translating.
+    const field = el as HTMLInputElement | HTMLTextAreaElement
+    field.value = value.slice(0, -2)
+    // Slash command: `/xx ` at the start sets the target for this call.
+    const cmdMatch = field.value.match(/^\s*\/([a-zA-Z-]{2,8})\s+(.*)/s)
+    if (cmdMatch) {
+      field.value = cmdMatch[2]
+      void translateInputField(field, cmdMatch[1].toLowerCase())
+    } else {
+      void translateInputField(field)
+    }
+  }
+}, true) // capture so we see the key before the site's own handlers
 
 // ---------------------------------------------------------------------------
 // Listeners: selection → toolbar, Escape, side-panel messages
@@ -1755,8 +1921,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     // may tear the channel/worker down during that time, leaving the button
     // stuck). Translations still inject into the DOM as they land; progress
     // is reported via separate lector-bilingual-progress messages.
+    // An optional `scope` ('smart'|'whole') from the keyboard shortcut forces
+    // the page scope for this run only (Alt+A vs Alt+W).
+    if (message.scope === 'smart' || message.scope === 'whole') {
+      bilingualScopeOverride = message.scope
+    }
     sendResponse({ ok: true })
     void toggleBilingual()
+    return false
+  }
+  if (message?.action === 'lector-translate-selection') {
+    // Alt+Q: translate the current selection directly (no manual toolbar click).
+    // Reuses the selection-translate pipeline so persona + target picker are
+    // honored identically. Position falls back to top-left when no toolbar is
+    // open (keyboard-triggered).
+    sendResponse({ ok: true })
+    void (async () => {
+      const sel = window.getSelection()
+      const text = sel?.toString().trim() || ''
+      if (text.length < 2) return
+      await loadPref()
+      runByokAction('translate', text)
+    })()
     return false
   }
   if (message?.action === 'lector-cancel-bilingual') {
