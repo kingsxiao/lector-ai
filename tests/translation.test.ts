@@ -3,7 +3,10 @@ import {
   LANGUAGES,
   detectScript,
   resolveTargetLang,
+  detectSourceLang,
   getLanguage,
+  isValidLangCode,
+  searchLanguages,
   buildTranslateSystemPrompt,
   buildTranslateUserPrompt,
   isTranslationLikelyUnchanged,
@@ -32,10 +35,11 @@ const ge = (id: string, source: string, target: string, enabled = true): Glossar
 })
 
 describe('LANGUAGES', () => {
-  it('has 12 entries with unique codes and non-empty speechCode', () => {
-    expect(LANGUAGES).toHaveLength(12)
+  it('has 100+ entries with unique codes and non-empty speechCode', () => {
+    // Expanded from 12 → 100+ to match Immersive Translate's language breadth.
+    expect(LANGUAGES.length).toBeGreaterThanOrEqual(100)
     const codes = LANGUAGES.map((l) => l.code)
-    expect(new Set(codes).size).toBe(12)
+    expect(new Set(codes).size).toBe(codes.length) // all unique
     for (const l of LANGUAGES) {
       expect(l.speechCode.length).toBeGreaterThan(0)
       expect(l.en.length).toBeGreaterThan(0)
@@ -55,6 +59,47 @@ describe('getLanguage', () => {
   it('falls back to en for unknown code', () => {
     expect(getLanguage('xx' as TargetLangCode).code).toBe('en')
   })
+  it('resolves extended catalog entries (thai)', () => {
+    expect(getLanguage('th').en).toBe('Thai')
+    expect(getLanguage('th').speechCode).toBe('th-TH')
+  })
+})
+
+describe('isValidLangCode', () => {
+  it('accepts codes present in the catalog', () => {
+    expect(isValidLangCode('zh')).toBe(true)
+    expect(isValidLangCode('th')).toBe(true)
+    expect(isValidLangCode('zh-TW')).toBe(true)
+  })
+  it('rejects unknown codes and non-strings', () => {
+    expect(isValidLangCode('xx')).toBe(false)
+    expect(isValidLangCode(undefined)).toBe(false)
+    expect(isValidLangCode(123)).toBe(false)
+  })
+})
+
+describe('searchLanguages', () => {
+  it('returns the full catalog for an empty query', () => {
+    expect(searchLanguages('').length).toBe(LANGUAGES.length)
+  })
+  it('matches by code, English name, or Chinese name', () => {
+    expect(searchLanguages('th').map((l) => l.code)).toContain('th')
+    expect(searchLanguages('Thai').map((l) => l.code)).toContain('th')
+    expect(searchLanguages('泰语').map((l) => l.code)).toContain('th')
+  })
+  it('is case-insensitive', () => {
+    expect(searchLanguages('FRENCH').map((l) => l.code)).toContain('fr')
+  })
+})
+
+describe('detectSourceLang', () => {
+  it('maps dominant scripts to a representative source code', () => {
+    expect(detectSourceLang('Hello world')).toBe('en')
+    expect(detectSourceLang('你好世界')).toBe('zh')
+    expect(detectSourceLang('Привет')).toBe('ru')
+    expect(detectSourceLang('สวัสดี')).toBe('th')
+    expect(detectSourceLang('नमस्ते')).toBe('hi')
+  })
 })
 
 describe('detectScript', () => {
@@ -69,6 +114,20 @@ describe('detectScript', () => {
   })
   it('detects arabic', () => {
     expect(detectScript('مرحبا بالعالم')).toBe('arabic')
+  })
+  // Extended script coverage (Phase 1): Hebrew, Greek, Devanagari, Thai so the
+  // 'auto' translation direction is correct for a much wider source set.
+  it('detects hebrew', () => {
+    expect(detectScript('שלום עולם זה טקסט')).toBe('hebrew')
+  })
+  it('detects greek', () => {
+    expect(detectScript('Γεια σας κόσμε αυτό είναι κείμενο')).toBe('greek')
+  })
+  it('detects devanagari', () => {
+    expect(detectScript('नमस्ते दुनिया यह एक पाठ है')).toBe('devanagari')
+  })
+  it('detects thai', () => {
+    expect(detectScript('สวัสดีชาวโลกนี่คือข้อความ')).toBe('thai')
   })
 })
 

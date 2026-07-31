@@ -3,54 +3,54 @@
 // of truth for translation direction, language metadata, prompt building,
 // concurrency control, block selection, and history LRU.
 
-export type TargetLangCode =
-  | 'zh' | 'en' | 'ja' | 'ko' | 'fr' | 'de'
-  | 'es' | 'ru' | 'pt' | 'it' | 'vi' | 'ar'
+// Language catalog lives in a dedicated module (105 BCP-47 entries) so this
+// file stays focused on translation *logic*. We re-export the catalog + the
+// legacy type alias so existing call sites keep working. `TargetLangCode` was
+// a fixed 12-member union; it is now a `string` alias because the catalog grew
+// past 100 entries (a 100-member union is unwieldy and slows the typechecker).
+// Code is validated at runtime via isValidLangCode() at the storage boundary.
+export type { LanguageDef } from './languages'
+import {
+  LANGUAGES as ALL_LANGUAGES,
+  getLanguage as _getLanguage,
+  isValidLangCode,
+  searchLanguages,
+} from './languages'
 
-export interface LanguageDef {
-  code: TargetLangCode
-  /** English name (also used as the translation target token in prompts). */
-  en: string
-  /** Chinese name. */
-  zh: string
-  /** BCP-47 tag for SpeechSynthesis (browser TTS, zero-dependency). */
-  speechCode: string
+/** Alias kept for back-compat: any valid catalog code is a target language. */
+export type TargetLangCode = string
+
+export const LANGUAGES = ALL_LANGUAGES
+
+/**
+ * @deprecated use `isValidLangCode` from ./languages for new code; this thin
+ *   wrapper is kept so existing call sites that imported getLanguage from
+ *   translation.ts keep compiling.
+ */
+export function getLanguage(code: string) {
+  return _getLanguage(code)
 }
 
-// zh/en first (most common), then by usage frequency.
-export const LANGUAGES: LanguageDef[] = [
-  { code: 'zh', en: 'Chinese',    zh: '中文',     speechCode: 'zh-CN' },
-  { code: 'en', en: 'English',    zh: '英语',     speechCode: 'en-US' },
-  { code: 'ja', en: 'Japanese',   zh: '日语',     speechCode: 'ja-JP' },
-  { code: 'ko', en: 'Korean',     zh: '韩语',     speechCode: 'ko-KR' },
-  { code: 'fr', en: 'French',     zh: '法语',     speechCode: 'fr-FR' },
-  { code: 'de', en: 'German',     zh: '德语',     speechCode: 'de-DE' },
-  { code: 'es', en: 'Spanish',    zh: '西班牙语', speechCode: 'es-ES' },
-  { code: 'ru', en: 'Russian',    zh: '俄语',     speechCode: 'ru-RU' },
-  { code: 'pt', en: 'Portuguese', zh: '葡萄牙语', speechCode: 'pt-PT' },
-  { code: 'it', en: 'Italian',    zh: '意大利语', speechCode: 'it-IT' },
-  { code: 'vi', en: 'Vietnamese', zh: '越南语',   speechCode: 'vi-VN' },
-  { code: 'ar', en: 'Arabic',     zh: '阿拉伯语', speechCode: 'ar-SA' },
-]
+export { isValidLangCode, searchLanguages }
 
-const LANG_BY_CODE: Record<TargetLangCode, LanguageDef> = Object.fromEntries(
-  LANGUAGES.map((l) => [l.code, l])
-) as Record<TargetLangCode, LanguageDef>
-
-/** Look up a language def; falls back to English for unknown codes. */
-export function getLanguage(code: TargetLangCode): LanguageDef {
-  return LANG_BY_CODE[code] || LANGUAGES[1] // en
-}
-
-export type Script = 'cjk' | 'cyrillic' | 'arabic' | 'latin'
+export type Script =
+  | 'cjk' | 'cyrillic' | 'arabic' | 'latin'
+  | 'hebrew' | 'greek' | 'devanagari' | 'thai'
 
 /**
  * Detect the dominant script of a text by counting characters in each range.
  * Used to pick a sensible default target language (the "opposite" of the
  * source), matching the pre-existing zh<->en heuristic intuition.
+ *
+ * Extended beyond the original four scripts to cover Hebrew, Greek, Devanagari
+ * (Hindi/Marathi/etc.) and Thai so the 'auto' direction is correct for a much
+ * wider source set. Latin is still compared against every other script so a
+ * single stray non-Latin char on an otherwise-Latin page does not flip the
+ * direction (regression: English pages "translated" back to English).
  */
 export function detectScript(text: string): Script {
   let cjk = 0, cyrillic = 0, arabic = 0, latin = 0
+  let hebrew = 0, greek = 0, devanagari = 0, thai = 0
   for (const ch of text) {
     const c = ch.codePointAt(0)!
     if ((c >= 0x4e00 && c <= 0x9fff) || (c >= 0x3400 && c <= 0x4dbf) ||
@@ -61,6 +61,14 @@ export function detectScript(text: string): Script {
       cyrillic++
     } else if (c >= 0x0600 && c <= 0x06ff) {
       arabic++
+    } else if (c >= 0x0590 && c <= 0x05ff) {
+      hebrew++
+    } else if (c >= 0x0370 && c <= 0x03ff) {
+      greek++
+    } else if (c >= 0x0900 && c <= 0x097f) {
+      devanagari++
+    } else if (c >= 0x0e00 && c <= 0x0e7f) {
+      thai++
     } else if ((c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)) {
       latin++
     }
@@ -72,17 +80,21 @@ export function detectScript(text: string): Script {
   // an English page (with e.g. a Chinese footer char) to "translate to
   // English" → the page came back untranslated. Compare against latin too so
   // the majority script wins.
-  const max = Math.max(cjk, cyrillic, arabic, latin)
+  const max = Math.max(cjk, cyrillic, arabic, latin, hebrew, greek, devanagari, thai)
   if (max === 0) return 'latin'
   if (cjk === max) return 'cjk'
   if (cyrillic === max) return 'cyrillic'
   if (arabic === max) return 'arabic'
+  if (hebrew === max) return 'hebrew'
+  if (greek === max) return 'greek'
+  if (devanagari === max) return 'devanagari'
+  if (thai === max) return 'thai'
   return 'latin'
 }
 
 import type { GlossaryEntry } from './glossary'
 
-export type TargetLangSetting = TargetLangCode | 'auto'
+export type TargetLangSetting = string | 'auto'
 
 /**
  * Resolve the final target language. An explicit user choice wins; 'auto'
@@ -92,6 +104,25 @@ export type TargetLangSetting = TargetLangCode | 'auto'
 export function resolveTargetLang(setting: TargetLangSetting, sourceText: string): TargetLangCode {
   if (setting !== 'auto') return setting
   return detectScript(sourceText) === 'cjk' ? 'en' : 'zh'
+}
+
+/**
+ * Best-effort guess of the SOURCE language code from text, for display next to
+ * an auto-resolved target (surpass-feature: surface detected source so the
+ * user can trust the direction). Coarse — keyed off the dominant script — but
+ * good enough to label "Detected: English → 中文".
+ */
+export function detectSourceLang(text: string): string {
+  switch (detectScript(text)) {
+    case 'cjk': return 'zh'
+    case 'cyrillic': return 'ru'
+    case 'arabic': return 'ar'
+    case 'hebrew': return 'he'
+    case 'greek': return 'el'
+    case 'devanagari': return 'hi'
+    case 'thai': return 'th'
+    default: return 'en'
+  }
 }
 
 /**
@@ -144,10 +175,22 @@ export function buildTranslateUserPrompt(text: string): string {
  * than a definite failure.
  */
 function scriptOfLang(lang: TargetLangCode): Script {
-  if (lang === 'zh' || lang === 'ja' || lang === 'ko') return 'cjk'
-  if (lang === 'ru') return 'cyrillic'
-  if (lang === 'ar') return 'arabic'
-  return 'latin' // en, fr, de, es, pt, it, vi
+  // CJK variants (incl. Traditional/Cantonese/Min Nan/Classical) all share the
+  // Han script; ru/uk/be/mk/bg/sr use Cyrillic; Arabic-script langs (ar, fa,
+  // ur, ps) share Arabic; Hebrew (he, yi); Greek (el); Devanagari (hi, bn, mr,
+  // gu, ne, sa); Thai (th, lo). Everything else defaults to Latin.
+  if (
+    lang === 'zh' || lang === 'zh-TW' || lang === 'ja' || lang === 'ko' ||
+    lang === 'yue' || lang === 'nan' || lang === 'wyw'
+  ) return 'cjk'
+  if (lang === 'ru' || lang === 'uk' || lang === 'be' || lang === 'mk' ||
+      lang === 'bg' || lang === 'sr') return 'cyrillic'
+  if (lang === 'ar' || lang === 'fa' || lang === 'ur' || lang === 'ps') return 'arabic'
+  if (lang === 'he' || lang === 'yi') return 'hebrew'
+  if (lang === 'el') return 'greek'
+  if (lang === 'hi' || lang === 'bn' || lang === 'mr' || lang === 'gu' || lang === 'ne') return 'devanagari'
+  if (lang === 'th' || lang === 'lo') return 'thai'
+  return 'latin' // en, fr, de, es, pt, it, vi, and the rest of the catalog
 }
 
 // Below this length (after whitespace trim) a source is too short to judge
