@@ -98,6 +98,36 @@ function scoreNode(el: Element): number {
   return text.length + commas * 8 - linkDensity * 200
 }
 
+function findBestContentRoot(): Element {
+  // Avoid scoring every <div> when semantic article roots exist. Reading
+  // textContent for every nested div repeats the same subtree text at each
+  // level and becomes effectively quadratic on large component applications.
+  const semantic = Array.from(
+    document.querySelectorAll('article, main, [role="main"]')
+  )
+  const named = semantic.length === 0
+    ? Array.from(document.querySelectorAll('.post, .article, .content, .entry-content'))
+    : []
+  // Div-only pages are the fallback. Bound the scan to keep panel-open page
+  // extraction responsive on pathological DOMs while retaining broad support.
+  const allGeneric = semantic.length === 0 && named.length === 0
+    ? Array.from(document.querySelectorAll('div'))
+    : []
+  const generic = allGeneric.length <= 2000 ? allGeneric : []
+  const candidates = semantic.length > 0 ? semantic : named.length > 0 ? named : generic
+
+  let best: Element | null = null
+  let bestScore = 0
+  for (const el of candidates) {
+    const score = scoreNode(el)
+    if (score > bestScore) {
+      bestScore = score
+      best = el
+    }
+  }
+  return best || document.body
+}
+
 export interface ExtractedPageBlock {
   id: string
   text: string
@@ -116,27 +146,25 @@ export interface ExtractedPage {
 }
 
 function detectLang(text: string): string {
-  if (/[\u4e00-\u9fff]/.test(text)) return 'zh'
-  if (/[\u3040-\u30ff]/.test(text)) return 'ja'
-  if (/[\uac00-\ud7af]/.test(text)) return 'ko'
+  // Count dominant script instead of treating one stray CJK character (footer,
+  // locale switcher, username) as proof that the entire English page is CJK.
+  const script = detectScript(text)
+  if (script === 'cjk') {
+    if (/[\u3040-\u30ff]/.test(text)) return 'ja'
+    if (/[\uac00-\ud7af]/.test(text)) return 'ko'
+    return 'zh'
+  }
+  if (script === 'cyrillic') return 'ru'
+  if (script === 'arabic') return 'ar'
+  if (script === 'hebrew') return 'he'
+  if (script === 'greek') return 'el'
+  if (script === 'devanagari') return 'hi'
+  if (script === 'thai') return 'th'
   return 'en'
 }
 
 export function extractPage(): ExtractedPage {
-  const candidates = document.querySelectorAll('article, main, [role="main"], .post, .article, .content, .entry-content, div')
-
-  let best: Element | null = null
-  let bestScore = 0
-  candidates.forEach((el) => {
-    if (el === document.body) return
-    const s = scoreNode(el)
-    if (s > bestScore) {
-      bestScore = s
-      best = el
-    }
-  })
-
-  const root: Element = best || document.body
+  const root = findBestContentRoot()
 
   // Clone before stripping so we don't mutate the live page.
   const clone = root.cloneNode(true) as Element
@@ -908,7 +936,7 @@ import {
   parseStore,
   type CacheStore,
 } from './shared/translationCache'
-import { findRuleForHost } from './shared/siteRules'
+import { findRuleForHost, shouldAutoTranslatePage } from './shared/siteRules'
 import { normalizeTranslationSettings, type ByokSettings, type TranslationSettings } from './shared/providers'
 
 // --- i18n: content script reads the locale pref from storage once per action ---
@@ -1148,6 +1176,10 @@ async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: 
 let bilingualAbort: AbortController | null = null
 
 const EXCLUDED_SELECTOR = Array.from(EXCLUDED_ANCESTOR_TAGS).map((t) => t.toLowerCase()).join(',')
+const BASE_TRANSLATABLE_SELECTOR =
+  'p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, dt, dd, figcaption, summary'
+const TRANSLATION_NOISE_SELECTOR =
+  'nav, header, footer, menu, [role="navigation"], [role="banner"], [role="menu"], [role="menubar"]'
 
 function buildBlockCandidate(el: HTMLElement) {
   const text = (el.textContent || '').trim()
@@ -1159,6 +1191,122 @@ function buildBlockCandidate(el: HTMLElement) {
     isAlreadyTranslated: !!el.querySelector('.lector-bilingual'),
     textRatio: text.length / outerLen,
   }
+}
+
+function queryAllSafe(root: Element, selector: string): HTMLElement[] {
+  try {
+    return Array.from(root.querySelectorAll<HTMLElement>(selector))
+  } catch {
+    return []
+  }
+}
+
+function closestSafe(el: Element, selector: string): Element | null {
+  try {
+    return el.closest(selector)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Collect non-overlapping translation hosts.
+ *
+ * Component pages often nest the same label through several div/span wrappers.
+ * The old collector compared every candidate with every other candidate
+ * (O(n²)); its symmetric parent/child predicate could remove BOTH nodes, while
+ * a <p> and inner <span> could also be translated concurrently and rewrite one
+ * another's DOM. This collector deduplicates with Sets and marks ancestors in
+ * O(nodes × DOM depth), keeping the deepest eligible host once.
+ */
+export function collectTranslationCandidates(
+  scopeRoot: Element,
+  extraSelectors: string[] = [],
+  excludeSelectors: string[] = []
+): HTMLElement[] {
+  const validExtra = extraSelectors.map((s) => s.trim()).filter(Boolean)
+  const extraRoots = new Set<HTMLElement>()
+  for (const selector of validExtra) {
+    for (const el of queryAllSafe(scopeRoot, selector)) extraRoots.add(el)
+    if (closestSafe(scopeRoot, selector) === scopeRoot) extraRoots.add(scopeRoot as HTMLElement)
+  }
+
+  const standardRoots = new Set<HTMLElement>()
+  if (closestSafe(scopeRoot, BASE_TRANSLATABLE_SELECTOR) === scopeRoot) {
+    standardRoots.add(scopeRoot as HTMLElement)
+  }
+  for (const el of queryAllSafe(scopeRoot, BASE_TRANSLATABLE_SELECTOR)) standardRoots.add(el)
+  for (const el of extraRoots) standardRoots.add(el)
+
+  const hasStandardAncestor = (el: HTMLElement) => {
+    let parent = el.parentElement
+    while (parent) {
+      if (standardRoots.has(parent)) return true
+      if (parent === scopeRoot) break
+      parent = parent.parentElement
+    }
+    return false
+  }
+
+  // Precompute wrappers that contain a standard/explicit host. Querying every
+  // div/span subtree separately is disproportionately expensive on large apps.
+  const hasStandardDescendant = new Set<HTMLElement>()
+  for (const host of standardRoots) {
+    let parent = host.parentElement
+    while (parent) {
+      hasStandardDescendant.add(parent)
+      if (parent === scopeRoot) break
+      parent = parent.parentElement
+    }
+  }
+
+  const textLeaves = queryAllSafe(scopeRoot, 'div, span, a').filter((el) => {
+    if (closestSafe(el, EXCLUDED_SELECTOR)) return false
+    if (closestSafe(el, TRANSLATION_NOISE_SELECTOR)) return false
+    if (!standardRoots.has(el) && hasStandardAncestor(el)) return false
+    if (hasStandardDescendant.has(el)) return false
+    const directText = Array.from(el.childNodes)
+      .filter((n) => n.nodeType === Node.TEXT_NODE)
+      .map((n) => n.textContent || '')
+      .join('')
+      .trim()
+    // Navigation is already excluded, so content links can use the same
+    // threshold as div/span. A 25-char anchor floor skipped useful labels.
+    return directText.length >= 6
+  })
+
+  const unique = [...new Set<HTMLElement>([...standardRoots, ...textLeaves])]
+  const textLeafSet = new Set(textLeaves)
+  const eligible = unique.filter((el) => {
+    const allowAnyTag = textLeafSet.has(el) || extraRoots.has(el)
+    if (!shouldTranslateBlock(buildBlockCandidate(el), allowAnyTag)) return false
+    if (closestSafe(el, '#lector-ai-result, #lector-ai-toolbar, #lector-ai-loading, #lector-ai-fab, [data-lector-no-translate]')) {
+      return false
+    }
+    return !excludeSelectors.some((selector) => Boolean(closestSafe(el, selector)))
+  })
+
+  const eligibleSet = new Set(eligible)
+  const hasEligibleDescendant = new Set<HTMLElement>()
+  for (const el of eligible) {
+    let parent = el.parentElement
+    while (parent) {
+      if (eligibleSet.has(parent)) hasEligibleDescendant.add(parent)
+      if (parent === scopeRoot) break
+      parent = parent.parentElement
+    }
+  }
+
+  const vh = window.innerHeight
+  return eligible
+    .filter((el) => !hasEligibleDescendant.has(el))
+    .sort((a, b) => {
+      const ra = a.getBoundingClientRect()
+      const rb = b.getBoundingClientRect()
+      const aIn = ra.top < vh && ra.bottom > 0 ? 0 : 1
+      const bIn = rb.top < vh && rb.bottom > 0 ? 0 : 1
+      return aIn - bIn
+    })
 }
 
 function applyDisplayMode(mode: DisplayMode) {
@@ -1204,10 +1352,24 @@ function makeChunkActions(span: HTMLElement, onRetry: () => void): HTMLElement {
   const copy = document.createElement('button')
   copy.type = 'button'
   copy.textContent = tr('bilingual.copyTranslation')
-  copy.onclick = (ev) => { ev.stopPropagation(); navigator.clipboard.writeText(span.textContent || '').catch(() => {}) }
+  copy.onclick = (ev) => {
+    ev.stopPropagation()
+    navigator.clipboard.writeText(readChunkTranslation(span)).catch(() => {})
+  }
   actions.appendChild(retry)
   actions.appendChild(copy)
   return actions
+}
+
+/** Read only provider output, excluding retry/copy control labels. */
+function readChunkTranslation(span: Element): string {
+  return Array.from(span.childNodes)
+    .filter((node) =>
+      !(node instanceof Element && node.classList.contains('lector-bi-actions'))
+    )
+    .map((node) => node.textContent || '')
+    .join('')
+    .trim()
 }
 
 /** Return a copy of a CacheCtx with caching disabled (for retries that must
@@ -1227,20 +1389,8 @@ function cacheDisabled(cache: CacheCtx): CacheCtx {
  *  density-scoring heuristic as extractPage() so the "smart" translation scope
  *  matches what "chat with this page" reads. Returns the element or null. */
 function extractPageRoot(): Element | null {
-  const candidates = document.querySelectorAll('article, main, [role="main"], .post, .article, .content, .entry-content, div')
-  let best: Element | null = null
-  let bestScore = 0
-  candidates.forEach((el) => {
-    if (el === document.body) return
-    const text = (el.textContent || '').trim()
-    if (!text) return
-    const commas = (text.match(/[,.，。、；:;?!]/g) || []).length
-    const links = el.querySelectorAll('a').length
-    const linkDensity = links / Math.max(1, text.split(/\s+/).length)
-    const s = text.length + commas * 8 - linkDensity * 200
-    if (s > bestScore) { bestScore = s; best = el }
-  })
-  return best
+  const root = findBestContentRoot()
+  return root === document.body ? null : root
 }
 
 /** Read the translation cache from chrome.storage.local. Returns {} on any
@@ -1329,7 +1479,7 @@ async function translateOneChunk(
       span.textContent = value
       const actions = makeChunkActions(span, () => {
         span.remove()
-        void translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 0, signal, cache ? cacheDisabled(cache) : undefined).catch(() => {})
+        void translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 0, undefined, cache ? cacheDisabled(cache) : undefined).catch(() => {})
       })
       span.appendChild(actions)
       block.appendChild(span)
@@ -1346,7 +1496,9 @@ async function translateOneChunk(
   // Per-chunk hover actions: retry re-runs ONLY this chunk.
   const actions = makeChunkActions(span, () => {
     span.remove()
-    void translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 0, signal, cache ? cacheDisabled(cache) : undefined).catch(() => {})
+    // A page-level cancel aborts `signal`; reusing that dead signal would make
+    // the visible Retry control permanently inert.
+    void translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 0, undefined, cache ? cacheDisabled(cache) : undefined).catch(() => {})
   })
   block.appendChild(span)
 
@@ -1475,8 +1627,19 @@ async function runBilingualTranslation() {
     bilingualAbort = null
   }
   const settings = await getSettings()
+  cachedPref = settings.locale ?? 'auto'
   if (!settings.apiKey) {
     chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
+    chrome.runtime.sendMessage({
+      action: 'lector-bilingual-progress',
+      done: 0,
+      total: 0,
+      complete: true,
+    }).catch(() => {})
+    chrome.runtime.sendMessage({
+      action: 'lector-bilingual-error',
+      message: tr('err.addKey'),
+    }).catch(() => {})
     return
   }
   const tSettings = normalizeTranslationSettings(settings.translation)
@@ -1491,86 +1654,43 @@ async function runBilingualTranslation() {
   bilingualScopeOverride = null
   const host = location.hostname
   const siteRule = findRuleForHost(tSettings.siteRules, host) || undefined
-  const baseSelector = 'p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, dt, dd, figcaption, summary'
-  const extraSelector = siteRule?.selectors?.length ? ', ' + siteRule.selectors.join(', ') : ''
   // 'whole' (default) → translate every block in the document. 'smart' → try
   // the detected main-content root, but FALL BACK to the whole document when
   // the root is missing OR yields no candidates, so smart never silently drops
   // text (the regression that left list/app pages untranslated).
   const smartRoot = effectiveScope === 'smart' ? extractPageRoot() : null
   const scopeRoot: Element = (effectiveScope === 'whole' || !smartRoot) ? document.body : smartRoot
-  const scope = scopeRoot.matches(baseSelector)
-    ? [scopeRoot as HTMLElement]
-    : Array.from(scopeRoot.querySelectorAll<HTMLElement>(baseSelector + extraSelector))
-
-  // Modern sites (and component UIs like GitHub's) put translatable text in
-  // <div>/<span>/<a> instead of <p>/<li>/<h*>. The fixed TRANSLATABLE_TAGS set
-  // misses these (e.g. "Built by" in a <div>, "TypeScript" in a <a>/<span>), so
-  // the text is never collected. Recover text-LEAF div/span/a containers:
-  //   (a) has meaningful DIRECT text (≥ a short-label threshold),
-  //   (b) holds no block-level child we'd already translate (no duplication),
-  //   (c) isn't inside an excluded ancestor (code/button/etc), AND
-  //   (d) isn't in a nav/header/footer/menu region (those are noise).
-  // This mirrors how Immersive Translate handles arbitrary markup. The two
-  // thresholds: a higher one for <a> (links are everywhere in nav/menus, so we
-  // require a real clause to avoid translating every nav link) and a lower one
-  // for div/span (labels/headings live here and are short).
-  const NAV_SELECTOR = 'nav, header, footer, menu, [role="navigation"], [role="banner"], [role="menu"], [role="menubar"]'
-  const textLeaves = Array.from(scopeRoot.querySelectorAll<HTMLElement>('div, span, a'))
-    .filter((el) => {
-      if (el.closest(EXCLUDED_SELECTOR)) return false
-      // Skip noise regions (nav/header/footer/menus) so we don't pull in nav
-      // links / menu items. Genuine content labels live in <main>/<article>.
-      if (el.closest(NAV_SELECTOR)) return false
-      // Has a block-level translatable child? Then it's a wrapper, not a leaf —
-      // skip so we translate the inner block instead of duplicating.
-      if (el.querySelector('p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, dt, dd, figcaption, summary')) return false
-      const directText = Array.from(el.childNodes)
-        .filter((n) => n.nodeType === Node.TEXT_NODE)
-        .map((n) => n.textContent || '')
-        .join('')
-        .trim()
-      if (!directText) return false
-      // <a> elements require a longer direct text (they're prolific in nav);
-      // div/span accept short labels too (e.g. "Built by", a language chip).
-      const minLen = el.tagName === 'A' ? 25 : 6
-      return directText.length >= minLen
-    })
-
-  // Gather candidates, viewport-first ordering.
-  const vh = window.innerHeight
   const excludeExtra = siteRule?.excludeSelectors?.length
     ? siteRule.excludeSelectors.map((s) => s.trim()).filter(Boolean)
     : []
-  const gatherFrom = (roots: HTMLElement[]) =>
-    roots
-      .map((el) => ({ el, c: buildBlockCandidate(el), isTextLeaf: el.tagName === 'DIV' || el.tagName === 'SPAN' || el.tagName === 'A' }))
-      // Text-leaf divs/spans bypass the tag whitelist (their quality was checked
-      // at collection time); standard tags use the whitelist as before.
-      .filter((x) => shouldTranslateBlock(x.c, x.isTextLeaf) && !x.el.closest('#lector-ai-result, #lector-ai-toolbar, #lector-ai-loading, #lector-ai-fab, [data-lector-no-translate]'))
-      .filter((x) => !excludeExtra.some((sel) => x.el.closest(sel)))
-      // Drop nested text-leaves with identical text to their parent leaf (keep
-      // the smaller/inner one). Cheap O(n) check keyed on text+rect overlap.
-      .filter((x, _i, arr) => {
-        if (!x.isTextLeaf) return true
-        return !arr.some((y) => y !== x && y.isTextLeaf && x.el !== y.el && (x.el.contains(y.el) || y.el.contains(x.el)) && (y.el.textContent?.trim() === x.el.textContent?.trim()))
-      })
-      .sort((a, b) => {
-        const ra = a.el.getBoundingClientRect()
-        const rb = b.el.getBoundingClientRect()
-        const aIn = ra.top < vh && ra.bottom > 0 ? 0 : 1
-        const bIn = rb.top < vh && rb.bottom > 0 ? 0 : 1
-        return aIn - bIn
-      })
-      .map((x) => x.el)
-  let candidates = gatherFrom([...scope, ...textLeaves])
+  let candidates = collectTranslationCandidates(
+    scopeRoot,
+    siteRule?.selectors || [],
+    excludeExtra
+  )
   // Smart-scope safety net: if the detected main-content root yielded nothing
   // (common on list/app/dashboard pages where prose lives outside the scored
   // root), fall back to the WHOLE document so text is never silently dropped.
   if (candidates.length === 0 && effectiveScope === 'smart') {
-    candidates = gatherFrom(Array.from(document.body.querySelectorAll<HTMLElement>(baseSelector + extraSelector)))
+    candidates = collectTranslationCandidates(
+      document.body,
+      siteRule?.selectors || [],
+      excludeExtra
+    )
   }
-  if (candidates.length === 0) return
+  if (candidates.length === 0) {
+    chrome.runtime.sendMessage({
+      action: 'lector-bilingual-progress',
+      done: 0,
+      total: 0,
+      complete: true,
+    }).catch(() => {})
+    chrome.runtime.sendMessage({
+      action: 'lector-bilingual-error',
+      message: tr('bilingual.noContent'),
+    }).catch(() => {})
+    return
+  }
 
   const page = extractPage()
   // Detect translation direction from the ACTUAL page text, not a synthesized
@@ -1610,9 +1730,9 @@ async function runBilingualTranslation() {
   const controller = bilingualAbort
   const total = candidates.length
   let done = 0
-  const report = () =>
+  const report = (complete = false) =>
     chrome.runtime
-      .sendMessage({ action: 'lector-bilingual-progress', done, total })
+      .sendMessage({ action: 'lector-bilingual-progress', done, total, complete })
       .catch(() => {})
   report()
 
@@ -1670,12 +1790,18 @@ async function runBilingualTranslation() {
   const firstOkIdx = results.findIndex((r) => r.ok)
   if (firstOkIdx >= 0) {
     const sample = candidates[firstOkIdx]
-    const tgt = (sample.querySelector('.lector-bilingual')?.textContent || '').slice(0, 200)
+    const source = (
+      sample.querySelector(':scope > .lector-bi-source')?.textContent || ''
+    ).trim()
+    const tgt = Array.from(sample.querySelectorAll(':scope > .lector-bilingual'))
+      .map(readChunkTranslation)
+      .join('')
+      .slice(0, 200)
     chrome.runtime
       .sendMessage({
         action: 'lector-translation-history',
         entry: {
-          source: ((sample.textContent) || '').trim().slice(0, 200),
+          source: source.slice(0, 200),
           target: tgt,
           sourceLang: page.lang || 'auto',
           targetLang: target,
@@ -1695,6 +1821,7 @@ async function runBilingualTranslation() {
     const msg = firstErr.error instanceof Error ? firstErr.error.message : tr('err.requestFailed')
     chrome.runtime.sendMessage({ action: 'lector-bilingual-error', message: msg }).catch(() => {})
   }
+  report(true)
   } finally {
     // Release the controller only if it is still ours. If a newer run already
     // reassigned bilingualAbort (re-entrancy), leave it alone — nulling it
@@ -1721,7 +1848,21 @@ let bilingualScopeOverride: 'smart' | 'whole' | null = null
 
 /** Backwards-compat entry point; the side panel / command send lector-toggle-bilingual. */
 async function toggleBilingual() {
-  await runBilingualTranslation()
+  try {
+    await runBilingualTranslation()
+  } catch (e) {
+    const message = e instanceof Error ? e.message : tr('err.requestFailed')
+    chrome.runtime.sendMessage({
+      action: 'lector-bilingual-progress',
+      done: 0,
+      total: 0,
+      complete: true,
+    }).catch(() => {})
+    chrome.runtime.sendMessage({
+      action: 'lector-bilingual-error',
+      message,
+    }).catch(() => {})
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1734,6 +1875,7 @@ async function toggleBilingual() {
 let hoverCfg = { enabled: true, holdKey: 'Shift' as 'Shift' | 'Control' | 'Alt', debounceMs: 350 }
 let hoverTimer: ReturnType<typeof setTimeout> | null = null
 let lastHoverBlock: HTMLElement | null = null
+let hoverAbort: AbortController | null = null
 
 /** On-demand single-block translation for Shift+hover. Idempotent: if the block
  *  already has a `.lector-bilingual` translation, it's a no-op (the user is just
@@ -1752,11 +1894,15 @@ async function translateBlockOnHover(block: HTMLElement) {
   const glossaryBlock = renderGlossaryPrompt(filterGlossaryForDirection(glossary, target))
   const persona = personaPrompt(tSettings.persona)
   const systemPrompt = buildTranslateSystemPrompt(target, glossaryBlock, persona)
+  hoverAbort?.abort()
   const controller = new AbortController()
+  hoverAbort = controller
   try {
     await translateBlockChunks(settings, systemPrompt, block, target, controller.signal)
   } catch {
     /* abort or provider error — leave whatever streamed; user can re-hover */
+  } finally {
+    if (hoverAbort === controller) hoverAbort = null
   }
 }
 
@@ -1785,6 +1931,10 @@ document.addEventListener('mousemove', (e) => {
 document.addEventListener('keyup', () => {
   // Cancel a pending hover-translation if the user releases the hold key early.
   if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null }
+  hoverAbort?.abort()
+  hoverAbort = null
+  // Allow the same block to be attempted again on a later hold+hover gesture.
+  lastHoverBlock = null
 })
 
 // ---------------------------------------------------------------------------
@@ -1817,11 +1967,28 @@ function inputBoxDisabledForHost(): boolean {
  *  value is translated (so `/ja hello world` → Japanese for "hello world",
  *  dropping the command prefix). Partial `//word` is handled per-token before
  *  this is called. */
-async function translateInputField(el: HTMLInputElement | HTMLTextAreaElement, targetOverride?: string) {
+type EditableField = HTMLInputElement | HTMLTextAreaElement | HTMLElement
+
+function readEditableField(el: EditableField): string {
+  return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
+    ? el.value
+    : el.textContent || ''
+}
+
+function writeEditableField(el: EditableField, value: string) {
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    el.value = value
+  } else {
+    el.textContent = value
+  }
+  el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }))
+}
+
+async function translateInputField(el: EditableField, targetOverride?: string) {
   const settings = await getSettings()
   if (!settings.apiKey) return
   const tSettings = normalizeTranslationSettings(settings.translation)
-  const raw = el.value
+  const raw = readEditableField(el)
   if (!raw.trim()) return
   const target = (targetOverride && targetOverride !== 'auto'
     ? targetOverride
@@ -1839,11 +2006,10 @@ async function translateInputField(el: HTMLInputElement | HTMLTextAreaElement, t
     )
     if (!out) return
     if (inputCfg.mode === 'append') {
-      el.value = raw + '\n' + out
+      writeEditableField(el, raw + '\n' + out)
     } else {
-      el.value = out
+      writeEditableField(el, out)
     }
-    el.dispatchEvent(new Event('input', { bubbles: true }))
   } catch {
     /* provider error — leave the field unchanged */
   }
@@ -1861,19 +2027,20 @@ document.addEventListener('keydown', (e) => {
     el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' ||
     el.isContentEditable === true
   if (!isField) return
-  const value = (el as HTMLInputElement | HTMLTextAreaElement).value ?? ''
+  const field = el as EditableField
+  const value = readEditableField(field)
   // Triple-space: the field already ends with two trailing spaces and this is
   // the third → fire translation, then swallow the key so the third space
   // doesn't itself land in the field.
   if (inputCfg.trigger === '   ' && value.endsWith('  ')) {
     e.preventDefault()
     // Strip the two leading trigger spaces before translating.
-    const field = el as HTMLInputElement | HTMLTextAreaElement
-    field.value = value.slice(0, -2)
+    const source = value.slice(0, -2)
+    writeEditableField(field, source)
     // Slash command: `/xx ` at the start sets the target for this call.
-    const cmdMatch = field.value.match(/^\s*\/([a-zA-Z-]{2,8})\s+(.*)/s)
+    const cmdMatch = source.match(/^\s*\/([a-zA-Z-]{2,8})\s+(.*)/s)
     if (cmdMatch) {
-      field.value = cmdMatch[2]
+      writeEditableField(field, cmdMatch[2])
       void translateInputField(field, cmdMatch[1].toLowerCase())
     } else {
       void translateInputField(field)
@@ -2045,3 +2212,27 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   return false
 })
+
+// Apply saved presentation settings immediately and honor automatic/site-level
+// translation rules. Previously the Settings UI persisted autoTranslate and
+// always/never rules, but the content script never consulted them on page load,
+// so the controls appeared to work while doing nothing.
+void (async () => {
+  try {
+    const settings = await getSettings()
+    cachedPref = settings.locale ?? 'auto'
+    const ts = normalizeTranslationSettings(settings.translation)
+    applyTranslationStyle(ts)
+    const rule = findRuleForHost(ts.siteRules, location.hostname)
+    const shouldAutoRun =
+      settings.apiKey && shouldAutoTranslatePage(ts.autoTranslate, rule)
+    if (shouldAutoRun) {
+      // Yield once so late document-idle mutations and the page's first paint
+      // are not blocked by candidate collection.
+      setTimeout(() => { void toggleBilingual() }, 0)
+    }
+  } catch {
+    // Extension context/storage may have been invalidated during navigation.
+    // Manual translation remains available after a refresh.
+  }
+})()

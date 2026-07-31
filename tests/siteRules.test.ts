@@ -6,6 +6,7 @@ import {
   normalizeSiteRules,
   isValidSiteRuleMode,
   type SiteRule,
+  shouldAutoTranslatePage,
 } from '../src/shared/siteRules'
 
 describe('matchHost', () => {
@@ -60,6 +61,17 @@ describe('siteToggleState', () => {
     expect(siteToggleState(rules, 'other.com')).toBe('auto')
     const never = [rule('1', 'example.com', 'never')]
     expect(siteToggleState(never, 'example.com')).toBe('never')
+  })
+})
+
+describe('shouldAutoTranslatePage', () => {
+  it('uses the global setting when no site rule matches', () => {
+    expect(shouldAutoTranslatePage(true)).toBe(true)
+    expect(shouldAutoTranslatePage(false)).toBe(false)
+  })
+  it('lets always/never rules override the global setting', () => {
+    expect(shouldAutoTranslatePage(false, rule('a', 'x.com', 'always'))).toBe(true)
+    expect(shouldAutoTranslatePage(true, rule('n', 'x.com', 'never'))).toBe(false)
   })
 })
 

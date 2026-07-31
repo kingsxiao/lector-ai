@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   DEFAULT_TRANSLATION_SETTINGS,
+  normalizeByokSettings,
   normalizeTranslationSettings,
   DEFAULT_BYOK_SETTINGS,
 } from '../src/shared/providers'
@@ -60,6 +61,14 @@ describe('normalizeTranslationSettings', () => {
   it('rejects an unknown theme id (falls back to default)', () => {
     expect(normalizeTranslationSettings({ theme: 'bogus' }).theme).toBe('default')
   })
+  it('rejects unknown stored language and persona ids', () => {
+    const out = normalizeTranslationSettings({
+      targetLanguage: 'not-a-language',
+      persona: 'not-a-persona',
+    })
+    expect(out.targetLanguage).toBe(DEFAULT_TRANSLATION_SETTINGS.targetLanguage)
+    expect(out.persona).toBe(DEFAULT_TRANSLATION_SETTINGS.persona)
+  })
   it('clamps fontSize into [0.6, 1.6]', () => {
     expect(normalizeTranslationSettings({ fontSize: 9 }).fontSize).toBe(1.6)
     expect(normalizeTranslationSettings({ fontSize: 0.1 }).fontSize).toBe(0.6)
@@ -77,5 +86,23 @@ describe('normalizeTranslationSettings', () => {
 describe('DEFAULT_BYOK_SETTINGS', () => {
   it('does NOT set translation by default (lazy default applied at read time)', () => {
     expect(DEFAULT_BYOK_SETTINGS.translation).toBeUndefined()
+  })
+})
+
+describe('normalizeByokSettings', () => {
+  it('falls back from corrupted provider/locale and repairs collection settings', () => {
+    const out = normalizeByokSettings({
+      provider: 'missing-provider',
+      locale: 'xx',
+      apiKey: 42,
+      model: null,
+      translation: { targetLanguage: 'missing-language', concurrency: 99 },
+    })
+    expect(out.provider).toBe(DEFAULT_BYOK_SETTINGS.provider)
+    expect(out.locale).toBe(DEFAULT_BYOK_SETTINGS.locale)
+    expect(out.apiKey).toBe('')
+    expect(out.model).toBeTruthy()
+    expect(out.translation?.targetLanguage).toBe('auto')
+    expect(out.translation?.concurrency).toBe(10)
   })
 })

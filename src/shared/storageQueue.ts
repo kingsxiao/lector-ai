@@ -31,6 +31,24 @@ export interface ListStore {
 export type ListMutator<T> = (list: T[]) => T[] | void
 
 /**
+ * Compare a relay queue with the exact snapshot a consumer just processed.
+ *
+ * Length-only checks are unsafe: a producer can replace/append items between
+ * the consumer's first read and its clear attempt while leaving the list at
+ * the same length. Clearing in that case silently drops the new data. Chrome
+ * storage returns JSON-compatible values, so a structural comparison is both
+ * deterministic and cheap for these bounded queues.
+ */
+export function isSameQueueSnapshot(current: unknown, observed: unknown[]): boolean {
+  if (!Array.isArray(current) || current.length !== observed.length) return false
+  try {
+    return JSON.stringify(current) === JSON.stringify(observed)
+  } catch {
+    return false
+  }
+}
+
+/**
  * Append one serialized RMW step to a chain. Returns the new chain so the
  * caller can reassign its module-level handle. Steps never reject the chain
  * (errors are swallowed and logged via `onError`) so one failing write can't

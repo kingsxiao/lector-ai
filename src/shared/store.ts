@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { DEFAULT_BYOK_SETTINGS, type ByokSettings } from './providers'
+import { DEFAULT_BYOK_SETTINGS, normalizeByokSettings, type ByokSettings } from './providers'
 import type { Highlight } from './highlights'
 import type { VocabEntry } from './vocabulary'
 import { newSrs, type SrsState } from './srs'
@@ -342,6 +342,25 @@ export const useStore = create<AppState>()(
           translationHistory: s.translationHistory ?? [],
           hasOpened: s.hasOpened ?? false,
         } as AppState
+      },
+      // Validate every hydration, not only version migrations. localStorage can
+      // be partially written or manually edited; Zustand's default shallow
+      // merge would otherwise replace safe defaults with malformed arrays or
+      // an invalid provider and crash the entire panel on first render.
+      merge: (persisted, current) => {
+        const s = (persisted || {}) as Partial<AppState>
+        return {
+          ...current,
+          byok: normalizeByokSettings(s.byok),
+          sessions: Array.isArray(s.sessions) ? s.sessions : [],
+          highlights: Array.isArray(s.highlights) ? s.highlights : [],
+          vocab: Array.isArray(s.vocab) ? s.vocab : [],
+          templates: Array.isArray(s.templates) ? s.templates : BUILTIN_TEMPLATES,
+          glossary: Array.isArray(s.glossary) ? s.glossary : [],
+          sentences: Array.isArray(s.sentences) ? s.sentences : [],
+          translationHistory: Array.isArray(s.translationHistory) ? s.translationHistory : [],
+          hasOpened: typeof s.hasOpened === 'boolean' ? s.hasOpened : false,
+        }
       },
       partialize: (state) => ({
         byok: state.byok,

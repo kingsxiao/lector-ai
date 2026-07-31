@@ -17,7 +17,7 @@ const chromeStub = vi.hoisted(() => ({
 }))
 ;(globalThis as unknown as { chrome: typeof chromeStub }).chrome = chromeStub
 
-const { extractPage } = await import('../src/content')
+const { extractPage, collectTranslationCandidates } = await import('../src/content')
 
 beforeEach(() => {
   document.head.innerHTML = ''
@@ -104,5 +104,57 @@ describe('extractPage', () => {
     article.appendChild(p)
     document.body.appendChild(article)
     expect(extractPage().title).toBe('Fallback Title')
+  })
+})
+
+describe('collectTranslationCandidates', () => {
+  it('keeps one non-overlapping host for a paragraph with nested spans', () => {
+    document.body.innerHTML = `
+      <main>
+        <p id="paragraph"><span id="inner">A complete English sentence that should be translated once.</span></p>
+      </main>
+    `
+    const candidates = collectTranslationCandidates(document.querySelector('main')!)
+    expect(candidates.map((el) => el.id)).toEqual(['paragraph'])
+  })
+
+  it('recovers short content labels and links even when attributes dominate outerHTML', () => {
+    document.body.innerHTML = `
+      <main>
+        <div id="label" data-long-attribute="${'x'.repeat(200)}">Built by</div>
+        <a id="language" class="${'x'.repeat(200)}" href="/language">TypeScript</a>
+      </main>
+    `
+    const ids = collectTranslationCandidates(document.querySelector('main')!).map((el) => el.id)
+    expect(ids).toContain('label')
+    expect(ids).toContain('language')
+  })
+
+  it('keeps the deepest identical nested text leaf instead of dropping both', () => {
+    document.body.innerHTML = `
+      <main>
+        <div id="outer"><span id="inner">Built by</span></div>
+      </main>
+    `
+    const candidates = collectTranslationCandidates(document.querySelector('main')!)
+    expect(candidates.map((el) => el.id)).toEqual(['inner'])
+  })
+
+  it('tolerates invalid custom selectors and respects valid exclusions', () => {
+    document.body.innerHTML = `
+      <main>
+        <p id="keep">Keep this meaningful English paragraph for translation.</p>
+        <p id="skip" class="skip-me">Skip this meaningful English paragraph.</p>
+      </main>
+    `
+    expect(() =>
+      collectTranslationCandidates(document.querySelector('main')!, ['[invalid'], ['[also-invalid', '.skip-me'])
+    ).not.toThrow()
+    const ids = collectTranslationCandidates(
+      document.querySelector('main')!,
+      ['[invalid'],
+      ['[also-invalid', '.skip-me']
+    ).map((el) => el.id)
+    expect(ids).toEqual(['keep'])
   })
 })

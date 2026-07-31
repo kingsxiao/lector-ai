@@ -43,14 +43,22 @@ const listStore: ListStore = {
   },
 }
 
-chrome.runtime.onInstalled.addListener(() => {
-  console.log('Lector AI installed')
-
+function ensureActionOpensPanel() {
   if (chrome.sidePanel) {
     chrome.sidePanel
       .setPanelBehavior({ openPanelOnActionClick: true })
       .catch(() => {})
   }
+}
+
+// Run on every service-worker start, not only onInstalled. This repairs stale
+// browser state after an extension update/reload and makes the very first
+// toolbar-icon click consistently open the configured panel.
+ensureActionOpensPanel()
+
+chrome.runtime.onInstalled.addListener(() => {
+  console.log('Lector AI installed')
+  ensureActionOpensPanel()
 
   // Context-menu titles are fixed at creation in MV3; they reflect the
   // language active on install/update. setupMenus reads the stored pref.

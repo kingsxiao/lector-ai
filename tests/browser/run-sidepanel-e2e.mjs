@@ -58,8 +58,10 @@ function sse(tokens) {
   }});
 }
 window.__fetchCalls = [];
+window.__fetchBodies = [];
 window.fetch = function (url, opts) {
   window.__fetchCalls.push(String(url));
+  try { window.__fetchBodies.push(JSON.parse(opts && opts.body || '{}')); } catch {}
   // streamChat posts to {baseUrl}/chat/completions; emit tokens incl. a [0] cite.
   return Promise.resolve({ ok: true, status: 200, body: sse(['Trust matters [0].']) });
 };
@@ -72,7 +74,16 @@ window.chrome = {
         const out = { lector_byok_settings: BYOK, lectorSeed: null };
         // The on-mount sync reads settings + drains the highlight/vocab relay
         // queues; return empty arrays so nothing interferes.
-        out.lectorHighlights = [];
+        out.lectorHighlights = [{
+          id: 'queued-highlight',
+          text: 'Captured while the panel was closed.',
+          note: '',
+          quote: 'Captured while the panel was closed.',
+          url: 'http://localhost/article.html',
+          title: 'Queued item',
+          createdAt: 1,
+          color: 'yellow'
+        }];
         out.lectorVocab = [];
         if (cb) cb(out);
         return Promise.resolve(out);
@@ -190,6 +201,17 @@ async function main() {
     const providerLine = await evalIn(page, `[...document.querySelectorAll('header div')].map(d=>d.textContent).find(t=>/OpenAI|model/i.test(t)) || ''`)
     check('§sidepanel shows configured provider (BYOK)', /OpenAI/i.test(providerLine), `line="${providerLine.slice(0, 40)}"`)
 
+    // Relay queues written while the panel was closed must be drained on mount;
+    // onChanged only observes future writes and cannot recover this snapshot.
+    await evalIn(page, `document.querySelector('.tab-bar button[aria-label="Highlights"]')?.click()`)
+    await sleep(200)
+    check(
+      '§sidepanel drains pre-existing relay queues on first open',
+      await evalIn(page, `document.body.innerText.includes('Captured while the panel was closed.')`)
+    )
+    await evalIn(page, `document.querySelector('.tab-bar button[aria-label="Chat"]')?.click()`)
+    await sleep(100)
+
     // ---- §6 chat: type + Enter, watch SSE tokens stream into the bubble ----
     await evalIn(page, `(()=>{const ta=document.querySelector('textarea'); if(!ta) return 'no-textarea'; const setter=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set; setter.call(ta,'Why does trust matter?'); ta.dispatchEvent(new Event('input',{bubbles:true})); return ta.value})()`)
     await evalIn(page, `(()=>{const ta=document.querySelector('textarea'); ta.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})); return 'sent'})()`)
@@ -203,6 +225,11 @@ async function main() {
     check('§6 chat streams tokens into assistant bubble (BYOK SSE)', /Trust/.test(assistant), `text="${assistant.slice(0, 50)}"`)
     const chatFetch = JSON.parse(await evalIn(page, `JSON.stringify((window.__fetchCalls||[]).filter(u=>u.endsWith('/chat/completions')))`) || '[]')
     check('§6 chat hit provider /chat/completions (BYOK)', chatFetch.length >= 1, `calls=${chatFetch.length}`)
+    const userPromptCount = await evalIn(page, `(()=>{
+      const body=(window.__fetchBodies||[]).find(b=>Array.isArray(b.messages));
+      return body ? body.messages.filter(m=>m.role==='user' && m.content==='Why does trust matter?').length : 0;
+    })()`)
+    check('§6 current user prompt is sent exactly once', userPromptCount === 1, `count=${userPromptCount}`)
 
     // Citation chip rendered from the [0] marker (validCiteIds = page blocks b0/b1).
     const chip = await evalIn(page, `document.querySelectorAll('.lector-cite[data-cite="b0"]').length`)

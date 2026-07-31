@@ -104,3 +104,10 @@ export function siteToggleState(rules: SiteRule[], host: string): 'always' | 'ne
   if (r?.mode === 'never') return 'never'
   return 'auto'
 }
+
+/** Resolve whether page-load translation should run for a host. */
+export function shouldAutoTranslatePage(globalEnabled: boolean, rule?: SiteRule): boolean {
+  if (rule?.mode === 'never') return false
+  if (rule?.mode === 'always') return true
+  return globalEnabled
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { appendToList, type ListStore } from '../src/shared/storageQueue'
+import { appendToList, isSameQueueSnapshot, type ListStore } from '../src/shared/storageQueue'
 
 /**
  * A fake in-process ListStore that mimics the async chrome.storage.local
@@ -102,5 +102,20 @@ describe('appendToList — serialization (race elimination)', () => {
     // The throwing step was skipped, but the next step still ran.
     expect(store.raw.lectorVocab).toEqual(['after-error'])
     expect(errors.length).toBe(1)
+  })
+})
+
+describe('isSameQueueSnapshot — safe queue draining', () => {
+  it('accepts the exact JSON-compatible snapshot', () => {
+    const observed = [{ id: 'a', text: 'first' }, { id: 'b', text: 'second' }]
+    expect(isSameQueueSnapshot(
+      [{ id: 'a', text: 'first' }, { id: 'b', text: 'second' }],
+      observed
+    )).toBe(true)
+  })
+
+  it('does not clear a changed queue merely because its length is unchanged', () => {
+    const observed = [{ id: 'old' }]
+    expect(isSameQueueSnapshot([{ id: 'new' }], observed)).toBe(false)
   })
 })

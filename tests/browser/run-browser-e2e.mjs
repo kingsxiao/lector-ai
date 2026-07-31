@@ -317,7 +317,18 @@ async function main() {
     check('§3.2 lector-highlight message relayed (text+url+blockId)', hlMsg.length >= 1 && !!hlMsg[0].highlight?.text, `msgs=${hlMsg.length}`)
 
     // ---- §4 save word → lector-save-word message relayed ----
-    await selectReveal(`(() => { const el = document.querySelectorAll('article p')[2]; const r = document.createRange(); r.setStart(el.firstChild,0); r.setEnd(el.firstChild,5); const s = window.getSelection(); s.removeAllRanges(); s.addRange(r); })()`)
+    await selectReveal(`(() => {
+      const el = document.querySelectorAll('article p')[2];
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const text = walker.nextNode();
+      if (!text) throw new Error('save-word fixture has no text node');
+      const r = document.createRange();
+      r.setStart(text, 0);
+      r.setEnd(text, Math.min(5, text.textContent.length));
+      const s = window.getSelection();
+      s.removeAllRanges();
+      s.addRange(r);
+    })()`)
     await clickToolbarBtn('存词')
     await sleep(300)
     const swMsg = JSON.parse(await evalIn(page, `JSON.stringify((window.__lectorMsgs||[]).filter(m=>m.action==='lector-save-word'))`) || '[]')
@@ -326,6 +337,16 @@ async function main() {
     // ---- §9 bilingual toggle → injects .lector-bilingual via BYOK streamChat ----
     // Reset the fetch counter so we can measure how many requests the
     // concurrent bilingual pass fires (concurrency default = 5).
+    // An earlier FAB-menu assertion already translated the fixture. Restore
+    // each host to its source DOM first; otherwise the second run correctly
+    // finds no untranslated candidates and this concurrency check is vacuous.
+    await evalIn(page, `(()=>{
+      document.querySelectorAll('.lector-bilingual-host').forEach(host => {
+        const source = host.querySelector(':scope > .lector-bi-source');
+        if (source) host.replaceChildren(...Array.from(source.childNodes));
+        host.classList.remove('lector-bilingual-host');
+      });
+    })()`)
     await evalIn(page, `window.__fetchCalls = []`)
     await fireContentMessage(page, { action: 'lector-toggle-bilingual' })
     await sleep(2000)
@@ -338,7 +359,8 @@ async function main() {
     // translationOnly / hover CSS can target it, and the original text is
     // wrapped in a .lector-bi-source span so translationOnly can hide it.
     const hostCount = await evalIn(page, `document.querySelectorAll('.lector-bilingual-host').length`)
-    check('§9.3a translated blocks are marked .lector-bilingual-host', hostCount === bilingualBlocks, `hosts=${hostCount} blocks=${bilingualBlocks}`)
+    const hostedChunks = await evalIn(page, `document.querySelectorAll('.lector-bilingual-host .lector-bilingual').length`)
+    check('§9.3a translated chunks belong to marked hosts', hostedChunks >= 1 && hostedChunks === bilingualFetches.length, `hosts=${hostCount} hostedChunks=${hostedChunks} requests=${bilingualFetches.length}`)
     await evalIn(page, `document.body.classList.remove('lector-dm-bilingual'); document.body.classList.add('lector-dm-translationOnly')`)
     const origHiddenInTranslationOnly = await evalIn(page, `(() => { const s = document.querySelector('.lector-bilingual-host .lector-bi-source'); return !!s && getComputedStyle(s).display === 'none' })()`)
     check('§9.3b translationOnly hides the original text', origHiddenInTranslationOnly === true)
@@ -361,7 +383,18 @@ async function main() {
     check('§5 Alt+H command route → highlight', hlAfter > hlBefore, `${hlBefore}→${hlAfter}`)
 
     const swBefore = JSON.parse(await evalIn(page, `JSON.stringify((window.__lectorMsgs||[]).filter(m=>m.action==='lector-save-word'))`) || '[]').length
-    await selectReveal(`(() => { const el = document.querySelectorAll('article p')[2]; const r = document.createRange(); r.setStart(el.firstChild,6); r.setEnd(el.firstChild,12); const s = window.getSelection(); s.removeAllRanges(); s.addRange(r); })()`)
+    await selectReveal(`(() => {
+      const el = document.querySelectorAll('article p')[2];
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const text = walker.nextNode();
+      if (!text) throw new Error('command save-word fixture has no text node');
+      const r = document.createRange();
+      r.setStart(text, Math.min(6, text.textContent.length));
+      r.setEnd(text, Math.min(12, text.textContent.length));
+      const s = window.getSelection();
+      s.removeAllRanges();
+      s.addRange(r);
+    })()`)
     await fireContentMessage(page, { action: 'lector-command', command: 'save-word' })
     await sleep(300)
     const swAfter = JSON.parse(await evalIn(page, `JSON.stringify((window.__lectorMsgs||[]).filter(m=>m.action==='lector-save-word'))`) || '[]').length
@@ -376,6 +409,9 @@ async function main() {
     await cleanup()
   } catch (e) {
     console.error('E2E error:', e.stack || e.message)
+    // Never let an exception truncate the suite and still report success just
+    // because every assertion before the exception passed.
+    check('browser E2E completed without uncaught error', false, e.message)
     await cleanup()
   }
 

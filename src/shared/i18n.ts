@@ -450,12 +450,35 @@ export const STRINGS = {
   'settings.translation.cacheHint': { en: '0 disables. Cached locally — never sent anywhere.', zh: '0 为关闭。仅本地缓存，绝不上传。' },
   'settings.translation.cacheClear': { en: 'Clear cache', zh: '清除缓存' },
   'settings.translation.cacheCleared': { en: 'Cache cleared', zh: '缓存已清除' },
+  'settings.translation.cacheEmpty': { en: 'No cached translations yet', zh: '暂无翻译缓存' },
+  'settings.translation.cacheStats': {
+    en: '≈ {tokens} tokens cached · ~${usd} saved',
+    zh: '已缓存约 {tokens} tokens · 节省约 ${usd}',
+  },
+  'settings.translation.languageSearch': { en: 'Search languages…', zh: '搜索语言…' },
+  'settings.translation.languageMore': {
+    en: '{n} more — refine search',
+    zh: '还有 {n} 项，请缩小搜索范围',
+  },
   'settings.translation.siteRules': { en: 'Site rules', zh: '站点规则' },
   'settings.translation.siteRules.add': { en: 'Add current site', zh: '添加当前站点' },
   'settings.translation.siteRules.always': { en: 'Always translate', zh: '总是翻译' },
   'settings.translation.siteRules.never': { en: 'Never translate', zh: '从不翻译' },
   'settings.translation.siteRules.auto': { en: 'Auto', zh: '自动' },
   'settings.translation.siteRules.host': { en: 'Host', zh: '域名' },
+  'settings.translation.siteRules.empty': {
+    en: 'No site rules. Add the current site, or it follows your global setting.',
+    zh: '暂无站点规则。可添加当前站点，否则沿用全局设置。',
+  },
+  'settings.translation.siteRules.remove': { en: 'Remove site rule', zh: '删除站点规则' },
+  'settings.translation.siteRules.custom': { en: 'Custom engine', zh: '自定义引擎' },
+  'settings.translation.siteState.always': { en: 'Site: always', zh: '本站：总是翻译' },
+  'settings.translation.siteState.never': { en: 'Site: never', zh: '本站：从不翻译' },
+  'settings.translation.siteState.auto': { en: 'Site: auto', zh: '本站：自动' },
+  'settings.translation.siteState.cycle': {
+    en: 'Click to cycle: auto → always → never',
+    zh: '点击切换：自动 → 总是 → 从不',
+  },
   'settings.translation.hoverToggle': { en: 'Shift+hover to translate a paragraph', zh: 'Shift+悬停翻译段落' },
   'settings.translation.inputToggle': { en: 'Input-box translation (triple-space)', zh: '输入框翻译（三连空格）' },
 
@@ -474,6 +497,14 @@ export const STRINGS = {
   'bilingual.copyTranslation': { en: 'Copy translation', zh: '复制译文' },
   'bilingual.blockError': { en: 'Translation failed', zh: '翻译失败' },
   'bilingual.canceled': { en: 'Canceled', zh: '已取消' },
+  'bilingual.unavailable': {
+    en: 'This page cannot be translated. Refresh the page and try again.',
+    zh: '当前页面无法翻译，请刷新页面后重试。',
+  },
+  'bilingual.noContent': {
+    en: 'No translatable text was found on this page.',
+    zh: '当前页面未找到可翻译文本。',
+  },
 
   // --- selection popup (translate) ---
   'popup.result.speak': { en: 'Read aloud', zh: '朗读' },

@@ -7,8 +7,9 @@
 
 import type { Locale, LocalePref } from './i18n'
 export type { Locale, LocalePref }
-import { isValidDisplayMode, type DisplayMode, type TargetLangCode } from './translation'
+import { isValidDisplayMode, isValidLangCode, type DisplayMode, type TargetLangCode } from './translation'
 import { isValidThemeId, clampFontSize } from './translationThemes'
+import { isValidPersonaId } from './translationPersonas'
 import { normalizeSiteRules, type SiteRule } from './siteRules'
 
 export type ProviderId =
@@ -450,7 +451,7 @@ export function normalizeTranslationSettings(raw: unknown): TranslationSettings 
   const base = { ...DEFAULT_TRANSLATION_SETTINGS }
   if (!raw || typeof raw !== 'object') return base
   const r = raw as Record<string, unknown>
-  if (typeof r.targetLanguage === 'string') {
+  if (r.targetLanguage === 'auto' || isValidLangCode(r.targetLanguage)) {
     base.targetLanguage = r.targetLanguage as TargetLangCode | 'auto'
   }
   if (isValidDisplayMode(r.displayMode)) base.displayMode = r.displayMode
@@ -466,7 +467,7 @@ export function normalizeTranslationSettings(raw: unknown): TranslationSettings 
   if (typeof r.cacheTtlDays === 'number' && !Number.isNaN(r.cacheTtlDays)) {
     base.cacheTtlDays = Math.max(0, Math.floor(r.cacheTtlDays))
   }
-  if (typeof r.persona === 'string' && r.persona) base.persona = r.persona
+  if (isValidPersonaId(r.persona)) base.persona = r.persona
   if (r.pageScope === 'smart' || r.pageScope === 'whole') base.pageScope = r.pageScope
   return base
 }
@@ -497,6 +498,45 @@ export const DEFAULT_BYOK_SETTINGS: ByokSettings = {
   model: PROVIDERS.openrouter.defaultModel,
   baseUrl: '',
   locale: 'auto',
+}
+
+/** Coerce persisted/cross-context settings into a render-safe shape. */
+export function normalizeByokSettings(raw: unknown): ByokSettings {
+  const r = raw && typeof raw === 'object'
+    ? raw as Record<string, unknown>
+    : {}
+  const provider =
+    typeof r.provider === 'string' && r.provider in PROVIDERS
+      ? r.provider as ProviderId
+      : DEFAULT_BYOK_SETTINGS.provider
+  const locale: LocalePref =
+    r.locale === 'en' || r.locale === 'zh' || r.locale === 'auto'
+      ? r.locale
+      : DEFAULT_BYOK_SETTINGS.locale
+  const result: ByokSettings = {
+    provider,
+    apiKey: typeof r.apiKey === 'string' ? r.apiKey : '',
+    model: typeof r.model === 'string'
+      ? r.model
+      : getProvider(provider).defaultModel,
+    baseUrl: typeof r.baseUrl === 'string' ? r.baseUrl : '',
+    locale,
+  }
+  if (r.translation !== undefined) {
+    result.translation = normalizeTranslationSettings(r.translation)
+  }
+  if (r.anki && typeof r.anki === 'object') {
+    const a = r.anki as Record<string, unknown>
+    result.anki = {
+      url: typeof a.url === 'string' ? a.url : '',
+      deckName: typeof a.deckName === 'string' ? a.deckName : '',
+      modelName: typeof a.modelName === 'string' ? a.modelName : '',
+      tags: Array.isArray(a.tags)
+        ? a.tags.filter((tag): tag is string => typeof tag === 'string')
+        : [],
+    }
+  }
+  return result
 }
 
 export function getProvider(id: ProviderId): ProviderDef {

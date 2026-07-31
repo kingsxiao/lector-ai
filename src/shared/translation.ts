@@ -238,9 +238,20 @@ export function isTranslationLikelyUnchanged(
   if (scriptOfLang(targetLang) === detectScript(source)) return false
   if (!no) return true // empty output after normalization = nothing translated
   if (ns === no) return true
+  // A successful cross-script translation is immediately distinguishable by
+  // its dominant output script. Avoid the quadratic similarity pass for the
+  // overwhelmingly common success path (e.g. English → Chinese on every page
+  // block), which otherwise performs millions of DP operations per chunk.
+  if (detectScript(output) === scriptOfLang(targetLang)) return false
   // Character-level diff ratio (cheap Levenshtein-free proxy via LCS length).
-  const lcs = longestCommonSubsequence(ns, no)
-  const longer = Math.max(ns.length, no.length)
+  // Bound the fallback comparison: source chunks can be 2,000 chars and model
+  // output even longer, making full LCS O(m*n) expensive on the page's main
+  // thread. Echoes are already caught exactly above; a 512-char prefix is
+  // ample to catch the "minor wrapper/punctuation change" retry case.
+  const sampleSource = ns.slice(0, 512)
+  const sampleOutput = no.slice(0, 512)
+  const lcs = longestCommonSubsequence(sampleSource, sampleOutput)
+  const longer = Math.max(sampleSource.length, sampleOutput.length)
   const diffRatio = 1 - lcs / longer
   return diffRatio <= 0.2
 }
@@ -437,6 +448,11 @@ export function shouldTranslateBlock(c: BlockCandidate, allowAnyTag = false): bo
   if (t.length < MIN_BLOCK_LEN) return false
   if (c.isInsideExcluded) return false
   if (c.isAlreadyTranslated) return false
+  // `allowAnyTag` is only used after the DOM collector has verified a direct
+  // text leaf outside controls/navigation. Re-applying the outerHTML ratio
+  // here drops short labels and links with long attributes even though their
+  // direct text is exactly what the user expects translated.
+  if (allowAnyTag) return true
   if (t.length >= ABSOLUTE_TEXT_LEN_FLOOR) return true
   const isListish = LISTISH_TAGS.has(c.tag.toUpperCase())
   const threshold = isListish ? MIN_TEXT_RATIO_LISTISH : MIN_TEXT_RATIO

@@ -4,9 +4,86 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lector AI</title>
+    <!--
+      Paint a tiny, dependency-free shell before the React bundle is parsed.
+      Chrome creates the side-panel surface immediately, but a cold extension
+      process still needs to load/parse the application bundle. Keeping #root
+      empty during that window looks like a broken blank panel. React replaces
+      this shell on its first commit, so it adds no runtime coordination.
+    -->
+    <style>
+      html, body, #root { height: 100%; margin: 0; }
+      body { background: #fbf7ef; color: #2b2620; }
+      .lector-boot {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .lector-boot__header {
+        height: 55px;
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 14px;
+        background: #fffaf2;
+        border-bottom: 1px solid #e8decc;
+      }
+      .lector-boot__mark {
+        width: 24px;
+        height: 24px;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        background: #9c6b3c;
+        color: #fff8ee;
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .lector-boot__title { font-size: 13px; font-weight: 650; }
+      .lector-boot__body {
+        flex: 1;
+        display: grid;
+        place-items: center;
+      }
+      .lector-boot__status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #8a7d6d;
+        font-size: 12px;
+      }
+      .lector-boot__spinner {
+        width: 14px;
+        height: 14px;
+        box-sizing: border-box;
+        border: 2px solid #e8decc;
+        border-top-color: #9c6b3c;
+        border-radius: 50%;
+        animation: lector-boot-spin .7s linear infinite;
+      }
+      @keyframes lector-boot-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) {
+        .lector-boot__spinner { animation: none; }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="lector-boot" role="status" aria-live="polite">
+        <div class="lector-boot__header">
+          <span class="lector-boot__mark" aria-hidden="true">L</span>
+          <span class="lector-boot__title">Lector AI</span>
+        </div>
+        <div class="lector-boot__body">
+          <span class="lector-boot__status">
+            <span class="lector-boot__spinner" aria-hidden="true"></span>
+            <span>正在加载 · Loading…</span>
+          </span>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/sidepanel/main.tsx"></script>
   </body>
 </html>

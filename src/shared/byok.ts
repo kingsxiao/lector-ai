@@ -8,23 +8,57 @@
 //  - openai    : /chat/completions with stream:true (OpenAI, OpenRouter, custom)
 //  - anthropic : /v1/messages with stream:true
 
-import { getProvider, resolveBaseUrl, type ByokSettings, type ProviderDef } from './providers'
+import {
+  getProvider,
+  normalizeByokSettings,
+  resolveBaseUrl,
+  type ByokSettings,
+  type ProviderDef,
+} from './providers'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
 }
 
+const REQUEST_TIMEOUT_MS = 60_000
+
+async function withRequestTimeout<T>(
+  externalSignal: AbortSignal | undefined,
+  run: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  const controller = new AbortController()
+  let timedOut = false
+  const forwardAbort = () => controller.abort()
+  if (externalSignal?.aborted) controller.abort()
+  else externalSignal?.addEventListener('abort', forwardAbort, { once: true })
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, REQUEST_TIMEOUT_MS)
+  try {
+    const value = await run(controller.signal)
+    if (timedOut) throw new Error('Provider request timed out after 60 seconds.')
+    return value
+  } catch (e) {
+    if (timedOut) throw new Error('Provider request timed out after 60 seconds.')
+    throw e
+  } finally {
+    clearTimeout(timer)
+    externalSignal?.removeEventListener('abort', forwardAbort)
+  }
+}
+
 // --- settings persistence ---------------------------------------------------
 
 const SETTINGS_KEY = 'lector_byok_settings'
+let settingsWriteChain: Promise<void> = Promise.resolve()
 
 export function getSettings(): Promise<ByokSettings> {
   return new Promise((resolve) => {
     if (typeof chrome !== 'undefined' && chrome.storage) {
       chrome.storage.local.get([SETTINGS_KEY], (r) => {
-        const stored = r[SETTINGS_KEY] as Partial<ByokSettings> | undefined
-        resolve({ ...settingsWithDefaults(), ...(stored || {}) })
+        resolve(normalizeByokSettings(r[SETTINGS_KEY]))
       })
     } else {
       resolve(settingsWithDefaults())
@@ -33,13 +67,16 @@ export function getSettings(): Promise<ByokSettings> {
 }
 
 export function saveSettings(s: ByokSettings): Promise<void> {
-  return new Promise((resolve) => {
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.set({ [SETTINGS_KEY]: s }, () => resolve())
-    } else {
-      resolve()
-    }
-  })
+  if (typeof chrome === 'undefined' || !chrome.storage) return Promise.resolve()
+  const snapshot = normalizeByokSettings(s)
+  // Settings inputs save on each change. Serialize writes so a slower earlier
+  // callback can never land after a newer value and resurrect stale text.
+  settingsWriteChain = settingsWriteChain
+    .catch(() => {})
+    .then(() => new Promise<void>((resolve) => {
+      chrome.storage.local.set({ [SETTINGS_KEY]: snapshot }, () => resolve())
+    }))
+  return settingsWriteChain
 }
 
 function settingsWithDefaults(): ByokSettings {
@@ -100,37 +137,39 @@ async function streamOpenAI(
   onToken: (delta: string) => void,
   signal?: AbortSignal
 ): Promise<string> {
-  const url = `${resolveBaseUrl(settings, def)}/chat/completions`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: buildHeaders(settings, def),
-    body: JSON.stringify({
-      model: settings.model || def.defaultModel,
-      messages,
-      max_tokens: opts.maxTokens,
-      temperature: opts.temperature,
-      stream: true,
-    }),
-    signal,
-  })
+  return withRequestTimeout(signal, async (requestSignal) => {
+    const url = `${resolveBaseUrl(settings, def)}/chat/completions`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: buildHeaders(settings, def),
+      body: JSON.stringify({
+        model: settings.model || def.defaultModel,
+        messages,
+        max_tokens: opts.maxTokens,
+        temperature: opts.temperature,
+        stream: true,
+      }),
+      signal: requestSignal,
+    })
 
-  if (!res.ok || !res.body) {
-    throw await toError(res)
-  }
-
-  return readSSE(res, (json) => {
-    // OpenAI-compatible streams can carry a top-level { error: {...} } frame
-    // even on HTTP 200 (proxy/gateway errors, some gateways). Surface it
-    // instead of silently truncating the output.
-    if (json.error) {
-      const msg =
-        (typeof json.error === 'object' && json.error && (json.error as { message?: unknown }).message) ||
-        JSON.stringify(json.error).slice(0, 200)
-      throw new Error(`Provider stream error: ${msg}`)
+    if (!res.ok || !res.body) {
+      throw await toError(res)
     }
-    if (json.choices?.[0]?.delta?.content) return json.choices[0].delta.content
-    return ''
-  }, onToken, signal)
+
+    return readSSE(res, (json) => {
+      // OpenAI-compatible streams can carry a top-level { error: {...} } frame
+      // even on HTTP 200 (proxy/gateway errors, some gateways). Surface it
+      // instead of silently truncating the output.
+      if (json.error) {
+        const msg =
+          (typeof json.error === 'object' && json.error && (json.error as { message?: unknown }).message) ||
+          JSON.stringify(json.error).slice(0, 200)
+        throw new Error(`Provider stream error: ${msg}`)
+      }
+      if (json.choices?.[0]?.delta?.content) return json.choices[0].delta.content
+      return ''
+    }, onToken, requestSignal)
+  })
 }
 
 async function streamAnthropic(
@@ -147,42 +186,40 @@ async function streamAnthropic(
     .filter((m) => m.role !== 'system')
     .map((m) => ({ role: m.role, content: m.content }))
 
-  const url = `${resolveBaseUrl(settings, def)}/v1/messages`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: buildHeaders(settings, def),
-    body: JSON.stringify({
-      model: settings.model || def.defaultModel,
-      system,
-      messages: convo,
-      max_tokens: opts.maxTokens,
-      temperature: opts.temperature,
-      stream: true,
-    }),
-    signal,
-  })
+  return withRequestTimeout(signal, async (requestSignal) => {
+    const url = `${resolveBaseUrl(settings, def)}/v1/messages`
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: buildHeaders(settings, def),
+      body: JSON.stringify({
+        model: settings.model || def.defaultModel,
+        system,
+        messages: convo,
+        max_tokens: opts.maxTokens,
+        temperature: opts.temperature,
+        stream: true,
+      }),
+      signal: requestSignal,
+    })
 
-  if (!res.ok || !res.body) {
-    throw await toError(res)
-  }
-
-  return readSSE(res, (json) => {
-    // Anthropic can emit an `error` event mid-stream with HTTP 200
-    // (overloaded_error, rate_limit_error, api_error). Without this, the error
-    // frame was silently dropped and streamChat resolved with the partial text
-    // — the user saw a truncated answer and believed it succeeded. readSSE's
-    // try/catch only swallows JSON.parse failures, so a thrown error here
-    // propagates out of the stream and surfaces to the caller.
-    if (json.type === 'error') {
-      const detail = json.error
-      const msg =
-        (detail && typeof detail === 'object' && (detail as { message?: unknown }).message) ||
-        JSON.stringify(detail).slice(0, 200)
-      throw new Error(`Anthropic stream error: ${msg || 'unknown error'}`)
+    if (!res.ok || !res.body) {
+      throw await toError(res)
     }
-    if (json.type === 'content_block_delta' && json.delta?.text) return json.delta.text
-    return ''
-  }, onToken, signal)
+
+    return readSSE(res, (json) => {
+      // Anthropic can emit an `error` event mid-stream with HTTP 200
+      // (overloaded_error, rate_limit_error, api_error).
+      if (json.type === 'error') {
+        const detail = json.error
+        const msg =
+          (detail && typeof detail === 'object' && (detail as { message?: unknown }).message) ||
+          JSON.stringify(detail).slice(0, 200)
+        throw new Error(`Anthropic stream error: ${msg || 'unknown error'}`)
+      }
+      if (json.type === 'content_block_delta' && json.delta?.text) return json.delta.text
+      return ''
+    }, onToken, requestSignal)
+  })
 }
 
 /**
@@ -201,6 +238,27 @@ async function readSSE(
   let buffer = ''
   let full = ''
 
+  const processLine = (line: string): boolean => {
+    const t = line.trim()
+    if (!t || !t.startsWith('data:')) return false
+    const payload = t.slice(5).trim()
+    if (payload === '[DONE]') return true
+    let json: unknown
+    try {
+      json = JSON.parse(payload)
+    } catch {
+      // A malformed complete SSE event cannot be repaired by a later chunk;
+      // skip it and continue so one bad provider frame does not kill the rest.
+      return false
+    }
+    const delta = extractDelta(json)
+    if (delta) {
+      full += delta
+      onToken(delta)
+    }
+    return false
+  }
+
   while (true) {
     if (signal?.aborted) {
       // Cancel the reader so the underlying stream is released promptly.
@@ -208,35 +266,20 @@ async function readSSE(
       return full
     }
     const { done, value } = await reader.read()
-    if (done) break
+    if (done) {
+      // Some OpenAI-compatible gateways close immediately after their final
+      // data frame without a trailing newline. Flush TextDecoder state and
+      // process that last buffered event instead of silently losing the token.
+      buffer += decoder.decode()
+      if (buffer) processLine(buffer)
+      break
+    }
     buffer += decoder.decode(value, { stream: true })
 
     const lines = buffer.split('\n')
     buffer = lines.pop() || ''
 
-    for (const line of lines) {
-      const t = line.trim()
-      if (!t || !t.startsWith('data:')) continue
-      const payload = t.slice(5).trim()
-      if (payload === '[DONE]') return full
-      // Only JSON.parse failures are retriable (a line split across chunk
-      // boundaries reassembles on the next read). An error THROWN by
-      // extractDelta (e.g. a mid-stream Anthropic/OpenAI error frame) must
-      // propagate out of the loop and surface to the caller — so parse and
-      // extract are separated, and only parse is swallowed.
-      let json: unknown
-      try {
-        json = JSON.parse(payload)
-      } catch {
-        // partial JSON across chunks — next read completes it
-        continue
-      }
-      const delta = extractDelta(json)
-      if (delta) {
-        full += delta
-        onToken(delta)
-      }
-    }
+    for (const line of lines) if (processLine(line)) return full
   }
   return full
 }

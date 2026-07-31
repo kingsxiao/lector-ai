@@ -61,6 +61,7 @@ import {
   DEFAULT_SENTENCE_DECK_NAME,
   type AnkiExportResult, type AnkiConfig,
 } from '../shared/anki'
+import { isSameQueueSnapshot } from '../shared/storageQueue'
 
 interface PageContext {
   title: string
@@ -68,6 +69,40 @@ interface PageContext {
   text: string
   lang: string
   blocks: PageBlock[]
+}
+
+const RELAY_QUEUE_KEYS = [
+  'lectorHighlights',
+  'lectorVocab',
+  'lectorSentences',
+  'lectorTranslationHistory',
+] as const
+type RelayQueueKey = (typeof RELAY_QUEUE_KEYS)[number]
+
+/**
+ * Merge one content→background relay queue into the persisted zustand store.
+ * Store actions are idempotent, so replaying a snapshot after a producer race
+ * is safe. The queue is cleared only after an exact compare-and-swap check.
+ */
+function consumeRelayQueue(key: RelayQueueKey, raw: unknown) {
+  if (!Array.isArray(raw) || raw.length === 0) return
+  const state = useStore.getState()
+  if (key === 'lectorHighlights') {
+    for (const item of raw as Highlight[]) state.addHighlight(item)
+  } else if (key === 'lectorVocab') {
+    for (const item of raw as VocabEntry[]) state.addVocab(item)
+  } else if (key === 'lectorSentences') {
+    for (const item of raw as SentenceCard[]) state.addSentence(item)
+  } else {
+    for (const item of raw as TranslationHistoryEntry[]) state.addTranslationHistory(item)
+  }
+
+  chrome.storage.local.get([key], (latest) => {
+    const current = (latest as Record<string, unknown>)[key]
+    if (isSameQueueSnapshot(current, raw)) {
+      chrome.storage.local.set({ [key]: [] })
+    }
+  })
 }
 
 function newId(): string {
@@ -112,11 +147,18 @@ type View =
   | 'translationHistory'
 
 export default function App() {
-  const { byok, setByok, sessions, addSession, updateSession, removeSession, clearSessions } =
-    useStore()
+  // Subscribe only to the slices this component uses. Calling useStore()
+  // without a selector subscribes to the entire persisted object and forces a
+  // full 3k-line panel rerender for every unrelated SRS/note/settings write.
+  const byok = useStore((s) => s.byok)
+  const setByok = useStore((s) => s.setByok)
+  const sessions = useStore((s) => s.sessions)
+  const addSession = useStore((s) => s.addSession)
+  const updateSession = useStore((s) => s.updateSession)
+  const removeSession = useStore((s) => s.removeSession)
+  const clearSessions = useStore((s) => s.clearSessions)
   const highlights = useStore((s) => s.highlights)
   const vocab = useStore((s) => s.vocab)
-  const addHighlight = useStore((s) => s.addHighlight)
   const removeHighlight = useStore((s) => s.removeHighlight)
   const updateVocabSrs = useStore((s) => s.updateVocabSrs)
   const removeVocab = useStore((s) => s.removeVocab)
@@ -146,7 +188,7 @@ export default function App() {
   const tplTitle = (tpl: PromptTemplate) =>
     tpl.titleKey ? t(tpl.titleKey, byok.locale) : tpl.title
 
-  const sortedTemplates = sortTemplates(templates)
+  const sortedTemplates = useMemo(() => sortTemplates(templates), [templates])
   // Empty-state suggestion chips = the first 4 templates (same data source as
   // the "/" menu and the templates drawer).
   const suggestions = sortedTemplates.slice(0, 4)
@@ -183,8 +225,10 @@ export default function App() {
   )
 
   const scrollRef = useRef<HTMLDivElement>(null)
+  const scrollFrameRef = useRef<number | null>(null)
   const toolsRef = useRef<HTMLDivElement>(null)
   const assistantBuf = useRef<string>('')
+  const tokenFrameRef = useRef<number | null>(null)
   // AbortController for the in-flight chat stream. Lets the user Stop a long
   // response, and lets us abort cleanly on unmount / session switch so the
   // stream can't write into the wrong session or an unmounted component.
@@ -192,7 +236,10 @@ export default function App() {
   // Abort the in-flight stream when the panel unmounts (close / Chrome
   // teardown / strict-mode remount) — otherwise streamChat keeps running and
   // its onToken setMessages fires on a gone component.
-  useEffect(() => () => abortRef.current?.abort(), [])
+  useEffect(() => () => {
+    abortRef.current?.abort()
+    if (tokenFrameRef.current !== null) cancelAnimationFrame(tokenFrameRef.current)
+  }, [])
 
   // Close the tools dropdown on outside click / Escape.
   useEffect(() => {
@@ -254,8 +301,10 @@ export default function App() {
 
       // Reconcile settings from chrome.storage (the content/background may have
       // written a newer value). Use the already-pending promise; no extra call.
+      let reconciledLocale = useStore.getState().byok.locale
       try {
         const stored = await settingsP
+        reconciledLocale = stored.locale
         if (!cancelled) setByok(stored)
       } catch {
         // ignore — keep the synchronous zustand value
@@ -269,8 +318,9 @@ export default function App() {
         await tabP // ensure the tab read is done before we finish (best-effort)
         if (seed.lectorSeed?.text) {
           chrome.storage.local.remove('lectorSeed')
-          // Re-use the locale already resolved from byok (no second getSettings).
-          const loc = resolveLocale(byok.locale)
+          // Use the reconciled chrome.storage locale. Reading the render
+          // closure here used the pre-sync locale on first open.
+          const loc = resolveLocale(reconciledLocale)
           const translateTarget = loc === 'zh' ? 'English' : '中文'
           const s = seed.lectorSeed
           const seedPrompt =
@@ -288,27 +338,11 @@ export default function App() {
       }
     })()
     return () => { cancelled = true }
-  }, [setByok, byok.locale])
+  }, [setByok])
 
   // Sync knowledge captured by the content→background relay (chrome.storage)
   // into the zustand store so the Highlights / Vocab drawers stay live.
   //
-  // drain() clears a relay queue key with a compare-and-swap: it re-reads the
-  // current value and only clears it if nothing changed since we observed it.
-  // This closes a race where the background appends a new item between our
-  // onChanged fire and a naive `remove(key)`/`set(key, [])` — that new item
-  // would otherwise be wiped. If the value changed, we leave it: the merge
-  // actions above are idempotent (dedup by word/text/source), so the items we
-  // already processed are harmless to re-merge on the next onChanged fire.
-  const drain = (key: string, observed: unknown[]) => {
-    chrome.storage.local.get([key], (cur) => {
-      const current = (cur as Record<string, unknown>)[key]
-      // Only clear when the queue is exactly what we just merged.
-      const same =
-        Array.isArray(current) && current.length === observed.length
-      if (same) chrome.storage.local.set({ [key]: [] })
-    })
-  }
   useEffect(() => {
     const onStorage = (
       changes: { [key: string]: chrome.storage.StorageChange },
@@ -316,27 +350,16 @@ export default function App() {
     ) => {
       if (area !== 'local') return
       if (changes.lectorHighlights) {
-        const list = (changes.lectorHighlights.newValue as unknown as Highlight[]) || []
-        for (const h of list) addHighlight(h)
-        drain('lectorHighlights', list)
+        consumeRelayQueue('lectorHighlights', changes.lectorHighlights.newValue)
       }
       if (changes.lectorVocab) {
-        const list = (changes.lectorVocab.newValue as unknown as VocabEntry[]) || []
-        const addVocab = useStore.getState().addVocab
-        for (const v of list) addVocab(v)
-        drain('lectorVocab', list)
+        consumeRelayQueue('lectorVocab', changes.lectorVocab.newValue)
       }
       if (changes.lectorSentences) {
-        const list = (changes.lectorSentences.newValue as unknown as SentenceCard[]) || []
-        const addSentence = useStore.getState().addSentence
-        for (const c of list) addSentence(c)
-        drain('lectorSentences', list)
+        consumeRelayQueue('lectorSentences', changes.lectorSentences.newValue)
       }
       if (changes.lectorTranslationHistory) {
-        const list = (changes.lectorTranslationHistory.newValue as unknown as TranslationHistoryEntry[]) || []
-        const add = useStore.getState().addTranslationHistory
-        for (const e of list) add(e)
-        drain('lectorTranslationHistory', list)
+        consumeRelayQueue('lectorTranslationHistory', changes.lectorTranslationHistory.newValue)
       }
     }
     // Guard: chrome.storage.onChanged may be undefined in some contexts (e.g.
@@ -345,9 +368,17 @@ export default function App() {
     // (reading 'addListener')" and crashes the panel render. Best-effort: if the
     // API is missing we simply skip live syncing (the store still loads once).
     if (typeof chrome === 'undefined' || !chrome.storage?.onChanged?.addListener) return
+    // Drain data captured while the panel was closed. onChanged only observes
+    // future writes; without this initial read those queued items could remain
+    // invisible forever until another capture happened to touch the key.
+    chrome.storage.local.get([...RELAY_QUEUE_KEYS], (snapshot) => {
+      for (const key of RELAY_QUEUE_KEYS) {
+        consumeRelayQueue(key, (snapshot as Record<string, unknown>)[key])
+      }
+    })
     chrome.storage.onChanged.addListener(onStorage)
     return () => chrome.storage.onChanged?.removeListener?.(onStorage)
-  }, [addHighlight])
+  }, [])
 
   // Mirror the glossary out of zustand into chrome.storage.local so the content
   // script (which runs in a separate context and cannot read window.localStorage
@@ -373,6 +404,7 @@ export default function App() {
       message?: string
       done?: number
       total?: number
+      complete?: boolean
     }) => {
       if (message?.action === 'lector-bilingual-progress') {
         const done = message.done ?? 0
@@ -380,7 +412,7 @@ export default function App() {
         setBilingualProgress({ done, total })
         // The content script sends a final progress with done===total when the
         // run completes; release the busy state then so the button resets.
-        if (total > 0 && done >= total) {
+        if (message.complete || (total > 0 && done >= total)) {
           setBilingualBusy(false)
           // Keep the {total/total} readout briefly so the user sees completion,
           // then clear it.
@@ -411,14 +443,24 @@ export default function App() {
     return () => chrome.runtime.onMessage?.removeListener?.(onMessage)
   }, [])
 
-  // First-run onboarding gate: mark the panel opened once so the one-time
-  // feature hint shows only on the very first open (not every session).
   useEffect(() => {
-    if (!hasOpened) markOpened()
-  }, [hasOpened, markOpened])
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current)
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      const node = scrollRef.current
+      if (node) {
+        // Re-starting a smooth animation for every streamed token causes a
+        // visible lag/backlog. Keep token streaming pinned synchronously and
+        // reserve smooth scrolling for discrete message changes.
+        node.scrollTo({ top: node.scrollHeight, behavior: streaming ? 'auto' : 'smooth' })
+      }
+      scrollFrameRef.current = null
+    })
+    return () => {
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current)
+        scrollFrameRef.current = null
+      }
+    }
   }, [messages, streaming])
 
   // Keep <html lang> in sync with the active locale so screen readers pronounce
@@ -508,8 +550,19 @@ export default function App() {
   // progress / completion / error messages rather than a fixed timer, so the
   // button shows live "{done}/{total}" and lets the user cancel mid-run.
   const toggleBilingual = async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    if (!tab?.id) return
+    let tab: chrome.tabs.Tab | undefined
+    try {
+      ;[tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+    } catch {
+      setBilingualBusy(false)
+      setError(tr('bilingual.unavailable'))
+      return
+    }
+    if (!tab?.id) {
+      setBilingualBusy(false)
+      setError(tr('bilingual.unavailable'))
+      return
+    }
     if (bilingualBusy) {
       // Already translating → this click cancels the in-flight run.
       chrome.tabs.sendMessage(tab.id, { action: 'lector-cancel-bilingual' }, () => {
@@ -522,7 +575,12 @@ export default function App() {
     setBilingualBusy(true)
     setBilingualProgress(null)
     chrome.tabs.sendMessage(tab.id, { action: 'lector-toggle-bilingual' }, () => {
-      void chrome.runtime.lastError
+      const failed = chrome.runtime.lastError
+      if (failed) {
+        setBilingualBusy(false)
+        setBilingualProgress(null)
+        setError(tr('bilingual.unavailable'))
+      }
     })
   }
 
@@ -623,7 +681,7 @@ ${citeContext.slice(0, 12000)}
 """
 ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}`
 
-        const history: WireMessage[] = next
+        const history: WireMessage[] = messages
           .filter((m) => m.content.trim().length > 0)
           .slice(-10)
           .map((m) => ({ role: m.role, content: m.content }))
@@ -640,18 +698,32 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           { maxTokens: 1200, temperature: 0.4 },
           (delta) => {
             assistantBuf.current += delta
-            const snapshot = assistantBuf.current
-            setMessages((cur) =>
-              cur.map((m) => (m.id === assistantMsg.id ? { ...m, content: snapshot } : m))
-            )
+            // Providers may emit dozens of tiny deltas in one frame. Batch
+            // React updates to the display refresh rate instead of rerendering
+            // the whole panel for every token.
+            if (tokenFrameRef.current === null) {
+              tokenFrameRef.current = requestAnimationFrame(() => {
+                const snapshot = assistantBuf.current
+                setMessages((cur) =>
+                  cur.map((m) => (m.id === assistantMsg.id ? { ...m, content: snapshot } : m))
+                )
+                tokenFrameRef.current = null
+              })
+            }
           },
           abortRef.current?.signal
         )
 
-        const finalMessages = next.concat({
+        if (tokenFrameRef.current !== null) {
+          cancelAnimationFrame(tokenFrameRef.current)
+          tokenFrameRef.current = null
+        }
+        const finalAssistant = {
           ...assistantMsg,
           content: assistantBuf.current || '(no response)',
-        })
+        }
+        const finalMessages = next.concat(finalAssistant)
+        setMessages(finalMessages)
         // Guard against the session being deleted while the stream was running
         // (user removed it from the Library mid-response). updateSession on a
         // missing id is a silent no-op, but the user would lose the answer;
@@ -685,6 +757,10 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           setActiveSessionId(session.id)
         }
       } catch (e) {
+        if (tokenFrameRef.current !== null) {
+          cancelAnimationFrame(tokenFrameRef.current)
+          tokenFrameRef.current = null
+        }
         // Abort (Stop / unmount / session switch) is intentional: keep whatever
         // streamed so far and don't show an error. A genuine failure surfaces
         // inline + (for key/quota errors) in the banner with an Open-settings link.
@@ -727,6 +803,8 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
     // the new chat or vanish entirely.
     abortRef.current?.abort()
     abortRef.current = null
+    if (tokenFrameRef.current !== null) cancelAnimationFrame(tokenFrameRef.current)
+    tokenFrameRef.current = null
     assistantBuf.current = ''
     setStreaming(false)
     setMessages([])
@@ -739,6 +817,8 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
     // bleed into the one we're opening.
     abortRef.current?.abort()
     abortRef.current = null
+    if (tokenFrameRef.current !== null) cancelAnimationFrame(tokenFrameRef.current)
+    tokenFrameRef.current = null
     assistantBuf.current = ''
     setStreaming(false)
     setMessages(s.messages)
@@ -1047,7 +1127,10 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 <div className="text-[12px] font-semibold text-ink mb-1">{tr('side.onboard.hintTitle')}</div>
                 <p className="text-[11px] text-ink-soft leading-relaxed mb-2">{tr('side.onboard.hintBody')}</p>
                 <button
-                  onClick={() => setHintDismissed(true)}
+                  onClick={() => {
+                    setHintDismissed(true)
+                    markOpened()
+                  }}
                   className="text-[11px] text-accent font-medium hover:text-accent-hover"
                 >
                   {tr('side.onboard.hintDismiss')}
@@ -2298,7 +2381,7 @@ function LanguageSelect({
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search languages…"
+            placeholder={t('settings.translation.languageSearch', locale)}
             className="px-2 py-1.5 text-[11px] border-b border-line outline-none bg-transparent"
           />
           <div className="overflow-y-auto">
@@ -2320,7 +2403,9 @@ function LanguageSelect({
               </button>
             ))}
             {matches.length > shown.length && (
-              <p className="px-2 py-1 text-[10px] text-ink-faint">…{matches.length - shown.length} more — refine search</p>
+              <p className="px-2 py-1 text-[10px] text-ink-faint">
+                {t('settings.translation.languageMore', locale).replace('{n}', String(matches.length - shown.length))}
+              </p>
             )}
           </div>
         </div>
@@ -2332,7 +2417,7 @@ function LanguageSelect({
 // ---------------------------------------------------------------------------
 // CacheControls — shows the saved-tokens/saved-$ readout and a Clear button.
 // Reads the cache directly from chrome.storage.local; pure display + clear.
-function CacheControls({ ttlDays }: { ttlDays: number }) {
+function CacheControls({ ttlDays, locale }: { ttlDays: number; locale: LocalePref }) {
   const [tokens, setTokens] = useState(0)
   const [cleared, setCleared] = useState(false)
 
@@ -2359,15 +2444,17 @@ function CacheControls({ ttlDays }: { ttlDays: number }) {
     <div className="flex items-center justify-between text-[10px] text-ink-faint mb-3">
       <span>
         {tokens > 0
-          ? `≈ ${tokens.toLocaleString()} tokens cached · ~$${savedUsd.toFixed(3)} saved`
-          : 'No cached translations yet'}
+          ? t('settings.translation.cacheStats', locale)
+              .replace('{tokens}', tokens.toLocaleString())
+              .replace('{usd}', savedUsd.toFixed(3))
+          : t('settings.translation.cacheEmpty', locale)}
       </span>
       <button
         type="button"
         onClick={clear}
         className="px-2 py-0.5 rounded border border-line text-ink-soft hover:bg-surface-muted"
       >
-        {cleared ? '✓' : t('settings.translation.cacheClear', 'en')}
+        {cleared ? '✓' : t('settings.translation.cacheClear', locale)}
       </button>
     </div>
   )
@@ -2377,9 +2464,11 @@ function CacheControls({ ttlDays }: { ttlDays: number }) {
 // SiteRulesControls — editable list of per-domain rules + "add current site".
 function SiteRulesControls({
   rules,
+  locale,
   onChange,
 }: {
   rules: SiteRule[]
+  locale: LocalePref
   onChange: (next: SiteRule[]) => void
 }) {
   const [currentHost, setCurrentHost] = useState('')
@@ -2414,20 +2503,20 @@ function SiteRulesControls({
             onClick={() => addCurrent('always')}
             className="flex-1 px-1 py-1 text-[10.5px] font-medium rounded-lg border border-line text-ink-soft hover:border-accent hover:bg-accent-softer hover:text-accent"
           >
-            + {t('settings.translation.siteRules.always', 'en')} ({currentHost})
+            + {t('settings.translation.siteRules.always', locale)} ({currentHost})
           </button>
           <button
             type="button"
             onClick={() => addCurrent('never')}
             className="flex-1 px-1 py-1 text-[10.5px] font-medium rounded-lg border border-line text-ink-soft hover:border-accent hover:bg-accent-softer hover:text-accent"
           >
-            + {t('settings.translation.siteRules.never', 'en')}
+            + {t('settings.translation.siteRules.never', locale)}
           </button>
         </div>
       )}
       {cleanRules.length === 0 ? (
         <p className="text-[10px] text-ink-faint mb-2">
-          No site rules. Add the current site, or it follows your global setting.
+          {t('settings.translation.siteRules.empty', locale)}
         </p>
       ) : (
         <ul className="space-y-1 mb-2">
@@ -2439,15 +2528,15 @@ function SiteRulesControls({
                 onChange={(e) => setMode(r.id, e.target.value as SiteRule['mode'])}
                 className="field text-[10px] py-0.5"
               >
-                <option value="always">{t('settings.translation.siteRules.always', 'en')}</option>
-                <option value="never">{t('settings.translation.siteRules.never', 'en')}</option>
-                <option value="customEngine">custom</option>
+                <option value="always">{t('settings.translation.siteRules.always', locale)}</option>
+                <option value="never">{t('settings.translation.siteRules.never', locale)}</option>
+                <option value="customEngine">{t('settings.translation.siteRules.custom', locale)}</option>
               </select>
               <button
                 type="button"
                 onClick={() => removeRule(r.id)}
                 className="text-ink-faint hover:text-danger"
-                aria-label="remove"
+                aria-label={t('settings.translation.siteRules.remove', locale)}
               >✕</button>
             </li>
           ))}
@@ -2484,16 +2573,14 @@ function CurrentSiteChip({
       onToggle(filtered) // never → auto (remove rule)
     }
   }
-  const label = locale === 'zh'
-    ? (state === 'always' ? '本站：总是翻译' : state === 'never' ? '本站：从不翻译' : `本站：自动`)
-    : (state === 'always' ? 'Site: always' : state === 'never' ? 'Site: never' : `Site: auto`)
+  const label = t(`settings.translation.siteState.${state}` as StringKey, locale)
   const tone =
     state === 'always' ? 'text-accent' : state === 'never' ? 'text-danger' : 'text-ink-faint'
   return (
     <button
       type="button"
       onClick={cycle}
-      title={locale === 'zh' ? '点击切换：自动 → 总是 → 从不' : 'Click to cycle: auto → always → never'}
+      title={t('settings.translation.siteState.cycle', locale)}
       className={`mt-1 inline-flex items-center gap-1 text-[10px] ${tone} hover:underline`}
     >
       <span className="truncate max-w-[160px]">{label}</span>
@@ -2952,12 +3039,13 @@ function SettingsView({ byok, onChange }: SettingsViewProps) {
                   className="w-full accent-[#9C6B3C] mb-1"
                 />
                 <p className="text-[10px] text-ink-faint mb-1">{t('settings.translation.cacheHint', byok.locale)}</p>
-                <CacheControls ttlDays={ts.cacheTtlDays} />
+                <CacheControls ttlDays={ts.cacheTtlDays} locale={byok.locale} />
 
                 {/* Site rules */}
                 <label className="text-[11px] text-ink-soft mb-1 mt-1 block">{t('settings.translation.siteRules', byok.locale)}</label>
                 <SiteRulesControls
                   rules={ts.siteRules}
+                  locale={byok.locale}
                   onChange={(next) => setTs({ siteRules: next })}
                 />
               </div>

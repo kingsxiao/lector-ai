@@ -164,6 +164,18 @@ describe('streamChat — OpenAI', () => {
     )
     expect(full).toBe('Hi there')
   })
+
+  it('keeps the final data frame when the provider omits a trailing newline', async () => {
+    const payload = JSON.stringify({ choices: [{ delta: { content: 'last token' } }] })
+    stubFetch(sseStream([`data: ${payload}`]))
+    const full = await streamChat(
+      openaiSettings,
+      [{ role: 'user', content: 'hi' }],
+      { maxTokens: 10, temperature: 0 },
+      () => {}
+    )
+    expect(full).toBe('last token')
+  })
 })
 
 describe('streamChat — error handling', () => {

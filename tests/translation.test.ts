@@ -438,10 +438,11 @@ describe('shouldTranslateBlock', () => {
     expect(shouldTranslateBlock(cand({ tag: 'DIV', text: 'A meaningful sentence inside a div container', textRatio: 0.3 }), true)).toBe(true)
     expect(shouldTranslateBlock(cand({ tag: 'SPAN', text: 'A meaningful sentence inside a span container', textRatio: 0.2 }), true)).toBe(true)
   })
-  it('still applies the short-fragment rules under allowAnyTag', () => {
-    // Even with the tag bypass, a too-short or too-markup-heavy fragment is dropped.
+  it('still rejects too-short text under allowAnyTag but trusts prevalidated leaf ratios', () => {
+    // The DOM collector pre-validates direct text leaves, so outerHTML-heavy
+    // labels must not be rejected a second time by the generic ratio rule.
     expect(shouldTranslateBlock(cand({ tag: 'DIV', text: 'hi', textRatio: 0.9 }), true)).toBe(false)
-    expect(shouldTranslateBlock(cand({ tag: 'DIV', text: 'x y z', textRatio: 0.05 }), true)).toBe(false)
+    expect(shouldTranslateBlock(cand({ tag: 'DIV', text: 'Built by', textRatio: 0.01 }), true)).toBe(true)
   })
   it('rejects non-translatable tag', () => {
     expect(shouldTranslateBlock(cand({ tag: 'DIV' }))).toBe(false)
