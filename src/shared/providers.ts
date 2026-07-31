@@ -421,7 +421,12 @@ export interface TranslationSettings {
   cacheTtlDays: number
   /** AI Expert persona id (see translationPersonas.ts). Default 'general'. */
   persona: string
-  /** Scope page translation to the detected main content (smart) vs body (whole). */
+  /** Scope page translation to the detected main content (smart) vs body (whole).
+   *  Default 'whole' = translate every translatable block in the document
+   *  (the long-standing behavior, and what Immersive Translate does). 'smart'
+   *  is an opt-in that restricts to the detected main-content root — useful on
+   *  noisy pages but can DROP text on list/app pages (e.g. GitHub repo lists),
+   *  so it must NOT be the default. */
   pageScope: 'smart' | 'whole'
 }
 
@@ -437,7 +442,7 @@ export const DEFAULT_TRANSLATION_SETTINGS: TranslationSettings = {
   siteRules: [],
   cacheTtlDays: 30,
   persona: 'general',
-  pageScope: 'smart',
+  pageScope: 'whole',
 }
 
 /** Coerce arbitrary stored data into a valid TranslationSettings (migration-safe). */

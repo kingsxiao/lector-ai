@@ -30,7 +30,10 @@ describe('normalizeTranslationSettings', () => {
     expect(out.siteRules).toEqual([])
     expect(out.cacheTtlDays).toBe(30)
     expect(out.persona).toBe('general')
-    expect(out.pageScope).toBe('smart')
+    // Default scope is 'whole' (translate every block, matching the long-standing
+    // behavior + Immersive Translate). 'smart' is opt-in and can drop text on
+    // list/app pages, so it must NOT be the default.
+    expect(out.pageScope).toBe('whole')
   })
   it('clamps concurrency to 10 and rejects bad displayMode', () => {
     const out = normalizeTranslationSettings({ concurrency: 99, displayMode: 'weird' })

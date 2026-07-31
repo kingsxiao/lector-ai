@@ -1484,38 +1484,50 @@ async function runBilingualTranslation() {
 
   // Site rules: per-domain extra selectors / exclusions augment the default
   // block query. `pageScope` controls whether we translate the smart main
-  // content root only (default) or the whole document.body. A keyboard override
+  // content root only (opt-in) or the whole document.body (default, matches the
+  // long-standing behavior + Immersive Translate). A keyboard override
   // (Alt+A smart / Alt+W whole) wins for this run, then is cleared.
   const effectiveScope = bilingualScopeOverride || tSettings.pageScope
   bilingualScopeOverride = null
   const host = location.hostname
   const siteRule = findRuleForHost(tSettings.siteRules, host) || undefined
-  const scopeRoot = effectiveScope === 'whole' || !extractPageRoot()
-    ? document.body
-    : (extractPageRoot() as HTMLElement)
   const baseSelector = 'p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, dt, dd, figcaption, summary'
   const extraSelector = siteRule?.selectors?.length ? ', ' + siteRule.selectors.join(', ') : ''
-  const scope = (scopeRoot || document.body).matches(baseSelector)
+  // 'whole' (default) → translate every block in the document. 'smart' → try
+  // the detected main-content root, but FALL BACK to the whole document when
+  // the root is missing OR yields no candidates, so smart never silently drops
+  // text (the regression that left list/app pages untranslated).
+  const smartRoot = effectiveScope === 'smart' ? extractPageRoot() : null
+  const scopeRoot: Element = (effectiveScope === 'whole' || !smartRoot) ? document.body : smartRoot
+  const scope = scopeRoot.matches(baseSelector)
     ? [scopeRoot as HTMLElement]
-    : Array.from((scopeRoot || document.body).querySelectorAll<HTMLElement>(baseSelector + extraSelector))
+    : Array.from(scopeRoot.querySelectorAll<HTMLElement>(baseSelector + extraSelector))
 
   // Gather candidates, viewport-first ordering.
   const vh = window.innerHeight
   const excludeExtra = siteRule?.excludeSelectors?.length
     ? siteRule.excludeSelectors.map((s) => s.trim()).filter(Boolean)
     : []
-  const candidates = scope
-    .map((el) => ({ el, c: buildBlockCandidate(el) }))
-    .filter((x) => shouldTranslateBlock(x.c) && !x.el.closest('#lector-ai-result, #lector-ai-toolbar, #lector-ai-loading, #lector-ai-fab, [data-lector-no-translate]'))
-    .filter((x) => !excludeExtra.some((sel) => x.el.closest(sel)))
-    .sort((a, b) => {
-      const ra = a.el.getBoundingClientRect()
-      const rb = b.el.getBoundingClientRect()
-      const aIn = ra.top < vh && ra.bottom > 0 ? 0 : 1
-      const bIn = rb.top < vh && rb.bottom > 0 ? 0 : 1
-      return aIn - bIn
-    })
-    .map((x) => x.el)
+  const gatherFrom = (roots: HTMLElement[]) =>
+    roots
+      .map((el) => ({ el, c: buildBlockCandidate(el) }))
+      .filter((x) => shouldTranslateBlock(x.c) && !x.el.closest('#lector-ai-result, #lector-ai-toolbar, #lector-ai-loading, #lector-ai-fab, [data-lector-no-translate]'))
+      .filter((x) => !excludeExtra.some((sel) => x.el.closest(sel)))
+      .sort((a, b) => {
+        const ra = a.el.getBoundingClientRect()
+        const rb = b.el.getBoundingClientRect()
+        const aIn = ra.top < vh && ra.bottom > 0 ? 0 : 1
+        const bIn = rb.top < vh && rb.bottom > 0 ? 0 : 1
+        return aIn - bIn
+      })
+      .map((x) => x.el)
+  let candidates = gatherFrom(scope)
+  // Smart-scope safety net: if the detected main-content root yielded nothing
+  // (common on list/app/dashboard pages where prose lives outside the scored
+  // root), fall back to the WHOLE document so text is never silently dropped.
+  if (candidates.length === 0 && effectiveScope === 'smart') {
+    candidates = gatherFrom(Array.from(document.body.querySelectorAll<HTMLElement>(baseSelector + extraSelector)))
+  }
   if (candidates.length === 0) return
 
   const page = extractPage()
