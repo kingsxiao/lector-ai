@@ -8,6 +8,8 @@
 import type { Locale, LocalePref } from './i18n'
 export type { Locale, LocalePref }
 import { isValidDisplayMode, type DisplayMode, type TargetLangCode } from './translation'
+import { isValidThemeId, clampFontSize } from './translationThemes'
+import { normalizeSiteRules, type SiteRule } from './siteRules'
 
 export type ProviderId =
   // OpenAI-compatible hosts (overseas)
@@ -405,6 +407,22 @@ export interface TranslationSettings {
   autoTranslate: boolean
   /** Max in-flight translation requests for page mode. 1–10. Default 5. */
   concurrency: number
+  /** Bilingual-translation visual theme id (see translationThemes.ts). Default 'default'. */
+  theme: string
+  /** Relative font size for bilingual translations (0.6–1.6). Default 0.92. */
+  fontSize: number
+  /** User-authored CSS appended verbatim to the injected theme stylesheet. */
+  customCss: string
+  /** Reading-focus mode: dims the source so the translation reads primary. */
+  readingFocus: boolean
+  /** Per-domain rules (always/never translate, custom selectors/engine). */
+  siteRules: SiteRule[]
+  /** Translation cache time-to-live in days; 0 disables cache. Default 30. */
+  cacheTtlDays: number
+  /** AI Expert persona id (see translationPersonas.ts). Default 'general'. */
+  persona: string
+  /** Scope page translation to the detected main content (smart) vs body (whole). */
+  pageScope: 'smart' | 'whole'
 }
 
 export const DEFAULT_TRANSLATION_SETTINGS: TranslationSettings = {
@@ -412,6 +430,14 @@ export const DEFAULT_TRANSLATION_SETTINGS: TranslationSettings = {
   displayMode: 'bilingual',
   autoTranslate: false,
   concurrency: 5,
+  theme: 'default',
+  fontSize: 0.92,
+  customCss: '',
+  readingFocus: false,
+  siteRules: [],
+  cacheTtlDays: 30,
+  persona: 'general',
+  pageScope: 'smart',
 }
 
 /** Coerce arbitrary stored data into a valid TranslationSettings (migration-safe). */
@@ -427,6 +453,16 @@ export function normalizeTranslationSettings(raw: unknown): TranslationSettings 
   if (typeof r.concurrency === 'number' && !Number.isNaN(r.concurrency)) {
     base.concurrency = Math.max(1, Math.min(10, Math.floor(r.concurrency)))
   }
+  if (isValidThemeId(r.theme)) base.theme = r.theme
+  if (typeof r.fontSize === 'number') base.fontSize = clampFontSize(r.fontSize)
+  if (typeof r.customCss === 'string') base.customCss = r.customCss
+  if (typeof r.readingFocus === 'boolean') base.readingFocus = r.readingFocus
+  if (Array.isArray(r.siteRules)) base.siteRules = normalizeSiteRules(r.siteRules)
+  if (typeof r.cacheTtlDays === 'number' && !Number.isNaN(r.cacheTtlDays)) {
+    base.cacheTtlDays = Math.max(0, Math.floor(r.cacheTtlDays))
+  }
+  if (typeof r.persona === 'string' && r.persona) base.persona = r.persona
+  if (r.pageScope === 'smart' || r.pageScope === 'whole') base.pageScope = r.pageScope
   return base
 }
 

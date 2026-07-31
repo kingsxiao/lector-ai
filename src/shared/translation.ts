@@ -143,11 +143,24 @@ export function detectSourceLang(text: string): string {
  *    model skipped the whole block.
  *  - A source-language hint (set via buildTranslateUserPrompt) gives the model
  *    confidence to commit to a direction instead of hedging.
+ *
+ * The optional `personaPrompt` (Phase 8 AI Expert) is spliced AFTER the base
+ * instruction but BEFORE the glossary, so the persona shapes register/tone
+ * while the hard output-language requirement + glossary still win. Empty
+ * personaPrompt (the 'general' persona) leaves the prompt unchanged — back-compat
+ * with the original two-arg signature.
  */
-export function buildTranslateSystemPrompt(targetLang: TargetLangCode, glossaryBlock: string): string {
+export function buildTranslateSystemPrompt(
+  targetLang: TargetLangCode,
+  glossaryBlock: string,
+  personaPrompt: string = ''
+): string {
   const name = getLanguage(targetLang).en
   const base = `You are a professional translator. Translate the user text into ${name}. Preserve meaning, tone, and formatting. Your entire output MUST be written in ${name} — never echo the source language. Leave code snippets, URLs, email addresses, and HTML tags verbatim, but translate ALL surrounding prose, including sentences that contain code or links. Output ONLY the translation, no explanations, no quotes.`
-  return glossaryBlock ? `${base}\n\n${glossaryBlock}` : base
+  const parts = [base]
+  if (personaPrompt.trim()) parts.push(personaPrompt.trim())
+  if (glossaryBlock) parts.push(glossaryBlock)
+  return parts.join('\n\n')
 }
 
 /**
