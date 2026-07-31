@@ -23,12 +23,6 @@
       },
       "description": "Save the current selection as a vocabulary word"
     },
-    "lector-translate": {
-      "suggested_key": {
-        "default": "Alt+T"
-      },
-      "description": "Translate this page (bilingual mode)"
-    },
     "lector-toggle-bilingual": {
       "suggested_key": {
         "default": "Alt+A"
@@ -40,12 +34,6 @@
         "default": "Alt+W"
       },
       "description": "Translate the whole page (not just the main content)"
-    },
-    "lector-translate-selection": {
-      "suggested_key": {
-        "default": "Alt+Q"
-      },
-      "description": "Translate the current text selection"
     }
   },
   "host_permissions": [
