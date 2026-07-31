@@ -397,6 +397,19 @@ export const MAX_BLOCK_LEN = 2000
 // translatable prose. 0.4 keeps nav/button fragments out while rescuing
 // ~half the blocks on a typical docs page.
 const MIN_TEXT_RATIO = 0.4
+// List/table/description tags naturally carry heavy inline markup (links,
+// topic tags, badges) but contain genuine prose — a GitHub repo description is
+// a <p> or <li> full of <a> topic links whose textRatio can be ~0.35. Use a
+// looser ratio for these so their content is translated instead of dropped.
+const LISTISH_TAGS = new Set(['LI', 'TD', 'TH', 'DD', 'DT', 'FIGCAPTION', 'SUMMARY'])
+const MIN_TEXT_RATIO_LISTISH = 0.18
+// Absolute text-length floor: if a block has this much REAL text (≥ 30 chars)
+// it is almost always a meaningful clause/sentence regardless of how much
+// markup wraps it, so translate it even when the ratio is low. This catches
+// the GitHub repo-description case (link-heavy <p>/<li>) that the ratio alone
+// dropped. 30 is ~the length of a short clause (a 1-2 word nav label is well
+// under this), so it doesn't pull in nav/button fragments.
+const ABSOLUTE_TEXT_LEN_FLOOR = 30
 
 /**
  * Decide whether a candidate DOM block should be translated. Pure function so
@@ -406,6 +419,13 @@ const MIN_TEXT_RATIO = 0.4
  * split into chunks by the caller (splitBlockForTranslation). Only genuinely
  * untranslatable content (wrong tag, too short, excluded ancestor, already
  * translated, markup-dominant) is filtered out.
+ *
+ * The markup-ratio test has three tiers so genuine prose is not dropped on
+ * markup-heavy / list pages (the regression that left GitHub repo descriptions
+ * and other link-heavy content untranslated):
+ *   1. ≥ ABSOLUTE_TEXT_LEN_FLOOR real chars → translate (prose is prose).
+ *   2. List/table tags → looser LISTISH ratio (they're markup-heavy by nature).
+ *   3. Otherwise → the standard ratio (keeps nav/button fragments out).
  */
 export function shouldTranslateBlock(c: BlockCandidate): boolean {
   if (!TRANSLATABLE_TAGS.has(c.tag.toUpperCase())) return false
@@ -413,7 +433,10 @@ export function shouldTranslateBlock(c: BlockCandidate): boolean {
   if (t.length < MIN_BLOCK_LEN) return false
   if (c.isInsideExcluded) return false
   if (c.isAlreadyTranslated) return false
-  if (c.textRatio < MIN_TEXT_RATIO) return false
+  if (t.length >= ABSOLUTE_TEXT_LEN_FLOOR) return true
+  const isListish = LISTISH_TAGS.has(c.tag.toUpperCase())
+  const threshold = isListish ? MIN_TEXT_RATIO_LISTISH : MIN_TEXT_RATIO
+  if (c.textRatio < threshold) return false
   return true
 }
 

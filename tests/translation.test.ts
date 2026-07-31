@@ -397,14 +397,35 @@ describe('shouldTranslateBlock', () => {
   it('rejects already-translated', () => {
     expect(shouldTranslateBlock(cand({ isAlreadyTranslated: true }))).toBe(false)
   })
-  it('rejects low text ratio (below 0.4)', () => {
-    expect(shouldTranslateBlock(cand({ textRatio: 0.35 }))).toBe(false)
+  it('rejects low text ratio for SHORT non-listish blocks (below 0.4)', () => {
+    // Short + low ratio = a markup-heavy fragment (nav/button). The default
+    // cand text is ≥40 chars so it would hit the absolute-length floor; use a
+    // genuinely short text here to exercise the ratio path.
+    expect(shouldTranslateBlock(cand({ text: 'a short nav label', textRatio: 0.35 }))).toBe(false)
   })
   it('accepts text ratio of 0.4 (relaxed for markup-heavy tech docs)', () => {
     // Technical docs have inline <code>/<a> that bloat outerHTML; the previous
     // 0.6 threshold dropped ~half the blocks on a code site.
-    expect(shouldTranslateBlock(cand({ textRatio: 0.4 }))).toBe(true)
-    expect(shouldTranslateBlock(cand({ textRatio: 0.5 }))).toBe(true)
+    expect(shouldTranslateBlock(cand({ text: 'a short nav label', textRatio: 0.4 }))).toBe(true)
+    expect(shouldTranslateBlock(cand({ text: 'a short nav label', textRatio: 0.5 }))).toBe(true)
+  })
+  it('translates markup-heavy prose ≥ 30 chars regardless of ratio (regression: GitHub repo descriptions)', () => {
+    // A GitHub repo <p>/<li> full of inline <a> topic links can have textRatio
+    // ~0.30 but is genuine prose. The absolute-length floor must translate it.
+    expect(shouldTranslateBlock(cand({ text: 'react vite typescript starter template', textRatio: 0.30 }))).toBe(true)
+    expect(shouldTranslateBlock(cand({ text: 'react vite typescript starter template', textRatio: 0.12 }))).toBe(true)
+    expect(shouldTranslateBlock(cand({ text: 'A distributed scheduler for large-scale batch workloads', textRatio: 0.18 }))).toBe(true)
+  })
+  it('uses a looser ratio for listish tags (LI/TD/DD/FIGCAPTION)', () => {
+    // List/table cells are markup-heavy by nature; a short link-heavy <li>
+    // below the standard 0.4 threshold should still translate at 0.2.
+    expect(shouldTranslateBlock(cand({ tag: 'LI', text: 'react vite typescript starter', textRatio: 0.2 }))).toBe(true)
+    expect(shouldTranslateBlock(cand({ tag: 'TD', text: 'react vite typescript starter', textRatio: 0.18 }))).toBe(true)
+  })
+  it('still rejects very low-ratio short non-listish blocks', () => {
+    // A short plain <p> fragment (well under the 30-char floor) with almost no
+    // text should be dropped.
+    expect(shouldTranslateBlock(cand({ tag: 'P', text: 'x y z', textRatio: 0.05 }))).toBe(false)
   })
   it('rejects non-translatable tag', () => {
     expect(shouldTranslateBlock(cand({ tag: 'DIV' }))).toBe(false)
