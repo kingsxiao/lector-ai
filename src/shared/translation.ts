@@ -427,8 +427,12 @@ const ABSOLUTE_TEXT_LEN_FLOOR = 30
  *   2. List/table tags → looser LISTISH ratio (they're markup-heavy by nature).
  *   3. Otherwise → the standard ratio (keeps nav/button fragments out).
  */
-export function shouldTranslateBlock(c: BlockCandidate): boolean {
-  if (!TRANSLATABLE_TAGS.has(c.tag.toUpperCase())) return false
+export function shouldTranslateBlock(c: BlockCandidate, allowAnyTag = false): boolean {
+  // The tag whitelist is skipped when the caller has ALREADY validated that the
+  // element is a text-leaf prose container (e.g. a <div>/<span> recovered as a
+  // modern-markup text leaf). Without this opt-out, prose living outside the
+  // fixed tag set (common in component UIs) is never translated.
+  if (!allowAnyTag && !TRANSLATABLE_TAGS.has(c.tag.toUpperCase())) return false
   const t = c.text.trim()
   if (t.length < MIN_BLOCK_LEN) return false
   if (c.isInsideExcluded) return false

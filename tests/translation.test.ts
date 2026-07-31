@@ -427,6 +427,22 @@ describe('shouldTranslateBlock', () => {
     // text should be dropped.
     expect(shouldTranslateBlock(cand({ tag: 'P', text: 'x y z', textRatio: 0.05 }))).toBe(false)
   })
+  it('rejects a non-whitelisted tag (DIV/SPAN) by default', () => {
+    // Without the text-leaf opt-in, prose in a <div>/<span> is not collected.
+    expect(shouldTranslateBlock(cand({ tag: 'DIV', text: 'A meaningful sentence inside a div container', textRatio: 0.9 }))).toBe(false)
+    expect(shouldTranslateBlock(cand({ tag: 'SPAN', text: 'A meaningful sentence inside a span container', textRatio: 0.9 }))).toBe(false)
+  })
+  it('accepts a non-whitelisted tag when allowAnyTag is set (text-leaf recovery)', () => {
+    // Modern sites put prose in <div>/<span>; the content script pre-validates
+    // these as text leaves and opts into the tag bypass.
+    expect(shouldTranslateBlock(cand({ tag: 'DIV', text: 'A meaningful sentence inside a div container', textRatio: 0.3 }), true)).toBe(true)
+    expect(shouldTranslateBlock(cand({ tag: 'SPAN', text: 'A meaningful sentence inside a span container', textRatio: 0.2 }), true)).toBe(true)
+  })
+  it('still applies the short-fragment rules under allowAnyTag', () => {
+    // Even with the tag bypass, a too-short or too-markup-heavy fragment is dropped.
+    expect(shouldTranslateBlock(cand({ tag: 'DIV', text: 'hi', textRatio: 0.9 }), true)).toBe(false)
+    expect(shouldTranslateBlock(cand({ tag: 'DIV', text: 'x y z', textRatio: 0.05 }), true)).toBe(false)
+  })
   it('rejects non-translatable tag', () => {
     expect(shouldTranslateBlock(cand({ tag: 'DIV' }))).toBe(false)
   })

@@ -1503,6 +1503,28 @@ async function runBilingualTranslation() {
     ? [scopeRoot as HTMLElement]
     : Array.from(scopeRoot.querySelectorAll<HTMLElement>(baseSelector + extraSelector))
 
+  // Modern sites (and component UIs like GitHub's) often put translatable
+  // prose in <div>/<span> instead of <p>/<li>. The fixed TRANSLATABLE_TAGS set
+  // misses these, so the text is never collected. Recover text-LEAF div/span
+  // containers: a div/span that (a) has substantial DIRECT text, (b) holds no
+  // block-level child we'd already translate (avoids double-translating a
+  // wrapper that contains a <p>), and (c) isn't inside an excluded ancestor.
+  // This mirrors how Immersive Translate handles arbitrary markup.
+  const textLeaves = Array.from(scopeRoot.querySelectorAll<HTMLElement>('div, span'))
+    .filter((el) => {
+      if (el.closest(EXCLUDED_SELECTOR)) return false
+      // Has a block-level translatable child? Then it's a wrapper, not a leaf —
+      // skip so we translate the inner block instead of duplicating.
+      if (el.querySelector('p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, dt, dd, figcaption, summary')) return false
+      const directText = Array.from(el.childNodes)
+        .filter((n) => n.nodeType === Node.TEXT_NODE)
+        .map((n) => n.textContent || '')
+        .join('')
+        .trim()
+      // Substantial prose directly in this div/span (not just whitespace).
+      return directText.length >= 30
+    })
+
   // Gather candidates, viewport-first ordering.
   const vh = window.innerHeight
   const excludeExtra = siteRule?.excludeSelectors?.length
@@ -1510,9 +1532,17 @@ async function runBilingualTranslation() {
     : []
   const gatherFrom = (roots: HTMLElement[]) =>
     roots
-      .map((el) => ({ el, c: buildBlockCandidate(el) }))
-      .filter((x) => shouldTranslateBlock(x.c) && !x.el.closest('#lector-ai-result, #lector-ai-toolbar, #lector-ai-loading, #lector-ai-fab, [data-lector-no-translate]'))
+      .map((el) => ({ el, c: buildBlockCandidate(el), isTextLeaf: el.tagName === 'DIV' || el.tagName === 'SPAN' }))
+      // Text-leaf divs/spans bypass the tag whitelist (their quality was checked
+      // at collection time); standard tags use the whitelist as before.
+      .filter((x) => shouldTranslateBlock(x.c, x.isTextLeaf) && !x.el.closest('#lector-ai-result, #lector-ai-toolbar, #lector-ai-loading, #lector-ai-fab, [data-lector-no-translate]'))
       .filter((x) => !excludeExtra.some((sel) => x.el.closest(sel)))
+      // Drop nested text-leaves with identical text to their parent leaf (keep
+      // the smaller/inner one). Cheap O(n) check keyed on text+rect overlap.
+      .filter((x, _i, arr) => {
+        if (!x.isTextLeaf) return true
+        return !arr.some((y) => y !== x && y.isTextLeaf && x.el !== y.el && (x.el.contains(y.el) || y.el.contains(x.el)) && (y.el.textContent?.trim() === x.el.textContent?.trim()))
+      })
       .sort((a, b) => {
         const ra = a.el.getBoundingClientRect()
         const rb = b.el.getBoundingClientRect()
@@ -1521,7 +1551,7 @@ async function runBilingualTranslation() {
         return aIn - bIn
       })
       .map((x) => x.el)
-  let candidates = gatherFrom(scope)
+  let candidates = gatherFrom([...scope, ...textLeaves])
   // Smart-scope safety net: if the detected main-content root yielded nothing
   // (common on list/app/dashboard pages where prose lives outside the scored
   // root), fall back to the WHOLE document so text is never silently dropped.
