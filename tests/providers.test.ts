@@ -4,6 +4,7 @@ import {
   normalizeByokSettings,
   normalizeTranslationSettings,
   DEFAULT_BYOK_SETTINGS,
+  PROVIDERS,
 } from '../src/shared/providers'
 
 describe('normalizeTranslationSettings', () => {
@@ -89,7 +90,46 @@ describe('DEFAULT_BYOK_SETTINGS', () => {
   })
 })
 
+describe('provider transports', () => {
+  it('uses the native Responses API only for the official OpenAI provider', () => {
+    expect(PROVIDERS.openai.transport).toBe('openai-responses')
+  })
+
+  it('keeps compatible and Anthropic providers on their actual wire protocols', () => {
+    expect(PROVIDERS.openrouter.transport).toBe('openai-chat-completions')
+    expect(PROVIDERS.deepseek.transport).toBe('openai-chat-completions')
+    expect(PROVIDERS['openrouter-custom'].transport).toBe('openai-chat-completions')
+    expect(PROVIDERS.anthropic.transport).toBe('anthropic-messages')
+  })
+
+  it('ships active Anthropic/OpenRouter defaults', () => {
+    expect(PROVIDERS.anthropic.defaultModel).toBe('claude-haiku-4-5-20251001')
+    expect(PROVIDERS.anthropic.models.map((model) => model.id)).not.toContain('claude-3-5-haiku-latest')
+    expect(PROVIDERS.openrouter.defaultModel).toBe('openai/gpt-4o-mini')
+  })
+})
+
 describe('normalizeByokSettings', () => {
+  it('migrates retired built-in model ids without rewriting arbitrary custom models', () => {
+    expect(normalizeByokSettings({
+      provider: 'openai', model: 'o1-mini', apiKey: 'x',
+    }).model).toBe('gpt-4o-mini')
+    expect(normalizeByokSettings({
+      provider: 'openai', model: 'o1-mini-2024-09-12', apiKey: 'x',
+    }).model).toBe('gpt-4o-mini')
+    expect(normalizeByokSettings({
+      provider: 'anthropic', model: 'claude-3-5-haiku-latest', apiKey: 'x',
+    }).model).toBe('claude-haiku-4-5-20251001')
+    expect(normalizeByokSettings({
+      provider: 'openrouter', model: 'anthropic/claude-3.5-haiku', apiKey: 'x',
+    }).model).toBe('openai/gpt-4o-mini')
+    expect(normalizeByokSettings({
+      provider: 'custom', model: 'claude-3-5-haiku-latest', apiKey: 'x', baseUrl: 'https://local.test/v1',
+    }).model).toBe('claude-3-5-haiku-latest')
+    expect(normalizeByokSettings({
+      provider: 'custom', model: 'o1-mini', apiKey: 'x', baseUrl: 'https://local.test/v1',
+    }).model).toBe('o1-mini')
+  })
   it('falls back from corrupted provider/locale and repairs collection settings', () => {
     const out = normalizeByokSettings({
       provider: 'missing-provider',

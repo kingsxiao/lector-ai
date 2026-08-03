@@ -6,6 +6,8 @@ import {
   estimateTokens,
   isExpired,
   putEntry,
+  trimStore,
+  mergeCacheStores,
   getEntry,
   gcStore,
   totalSavedTokens,
@@ -41,7 +43,7 @@ describe('cacheKey', () => {
       [target, model, glossary, persona, source].join('\u0000')
     )
 
-    expect(TRANSLATION_CACHE_VERSION).toBeTruthy()
+    expect(TRANSLATION_CACHE_VERSION).toBe('page-translation-v3')
     expect(cacheKey(source, target, model, glossary, persona)).not.toBe(legacyKey)
   })
   it('changes when targetLang changes', () => {
@@ -119,6 +121,76 @@ describe('LRU eviction (putEntry cap)', () => {
     // Adding a 4th evicts 'a' (oldest t).
     store = putEntry(store, 'd', 'D', 1, 4000, 3)
     expect(Object.keys(store).sort()).toEqual(['b', 'c', 'd'])
+  })
+})
+
+describe('mergeCacheStores', () => {
+  it('preserves disjoint entries from storage and the incoming snapshot', () => {
+    const latest: CacheStore = { remote: { v: '远端', t: 20, n: 2 } }
+    const incoming: CacheStore = { local: { v: '本地', t: 10, n: 2 } }
+
+    expect(mergeCacheStores(latest, incoming)).toEqual({
+      remote: latest.remote,
+      local: incoming.local,
+    })
+  })
+
+  it('keeps the newer value for a key and lets storage win timestamp ties', () => {
+    const latest: CacheStore = {
+      newerRemote: { v: 'new remote', t: 30, n: 1 },
+      newerLocal: { v: 'old remote', t: 10, n: 1 },
+      tie: { v: 'storage wins', t: 20, n: 1 },
+    }
+    const incoming: CacheStore = {
+      newerRemote: { v: 'stale page snapshot', t: 20, n: 1 },
+      newerLocal: { v: 'new local', t: 40, n: 1 },
+      tie: { v: 'delayed page snapshot', t: 20, n: 1 },
+    }
+
+    const merged = mergeCacheStores(latest, incoming)
+    expect(merged.newerRemote.v).toBe('new remote')
+    expect(merged.newerLocal.v).toBe('new local')
+    expect(merged.tie.v).toBe('storage wins')
+  })
+
+  it('applies explicit removals after merging so invalid entries stay deleted', () => {
+    const latest: CacheStore = {
+      invalid: { v: 'unchanged English', t: 30, n: 1 },
+      keep: { v: '保留', t: 20, n: 1 },
+    }
+    const incoming: CacheStore = {
+      invalid: { v: 'stale snapshot copy', t: 10, n: 1 },
+    }
+
+    expect(mergeCacheStores(latest, incoming, new Map([['invalid', 30]]))).toEqual({
+      keep: latest.keep,
+    })
+  })
+
+  it('does not let a delayed old tombstone delete a newer retry value', () => {
+    const latest: CacheStore = {
+      repaired: { v: '新的正确译文', t: 50, n: 2 },
+    }
+    const delayedSnapshot: CacheStore = {}
+
+    expect(mergeCacheStores(
+      latest,
+      delayedSnapshot,
+      new Map([['repaired', 30]])
+    )).toEqual(latest)
+  })
+
+  it('enforces the LRU cap after combining stores', () => {
+    const latest: CacheStore = {}
+    const incoming: CacheStore = {}
+    for (let i = 0; i < 6; i++) {
+      const target = i % 2 === 0 ? latest : incoming
+      target[`k${i}`] = { v: String(i), t: i, n: 1 }
+    }
+
+    const merged = mergeCacheStores(latest, incoming, new Map(), 3)
+    expect(Object.keys(merged).sort()).toEqual(['k3', 'k4', 'k5'])
+    expect(trimStore({ ...latest, ...incoming }, 3)).toEqual(merged)
   })
 })
 

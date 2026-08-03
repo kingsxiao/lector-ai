@@ -500,6 +500,14 @@ export const STRINGS = {
     en: 'The result is still not in the target language. Retry or switch models.',
     zh: '译文仍未转换为目标语言，请重试或更换模型。',
   },
+  'bilingual.probeFailed': {
+    en: 'The test paragraph failed, so the remaining requests were stopped to avoid further API usage.',
+    zh: '测试段落翻译失败，已停止后续请求，避免继续消耗接口额度。',
+  },
+  'bilingual.circuitStopped': {
+    en: 'Several paragraphs failed, so the remaining requests were stopped to avoid an error storm.',
+    zh: '多个段落翻译失败，已停止剩余请求，避免继续产生错误和消耗额度。',
+  },
   'bilingual.canceled': { en: 'Canceled', zh: '已取消' },
   'bilingual.unavailable': {
     en: 'This page cannot be translated. Refresh the page and try again.',

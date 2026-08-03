@@ -19,6 +19,10 @@ import http from 'node:http'
 import WebSocket from 'ws'
 
 const DIST = resolve(import.meta.dirname, '..', '..', 'dist')
+const SIDE_PANEL_INDEX_HTML = readFileSync(
+  resolve(import.meta.dirname, '..', '..', 'src', 'sidepanel', 'index.html'),
+  'utf8',
+)
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
 // Discover the hashed CSS filename so the test survives rebuilds.
@@ -36,6 +40,17 @@ function startServer() {
   const mime = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' }
   return http.createServer((req, res) => {
     const u = decodeURIComponent((req.url || '').split('?')[0])
+    // Serve the production source HTML unchanged. Its module request is held at
+    // a dependency-free stub below so the browser can inspect the synchronous
+    // boot shell before the application bundle or React has mounted.
+    if (u === '/boot-shell.html') {
+      return res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(SIDE_PANEL_INDEX_HTML)
+    }
+    if (u === '/src/sidepanel/main.tsx') {
+      return res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' }).end(
+        'window.__sidepanelEntryRequested = true; await new Promise(() => {});',
+      )
+    }
     // Shell page: stubs chrome.* + fetch, then loads the real sidepanel bundle.
     if (u === '/' || u === '/shell.html') {
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>SP</title>
@@ -44,16 +59,29 @@ function startServer() {
 <script>
 window.__tabsSent = [];
 window.__lectorMsgs = [];
+window.__runtimeListeners = [];
 
 // BYOK settings WITH an apiKey so chat (streamChat) and bilingual run.
-const BYOK = { provider: 'openai', apiKey: 'sk-test-sidepanel', model: 'gpt-4o-mini', baseUrl: '', locale: 'en' };
+const BYOK = {
+  provider: 'openai',
+  apiKey: 'sk-test-sidepanel',
+  model: 'gpt-4o-mini',
+  baseUrl: '',
+  locale: 'en',
+  // Deliberately differs from the English UI locale. Context-menu translation
+  // must follow this setting rather than hard-code "中文" from the interface.
+  translation: { targetLanguage: 'fr' }
+};
 
-// OpenAI-shaped SSE stream so streamChat → readSSE parses real tokens.
+// Native OpenAI Responses SSE stream so streamChat parses real tokens.
 function sse(tokens) {
   const e = new TextEncoder();
   return new ReadableStream({ start(c) {
-    for (const t of tokens) c.enqueue(e.encode('data: ' + JSON.stringify({ choices: [{ delta: { content: t } }] }) + '\\n\\n'));
-    c.enqueue(e.encode('data: [DONE]\\n\\n'));
+    for (const t of tokens) c.enqueue(e.encode('data: ' + JSON.stringify({ type: 'response.output_text.delta', delta: t }) + '\\n\\n'));
+    c.enqueue(e.encode('data: ' + JSON.stringify({
+      type: 'response.completed',
+      response: { status: 'completed', output: [] }
+    }) + '\\n\\n'));
     c.close();
   }});
 }
@@ -62,16 +90,31 @@ window.__fetchBodies = [];
 window.fetch = function (url, opts) {
   window.__fetchCalls.push(String(url));
   try { window.__fetchBodies.push(JSON.parse(opts && opts.body || '{}')); } catch {}
-  // streamChat posts to {baseUrl}/chat/completions; emit tokens incl. a [0] cite.
+  // Official OpenAI streamChat posts to {baseUrl}/responses.
   return Promise.resolve({ ok: true, status: 200, body: sse(['Trust matters [0].']) });
 };
 
 window.chrome = {
-  runtime: { lastError: null, id: 'testextid', onMessage: { addListener(){}, removeListener(){} } },
+  runtime: {
+    lastError: null,
+    id: 'testextid',
+    onMessage: {
+      addListener(fn) { window.__runtimeListeners.push(fn); },
+      removeListener(fn) {
+        window.__runtimeListeners = window.__runtimeListeners.filter((listener) => listener !== fn);
+      },
+    },
+  },
   storage: {
     local: {
       get: (keys, cb) => {
-        const out = { lector_byok_settings: BYOK, lectorSeed: null };
+        const out = {
+          lector_byok_settings: BYOK,
+          lectorSeed: {
+            kind: 'translate',
+            text: 'A skill to stop your coding agent from burying the answer.'
+          }
+        };
         // The on-mount sync reads settings + drains the highlight/vocab relay
         // queues; return empty arrays so nothing interferes.
         out.lectorHighlights = [{
@@ -146,6 +189,7 @@ async function main() {
   const server = startServer()
   await new Promise((r) => server.listen(8790, r))
   const SHELL = 'http://localhost:8790/'
+  const BOOT_SHELL = 'http://localhost:8790/boot-shell.html'
 
   const profile = mkdtempSync(resolve(tmpdir(), 'lector-sp-'))
   const port = 9550 + Math.floor(Math.random() * 20)
@@ -156,8 +200,41 @@ async function main() {
   ], { stdio: 'ignore', detached: true })
 
   let page
+  let bootPage
   try {
     for (let i = 0; i < 80; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/json/version`)).ok) break } catch {} await sleep(250) }
+
+    // ---- Synchronous production boot shell (before bundle/React) ----
+    await openTab(port, BOOT_SHELL)
+    let bootTarget
+    for (let i = 0; i < 20; i++) {
+      bootTarget = (await getTargets(port)).find((t) => t.type === 'page' && t.url === BOOT_SHELL)
+      if (bootTarget) break
+      await sleep(25)
+    }
+    if (bootTarget) {
+      bootPage = await openWS(bootTarget.webSocketDebuggerUrl)
+      await cdpCall(bootPage, 'Runtime.enable')
+      const bootFrame = await evalIn(bootPage, `(()=>{
+        const root = document.querySelector('#root');
+        const shell = root?.querySelector(':scope > .lector-boot');
+        const rect = shell?.getBoundingClientRect();
+        return {
+          entryRequested: window.__sidepanelEntryRequested === true,
+          hasReactApp: !!document.querySelector('header'),
+          text: root?.textContent?.trim() || '',
+          visible: !!rect && rect.width > 0 && rect.height > 0,
+        };
+      })()`)
+      check(
+        '§first paint uses production synchronous boot shell before React mounts',
+        bootFrame.entryRequested && !bootFrame.hasReactApp && bootFrame.visible && /Lector AI/.test(bootFrame.text) && /Loading|正在加载/.test(bootFrame.text),
+        `visible=${bootFrame.visible}, react=${bootFrame.hasReactApp}, text="${bootFrame.text.slice(0, 45)}"`,
+      )
+    } else {
+      check('§first paint uses production synchronous boot shell before React mounts', false, 'boot-shell target missing')
+    }
+
     await openTab(port, SHELL)
     await sleep(3500)
     const targets = await getTargets(port)
@@ -201,6 +278,49 @@ async function main() {
     const providerLine = await evalIn(page, `[...document.querySelectorAll('header div')].map(d=>d.textContent).find(t=>/OpenAI|model/i.test(t)) || ''`)
     check('§sidepanel shows configured provider (BYOK)', /OpenAI/i.test(providerLine), `line="${providerLine.slice(0, 40)}"`)
 
+    const seededTranslation = await evalIn(page, `document.querySelector('textarea')?.value || ''`)
+    check(
+      '§translate seed follows translation target instead of UI locale',
+      /Translate this to French/i.test(seededTranslation) && !/Translate this to 中文/i.test(seededTranslation),
+      `seed="${seededTranslation.slice(0, 80)}"`
+    )
+
+    // Content-script cancellation and genuine failures share the same action.
+    // Only the explicit structural flag may suppress UI; English words such as
+    // "stopped" are valid error text and must remain visible.
+    const runtimeListenerCount = await evalIn(page, `(window.__runtimeListeners || []).length`)
+    check('§sidepanel registers bilingual runtime error listener', runtimeListenerCount >= 1, `listeners=${runtimeListenerCount}`)
+
+    await evalIn(page, `(()=>{
+      const message = { action: 'lector-bilingual-error', message: 'hidden stopped cancellation sentinel', canceled: true };
+      for (const listener of window.__runtimeListeners || []) listener(message, {}, () => {});
+    })()`)
+    await sleep(100)
+    check(
+      '§bilingual error with canceled:true is not displayed',
+      !(await evalIn(page, `document.body.innerText.includes('hidden stopped cancellation sentinel')`)),
+    )
+
+    await evalIn(page, `(()=>{
+      const message = { action: 'lector-bilingual-error', message: 'requests stopped after provider failures', canceled: false };
+      for (const listener of window.__runtimeListeners || []) listener(message, {}, () => {});
+    })()`)
+    await sleep(100)
+    check(
+      '§genuine stopped error with canceled:false is displayed',
+      await evalIn(page, `document.body.innerText.includes('requests stopped after provider failures')`),
+    )
+
+    await evalIn(page, `(()=>{
+      const message = { action: 'lector-bilingual-error', message: 'translation stopped because the circuit opened' };
+      for (const listener of window.__runtimeListeners || []) listener(message, {}, () => {});
+    })()`)
+    await sleep(100)
+    check(
+      '§genuine stopped error without canceled field is displayed',
+      await evalIn(page, `document.body.innerText.includes('translation stopped because the circuit opened')`),
+    )
+
     // Relay queues written while the panel was closed must be drained on mount;
     // onChanged only observes future writes and cannot recover this snapshot.
     await evalIn(page, `document.querySelector('.tab-bar button[aria-label="Highlights"]')?.click()`)
@@ -223,11 +343,11 @@ async function main() {
       await sleep(250)
     }
     check('§6 chat streams tokens into assistant bubble (BYOK SSE)', /Trust/.test(assistant), `text="${assistant.slice(0, 50)}"`)
-    const chatFetch = JSON.parse(await evalIn(page, `JSON.stringify((window.__fetchCalls||[]).filter(u=>u.endsWith('/chat/completions')))`) || '[]')
-    check('§6 chat hit provider /chat/completions (BYOK)', chatFetch.length >= 1, `calls=${chatFetch.length}`)
+    const chatFetch = JSON.parse(await evalIn(page, `JSON.stringify((window.__fetchCalls||[]).filter(u=>u.endsWith('/responses')))`) || '[]')
+    check('§6 chat hit provider /responses (BYOK)', chatFetch.length >= 1, `calls=${chatFetch.length}`)
     const userPromptCount = await evalIn(page, `(()=>{
-      const body=(window.__fetchBodies||[]).find(b=>Array.isArray(b.messages));
-      return body ? body.messages.filter(m=>m.role==='user' && m.content==='Why does trust matter?').length : 0;
+      const body=(window.__fetchBodies||[]).find(b=>Array.isArray(b.input));
+      return body ? body.input.filter(m=>m.role==='user' && m.content==='Why does trust matter?').length : 0;
     })()`)
     check('§6 current user prompt is sent exactly once', userPromptCount === 1, `count=${userPromptCount}`)
 
@@ -271,6 +391,7 @@ async function main() {
 
   async function cleanup() {
     try { page && page.close() } catch {}
+    try { bootPage && bootPage.close() } catch {}
     try { server.close() } catch {}
     try { process.kill(-proc.pid) } catch {}
     printSummary()

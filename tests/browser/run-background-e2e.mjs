@@ -44,19 +44,22 @@ window.__panelOpens = [];
 window.__storageLocal = {};
 window.__bgFetchCalls = [];
 
-// OpenAI-shaped SSE stream so completeOnce → streamChat → readSSE parses tokens.
+// Native OpenAI Responses stream so completeOnce → streamChat parses tokens.
 function sse(tokens) {
   const e = new TextEncoder();
   return new ReadableStream({ start(c) {
-    for (const t of tokens) c.enqueue(e.encode('data: ' + JSON.stringify({ choices: [{ delta: { content: t } }] }) + '\\n\\n'));
-    c.enqueue(e.encode('data: [DONE]\\n\\n'));
+    for (const t of tokens) c.enqueue(e.encode('data: ' + JSON.stringify({ type: 'response.output_text.delta', delta: t }) + '\\n\\n'));
+    c.enqueue(e.encode('data: ' + JSON.stringify({
+      type: 'response.completed',
+      response: { status: 'completed', output: [] }
+    }) + '\\n\\n'));
     c.close();
   }});
 }
 const origFetch = window.fetch.bind(window);
 window.fetch = function (input, init) {
   try { window.__bgFetchCalls.push(typeof input === 'string' ? input : input.url); } catch {}
-  // Every BYOK call hits {baseUrl}/chat/completions; return a 200 SSE body.
+  // Official OpenAI calls use {baseUrl}/responses.
   return Promise.resolve({ ok: true, status: 200, body: sse(['[译文] hello']) });
 };
 
@@ -176,8 +179,8 @@ async function main() {
     await sleep(1200)
     const vocabStored = JSON.parse(await evalIn(page, `JSON.stringify(window.__storageLocal.lectorVocab || [])`) || '[]')
     check('§relay lector-save-word → storage.local.lectorVocab (BYOK-translated)', vocabStored.length >= 1 && vocabStored[0].word === 'hello' && !!vocabStored[0].translation, `word="${vocabStored[0]?.word}" translation="${vocabStored[0]?.translation}"`)
-    const bgFetches = JSON.parse(await evalIn(page, `JSON.stringify(window.__bgFetchCalls.filter(u=>u.endsWith('/chat/completions')))`) || '[]')
-    check('§relay save-word translation hit provider /chat/completions (BYOK)', bgFetches.length >= 1, `calls=${bgFetches.length}`)
+    const bgFetches = JSON.parse(await evalIn(page, `JSON.stringify(window.__bgFetchCalls.filter(u=>u.endsWith('/responses')))`) || '[]')
+    check('§relay save-word translation hit provider /responses (BYOK)', bgFetches.length >= 1, `calls=${bgFetches.length}`)
 
     // ---- keyboard command handler registered (forwards to content script) ----
     check('§5 keyboard command handler registered (commands.onCommand)', (await evalIn(page, `window.__cmdHandlers.length`)) >= 1)

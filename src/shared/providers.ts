@@ -44,6 +44,11 @@ export interface ProviderModel {
   label?: string
 }
 
+export type ProviderTransport =
+  | 'openai-responses'
+  | 'openai-chat-completions'
+  | 'anthropic-messages'
+
 export interface ProviderDef {
   id: ProviderId
   label: string
@@ -59,8 +64,9 @@ export interface ProviderDef {
    * '/v1/models'.
    */
   modelsPath: string
-  /** Wire format the client must speak. */
-  format: 'openai' | 'anthropic'
+  /** Concrete generation protocol used by this provider. Translation is the
+   * product task; these names describe only the provider wire transport. */
+  transport: ProviderTransport
   /** Sensible default model id. */
   defaultModel: string
   /** Convenience presets shown before the user fetches live models. */
@@ -76,13 +82,12 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://platform.openai.com/api-keys',
     baseUrl: 'https://api.openai.com/v1',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-responses',
     defaultModel: 'gpt-4o-mini',
     models: [
-      { id: 'gpt-4o', label: 'GPT-4o' },
       { id: 'gpt-4o-mini', label: 'GPT-4o mini (cheap)' },
-      { id: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-      { id: 'o1-mini', label: 'o1-mini' },
+      { id: 'gpt-5.4-nano', label: 'GPT-5.4 nano' },
+      { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini' },
     ],
   },
   anthropic: {
@@ -93,12 +98,12 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://console.anthropic.com/settings/keys',
     baseUrl: 'https://api.anthropic.com',
     modelsPath: '/v1/models',
-    format: 'anthropic',
-    defaultModel: 'claude-3-5-haiku-latest',
+    transport: 'anthropic-messages',
+    defaultModel: 'claude-haiku-4-5-20251001',
     models: [
-      { id: 'claude-3-5-sonnet-latest', label: 'Claude 3.5 Sonnet' },
-      { id: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku (fast)' },
-      { id: 'claude-3-opus-latest', label: 'Claude 3 Opus' },
+      { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (fast)' },
+      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+      { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
     ],
   },
   openrouter: {
@@ -109,15 +114,12 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://openrouter.ai/keys',
     baseUrl: 'https://openrouter.ai/api/v1',
     modelsPath: '/models',
-    format: 'openai',
-    defaultModel: 'anthropic/claude-3.5-haiku',
+    transport: 'openai-chat-completions',
+    defaultModel: 'openai/gpt-4o-mini',
     models: [
-      { id: 'anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet' },
-      { id: 'anthropic/claude-3.5-haiku', label: 'Claude 3.5 Haiku (fast)' },
-      { id: 'openai/gpt-4o', label: 'GPT-4o' },
       { id: 'openai/gpt-4o-mini', label: 'GPT-4o mini (cheap)' },
-      { id: 'google/gemini-flash-1.5', label: 'Gemini 1.5 Flash' },
-      { id: 'meta-llama/llama-3.1-70b-instruct', label: 'Llama 3.1 70B' },
+      { id: 'anthropic/claude-haiku-4.5', label: 'Claude Haiku 4.5' },
+      { id: 'anthropic/claude-sonnet-4.6', label: 'Claude Sonnet 4.6' },
     ],
   },
   deepseek: {
@@ -128,7 +130,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://platform.deepseek.com/api_keys',
     baseUrl: 'https://api.deepseek.com',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: 'deepseek-chat',
     models: [
       { id: 'deepseek-chat', label: 'DeepSeek-V3 (chat)' },
@@ -143,7 +145,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://console.groq.com/keys',
     baseUrl: 'https://api.groq.com/openai/v1',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: 'llama-3.3-70b-versatile',
     models: [
       { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B' },
@@ -158,7 +160,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://api.together.xyz/settings/api-keys',
     baseUrl: 'https://api.together.xyz/v1',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
     models: [
       { id: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', label: 'Llama 3.3 70B Turbo' },
@@ -173,7 +175,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://console.mistral.ai/api-keys',
     baseUrl: 'https://api.mistral.ai/v1',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: 'mistral-small-latest',
     models: [
       { id: 'mistral-large-latest', label: 'Mistral Large' },
@@ -189,7 +191,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://console.x.ai',
     baseUrl: 'https://api.x.ai/v1',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: 'grok-2-latest',
     models: [
       { id: 'grok-2-latest', label: 'Grok 2' },
@@ -204,7 +206,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://platform.moonshot.cn/console/api-keys',
     baseUrl: 'https://api.moonshot.cn/v1',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: 'moonshot-v1-8k',
     models: [
       { id: 'moonshot-v1-8k', label: 'Moonshot v1 8k' },
@@ -220,7 +222,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: 'glm-4-flash',
     models: [
       { id: 'glm-4-plus', label: 'GLM-4-Plus' },
@@ -236,7 +238,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://cloud.siliconflow.cn/account/ak',
     baseUrl: 'https://api.siliconflow.cn/v1',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: 'deepseek-ai/DeepSeek-V3',
     models: [
       { id: 'deepseek-ai/DeepSeek-V3', label: 'DeepSeek-V3' },
@@ -251,7 +253,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://www.perplexity.ai/settings/api',
     baseUrl: 'https://api.perplexity.ai',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: 'llama-3.1-sonar-small-128k-online',
     models: [
       { id: 'llama-3.1-sonar-large-128k-online', label: 'Sonar Large (online)' },
@@ -266,7 +268,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://fireworks.ai/account/api-keys',
     baseUrl: 'https://api.fireworks.ai/inference/v1',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: 'accounts/fireworks/models/llama-v3p1-70b-instruct',
     models: [
       { id: 'accounts/fireworks/models/llama-v3p1-70b-instruct', label: 'Llama 3.1 70B' },
@@ -281,7 +283,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://bailian.console.aliyun.com/?apiKey=1',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: 'qwen-plus',
     models: [
       { id: 'qwen-max', label: 'qwen-max' },
@@ -298,7 +300,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://console.bce.baidu.com/iam/#/iam/apikey/list',
     baseUrl: 'https://qianfan.baidubce.com/v2',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: 'ernie-4.0-8k-latest',
     models: [
       { id: 'ernie-4.0-turbo-8k', label: 'ERNIE 4.0 Turbo' },
@@ -315,7 +317,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey',
     baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: 'doubao-pro-32k',
     models: [
       { id: 'doubao-pro-32k', label: 'Doubao Pro 32k' },
@@ -331,7 +333,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
     baseUrl: 'https://api.minimax.chat/v1',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: 'abab6.5s-chat',
     models: [
       { id: 'abab6.5s-chat', label: 'abab6.5s' },
@@ -346,7 +348,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://platform.lingyiwanwu.com/apikeys',
     baseUrl: 'https://api.lingyiwanwu.com/v1',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: 'yi-large',
     models: [
       { id: 'yi-large', label: 'Yi-Large' },
@@ -362,7 +364,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: 'https://platform.stepfun.com/interface-key',
     baseUrl: 'https://api.stepfun.com/v1',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: 'step-1-8k',
     models: [
       { id: 'step-1-8k', label: 'Step-1 8k' },
@@ -379,7 +381,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: '',
     baseUrl: '', // user supplies
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: '',
     models: [],
   },
@@ -393,7 +395,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDef> = {
     keyUrl: '',
     baseUrl: '',
     modelsPath: '/models',
-    format: 'openai',
+    transport: 'openai-chat-completions',
     defaultModel: '',
     models: [],
   },
@@ -500,6 +502,33 @@ export const DEFAULT_BYOK_SETTINGS: ByokSettings = {
   locale: 'auto',
 }
 
+const RETIRED_MODEL_REPLACEMENTS: Partial<Record<ProviderId, Record<string, string>>> = {
+  openai: {
+    'o1-mini': 'gpt-4o-mini',
+    'o1-mini-2024-09-12': 'gpt-4o-mini',
+  },
+  anthropic: {
+    'claude-3-5-haiku-latest': 'claude-haiku-4-5-20251001',
+    'claude-3-5-haiku-20241022': 'claude-haiku-4-5-20251001',
+    'claude-3-haiku-latest': 'claude-haiku-4-5-20251001',
+    'claude-3-haiku-20240307': 'claude-haiku-4-5-20251001',
+    'claude-3-5-sonnet-latest': 'claude-sonnet-4-6',
+    'claude-3-5-sonnet-20240620': 'claude-sonnet-4-6',
+    'claude-3-5-sonnet-20241022': 'claude-sonnet-4-6',
+    'claude-3-opus-latest': 'claude-opus-4-8',
+    'claude-3-opus-20240229': 'claude-opus-4-8',
+  },
+  openrouter: {
+    'anthropic/claude-3.5-haiku': 'openai/gpt-4o-mini',
+    'anthropic/claude-3.5-sonnet': 'anthropic/claude-sonnet-4.6',
+    'google/gemini-flash-1.5': 'openai/gpt-4o-mini',
+  },
+}
+
+function migrateRetiredModel(provider: ProviderId, model: string): string {
+  return RETIRED_MODEL_REPLACEMENTS[provider]?.[model] || model
+}
+
 /** Coerce persisted/cross-context settings into a render-safe shape. */
 export function normalizeByokSettings(raw: unknown): ByokSettings {
   const r = raw && typeof raw === 'object'
@@ -517,7 +546,7 @@ export function normalizeByokSettings(raw: unknown): ByokSettings {
     provider,
     apiKey: typeof r.apiKey === 'string' ? r.apiKey : '',
     model: typeof r.model === 'string'
-      ? r.model
+      ? migrateRetiredModel(provider, r.model)
       : getProvider(provider).defaultModel,
     baseUrl: typeof r.baseUrl === 'string' ? r.baseUrl : '',
     locale,

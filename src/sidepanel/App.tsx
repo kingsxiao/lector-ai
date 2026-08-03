@@ -36,7 +36,12 @@ import {
 } from '../shared/providers'
 import { streamChat, completeOnce, getSettings, saveSettings, testConnection, fetchModels, type ChatMessage as WireMessage, type FetchedModel } from '../shared/byok'
 import { t, resolveLocale, type StringKey, type LocalePref } from '../shared/i18n'
-import { getLanguage, searchLanguages, type TranslationHistoryEntry } from '../shared/translation'
+import {
+  getLanguage,
+  resolveTargetLang,
+  searchLanguages,
+  type TranslationHistoryEntry,
+} from '../shared/translation'
 import { TRANSLATION_THEMES } from '../shared/translationThemes'
 import { TRANSLATION_PERSONAS } from '../shared/translationPersonas'
 import {
@@ -301,10 +306,10 @@ export default function App() {
 
       // Reconcile settings from chrome.storage (the content/background may have
       // written a newer value). Use the already-pending promise; no extra call.
-      let reconciledLocale = useStore.getState().byok.locale
+      let reconciledSettings = useStore.getState().byok
       try {
         const stored = await settingsP
-        reconciledLocale = stored.locale
+        reconciledSettings = stored
         if (!cancelled) setByok(stored)
       } catch {
         // ignore — keep the synchronous zustand value
@@ -318,11 +323,13 @@ export default function App() {
         await tabP // ensure the tab read is done before we finish (best-effort)
         if (seed.lectorSeed?.text) {
           chrome.storage.local.remove('lectorSeed')
-          // Use the reconciled chrome.storage locale. Reading the render
-          // closure here used the pre-sync locale on first open.
-          const loc = resolveLocale(reconciledLocale)
-          const translateTarget = loc === 'zh' ? 'English' : '中文'
           const s = seed.lectorSeed
+          // Translation direction belongs to translation settings, not the UI
+          // locale. A Chinese interface can still target Chinese, and `auto`
+          // must resolve from the selected source text.
+          const translationSettings = normalizeTranslationSettings(reconciledSettings.translation)
+          const resolvedTarget = resolveTargetLang(translationSettings.targetLanguage, s.text)
+          const translateTarget = getLanguage(resolvedTarget).en
           const seedPrompt =
             s.kind === 'summarize'
               ? 'Summarize this in a few bullets:\n\n'
@@ -405,6 +412,7 @@ export default function App() {
       done?: number
       total?: number
       complete?: boolean
+      canceled?: boolean
     }) => {
       if (message?.action === 'lector-bilingual-progress') {
         const done = message.done ?? 0
@@ -421,11 +429,12 @@ export default function App() {
         return
       }
       if (message?.action === 'lector-bilingual-error' && message.message) {
-        // Both hard errors and user-cancel send this. Cancel's message is the
-        // bilingual.canceled string; either way the run is over.
+        // Both hard errors and user-cancel use this channel; distinguish them
+        // structurally. Matching English words such as "stopped" hid genuine
+        // page-circuit errors as if the user had clicked Cancel.
         setBilingualBusy(false)
         setBilingualProgress(null)
-        const canceled = /cancel|stop/i.test(message.message)
+        const canceled = message.canceled === true
         if (!canceled) {
           setError(message.message)
           // Key/quota errors surface in a top banner (no auto-opening Settings

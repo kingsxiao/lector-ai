@@ -23,9 +23,17 @@ export interface CacheStore {
   [key: string]: CacheEntry
 }
 
+/** A deletion observed at a specific cache-entry timestamp. The timestamp is
+ * a lightweight version: a delayed writer may remove that entry (or an older
+ * snapshot), but must not delete a newer translation written meanwhile. */
+export type CacheRemovalTombstones = ReadonlyMap<string, number>
+
+/** Hard cap shared by normal inserts and read/merge/write persistence. */
+export const MAX_CACHE_ENTRIES = 1000
+
 /** Bump whenever prompt semantics or output validation changes. Keeping it in
  * the key prevents an old source-language echo from surviving a quality fix. */
-export const TRANSLATION_CACHE_VERSION = 'page-translation-v2'
+export const TRANSLATION_CACHE_VERSION = 'page-translation-v3'
 
 /**
  * A tiny, dependency-free, synchronous string hash (FNV-1a 32-bit, base36).
@@ -90,9 +98,18 @@ export function putEntry(
   value: string,
   sourceLen: number,
   now: number = Date.now(),
-  maxEntries = 1000
+  maxEntries = MAX_CACHE_ENTRIES
 ): CacheStore {
   const next: CacheStore = { ...store, [key]: { v: value, t: now, n: estimateTokens('x'.repeat(sourceLen)) } }
+  return trimStore(next, maxEntries)
+}
+
+/** Return a capped copy, evicting the oldest entries by their LRU timestamp. */
+export function trimStore(
+  store: CacheStore,
+  maxEntries: number = MAX_CACHE_ENTRIES
+): CacheStore {
+  const next: CacheStore = { ...store }
   const keys = Object.keys(next)
   if (keys.length <= maxEntries) return next
   // Evict oldest by t ascending until we are back under the cap.
@@ -101,6 +118,37 @@ export function putEntry(
     .slice(0, keys.length - maxEntries)
     .forEach((k) => delete next[k])
   return next
+}
+
+/**
+ * Merge a caller snapshot with the latest persisted cache.
+ *
+ * Content scripts in several tabs can save at different times. Blindly writing
+ * an older page snapshot loses entries written by a manual retry or another
+ * tab in the meantime. For the same key, the newest LRU/write timestamp wins;
+ * disjoint keys are preserved. `removals` records expired/quality-invalid
+ * entries with the timestamp observed when they were rejected. This prevents
+ * stale snapshots from resurrecting them without letting an old delayed
+ * tombstone erase a newer manual-retry/other-tab translation of the same key.
+ */
+export function mergeCacheStores(
+  latest: CacheStore,
+  incoming: CacheStore,
+  removals: CacheRemovalTombstones = new Map(),
+  maxEntries: number = MAX_CACHE_ENTRIES
+): CacheStore {
+  const merged: CacheStore = { ...latest }
+  for (const [key, entry] of Object.entries(incoming)) {
+    const current = merged[key]
+    // On an exact timestamp tie prefer the value already in storage. This
+    // prevents a delayed snapshot from replacing an equally recent write.
+    if (!current || entry.t > current.t) merged[key] = entry
+  }
+  for (const [key, rejectedTimestamp] of removals) {
+    const current = merged[key]
+    if (current && current.t <= rejectedTimestamp) delete merged[key]
+  }
+  return trimStore(merged, maxEntries)
 }
 
 /**
