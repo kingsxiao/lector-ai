@@ -1180,6 +1180,10 @@ async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: 
 // Concurrency + streaming + viewport-first ordering + progress + cancel.
 // ---------------------------------------------------------------------------
 let bilingualAbort: AbortController | null = null
+// Pending debounced cache-save timer. Hoisted to module scope so a re-entrant
+// runBilingualTranslation (abort guard) can cancel the prior run's pending
+// write — otherwise a stale snapshot could land in storage after the new run.
+let pendingCacheTimer: ReturnType<typeof setTimeout> | null = null
 
 const EXCLUDED_SELECTOR = Array.from(EXCLUDED_ANCESTOR_TAGS).map((t) => t.toLowerCase()).join(',')
 const BASE_TRANSLATABLE_SELECTOR =
@@ -1828,6 +1832,13 @@ async function runBilingualTranslation() {
     bilingualAbort.abort()
     bilingualAbort = null
   }
+  // Cancel the prior run's pending debounced cache write so a stale snapshot
+  // can't land after this new run starts (the prior run's persistCache closure
+  // captured its own `snapshot`; letting it fire would overwrite newer writes).
+  if (pendingCacheTimer) {
+    clearTimeout(pendingCacheTimer)
+    pendingCacheTimer = null
+  }
   const settings = await getSettings()
   cachedPref = settings.locale ?? 'auto'
   if (!settings.apiKey) {
@@ -1931,8 +1942,9 @@ async function runBilingualTranslation() {
       if (scheduled) return
       scheduled = true
       // Debounce persistence so a burst of chunk completements writes once.
-      setTimeout(() => {
+      pendingCacheTimer = setTimeout(() => {
         scheduled = false
+        pendingCacheTimer = null
         void saveCache(snapshot)
       }, 800)
     }
