@@ -1269,7 +1269,9 @@ function directTextOf(el: Element): string {
 function isInsideClosedDetailsContent(el: Element): boolean {
   for (let parent = el.parentElement; parent; parent = parent.parentElement) {
     if (!parent.matches('details:not([open])')) continue
-    const summary = queryAllSafe(parent, ':scope > summary')[0]
+    // querySelector returns the first match directly (no array alloc); the
+    // :scope > summary selector is valid so the try/catch wrapper isn't needed.
+    const summary = parent.querySelector(':scope > summary')
     if (!summary?.contains(el)) return true
   }
   return false
@@ -1840,6 +1842,25 @@ async function translateBlockChunks(
   return acc
 }
 
+/**
+ * Send the terminal bilingual-progress (done:0/total:0/complete:true) +
+ * bilingual-error pair. Centralizes the 4 identical sites (no-key,
+ * no-candidates ×2, toggleBilingual catch) that each hand-wrote both
+ * sendMessage calls. Fire-and-forget side-channels to the side panel.
+ */
+function reportBilingualTerminal(message: string): void {
+  chrome.runtime.sendMessage({
+    action: 'lector-bilingual-progress',
+    done: 0,
+    total: 0,
+    complete: true,
+  }).catch(() => {})
+  chrome.runtime.sendMessage({
+    action: 'lector-bilingual-error',
+    message,
+  }).catch(() => {})
+}
+
 async function runBilingualTranslation() {
   // Re-entrancy guard: a second toggle (or a side-panel re-send) must abort
   // any in-flight run FIRST. Otherwise both runs translate the same blocks
@@ -1861,16 +1882,7 @@ async function runBilingualTranslation() {
   cachedPref = settings.locale ?? 'auto'
   if (!settings.apiKey) {
     chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
-    chrome.runtime.sendMessage({
-      action: 'lector-bilingual-progress',
-      done: 0,
-      total: 0,
-      complete: true,
-    }).catch(() => {})
-    chrome.runtime.sendMessage({
-      action: 'lector-bilingual-error',
-      message: tr('err.addKey'),
-    }).catch(() => {})
+    reportBilingualTerminal(tr('err.addKey'))
     return
   }
   const tSettings = normalizeTranslationSettings(settings.translation)
@@ -1900,16 +1912,7 @@ async function runBilingualTranslation() {
     excludeExtra
   )
   if (candidates.length === 0) {
-    chrome.runtime.sendMessage({
-      action: 'lector-bilingual-progress',
-      done: 0,
-      total: 0,
-      complete: true,
-    }).catch(() => {})
-    chrome.runtime.sendMessage({
-      action: 'lector-bilingual-error',
-      message: tr('bilingual.noContent'),
-    }).catch(() => {})
+    reportBilingualTerminal(tr('bilingual.noContent'))
     return
   }
 
@@ -1931,16 +1934,7 @@ async function runBilingualTranslation() {
     return text.length > 0 && !isTextAlreadyInTargetLanguage(text, target)
   })
   if (candidates.length === 0) {
-    chrome.runtime.sendMessage({
-      action: 'lector-bilingual-progress',
-      done: 0,
-      total: 0,
-      complete: true,
-    }).catch(() => {})
-    chrome.runtime.sendMessage({
-      action: 'lector-bilingual-error',
-      message: tr('bilingual.noContent'),
-    }).catch(() => {})
+    reportBilingualTerminal(tr('bilingual.noContent'))
     return
   }
   const { systemPrompt, glossaryBlock, persona } = await buildTranslationPromptBundle(tSettings, target)
@@ -2100,16 +2094,7 @@ async function toggleBilingual() {
     await runBilingualTranslation()
   } catch (e) {
     const message = e instanceof Error ? e.message : tr('err.requestFailed')
-    chrome.runtime.sendMessage({
-      action: 'lector-bilingual-progress',
-      done: 0,
-      total: 0,
-      complete: true,
-    }).catch(() => {})
-    chrome.runtime.sendMessage({
-      action: 'lector-bilingual-error',
-      message,
-    }).catch(() => {})
+    reportBilingualTerminal(message)
   }
 }
 
