@@ -1884,7 +1884,6 @@ async function runBilingualTranslation() {
     return
   }
 
-  const page = extractPage()
   // Resolve auto direction from the same visible, filtered candidates that
   // will actually be translated. Hidden menus and navigation text must not
   // decide the direction of the real page prose.
@@ -1893,7 +1892,11 @@ async function runBilingualTranslation() {
     .filter(Boolean)
     .join('\n')
     .slice(0, 20000)
-  const target = resolveTargetLang(tSettings.targetLanguage, candidateText || page.text || 'Hello world')
+  // Detect the source language from the same candidate text (was previously
+  // read off extractPage().lang, which re-traversed h1-h6/p/li/etc. just to
+  // get a lang tag — candidateText is already built and is the visible prose).
+  const pageLang = detectSourceLang(candidateText)
+  const target = resolveTargetLang(tSettings.targetLanguage, candidateText || 'Hello world')
   candidates = candidates.filter((el) => {
     const text = (el.textContent || '').trim()
     return text.length > 0 && !isTextAlreadyInTargetLanguage(text, target)
@@ -2013,7 +2016,7 @@ async function runBilingualTranslation() {
         entry: {
           source: source.slice(0, 200),
           target: tgt,
-          sourceLang: page.lang || 'auto',
+          sourceLang: pageLang || 'auto',
           targetLang: target,
           kind: 'page',
           url: location.href,
