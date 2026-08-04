@@ -62,6 +62,7 @@ import {
   type AnkiExportResult, type AnkiConfig,
 } from '../shared/anki'
 import { isSameQueueSnapshot } from '../shared/storageQueue'
+import { downloadBlob, readJsonFile } from './lib/downloads'
 
 interface PageContext {
   title: string
@@ -471,14 +472,7 @@ export default function App() {
   }, [byok.locale])
 
   const downloadMarkdown = (hs: Highlight[]) => {
-    const md = toMarkdown(hs)
-    const blob = new Blob([md], { type: 'text/markdown' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'lector-highlights.md'
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadBlob('lector-highlights.md', toMarkdown(hs), 'text/markdown')
   }
 
   const gradeVocab = (v: VocabEntry, grade: Grade) => {
@@ -2172,19 +2166,15 @@ function GlossaryView({
   }
 
   const handleExport = () => {
-    const json = exportGlossary(entries)
-    const blob = new Blob([json], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `lector-glossary-${new Date().toISOString().slice(0, 10)}.json`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadBlob(
+      `lector-glossary-${new Date().toISOString().slice(0, 10)}.json`,
+      exportGlossary(entries),
+      'application/json'
+    )
   }
 
   const handleImport = async (file: File) => {
-    const text = await file.text()
-    const res = importGlossary(text)
+    const res = await readJsonFile(file, importGlossary)
     if (!res.ok || !res.entries) {
       setFlash(tr('side.glossary.importFail').replace('{msg}', res.reason || ''))
       return
@@ -3110,14 +3100,7 @@ function SentencesView(props: SentencesViewProps) {
   }
 
   const handleExport = () => {
-    const json = exportSentences(sentences)
-    const blob = new Blob([json], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'lector-sentences.json'
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadBlob('lector-sentences.json', exportSentences(sentences), 'application/json')
   }
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
