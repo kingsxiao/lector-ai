@@ -483,16 +483,11 @@ function isDarkPage(node: Node): boolean {
     let el: Element | null = node.nodeType === 1 ? (node as Element) : node.parentElement
     while (el && !BLOCK_TAGS.has(el.tagName)) el = el.parentElement
     while (el) {
-      const bg = getComputedStyle(el).backgroundColor // e.g. "rgb(20, 22, 28)"
-      const m = bg.match(/rgba?\(([^)]+)\)/)
-      if (m) {
-        const [r, g, b] = m[1].split(',').map((s) => parseFloat(s.trim()))
-        if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b)) {
-          // alpha 0 → transparent → keep walking; otherwise threshold on luminance.
-          const a = m[1].split(',')[3] ? parseFloat(m[1].split(',')[3]) : 1
-          if (a > 0 && (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 < 0.35) return true
-          if (a > 0) return false
-        }
+      const rgb = parseCssRgb(getComputedStyle(el).backgroundColor)
+      if (rgb) {
+        // alpha 0 → transparent → keep walking; otherwise threshold on luminance.
+        const a = typeof rgb.a === 'number' ? rgb.a : 1
+        if (a > 0) return relativeLuminance(rgb) < 0.35
       }
       el = el.parentElement
     }
@@ -940,6 +935,7 @@ import {
 import { findRuleForHost, shouldAutoTranslatePage } from './shared/siteRules'
 import { normalizeTranslationSettings, type ByokSettings, type TranslationSettings } from './shared/providers'
 import { fanOutPositions } from './shared/radialMenu'
+import { parseCssRgb, relativeLuminance } from './shared/color'
 
 // --- i18n: content script reads the locale pref from storage once per action ---
 let cachedPref: LocalePref = 'auto'
