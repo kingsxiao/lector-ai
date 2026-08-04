@@ -918,7 +918,7 @@ import {
   parseStore,
   type CacheStore,
 } from './shared/translationCache'
-import { findRuleForHost, shouldAutoTranslatePage } from './shared/siteRules'
+import { findRuleForHost, shouldAutoTranslatePage, inputBoxDisabledForHost } from './shared/siteRules'
 import { normalizeTranslationSettings, type ByokSettings, type TranslationSettings } from './shared/providers'
 import { fanOutPositions } from './shared/radialMenu'
 import { parseCssRgb, relativeLuminance } from './shared/color'
@@ -2142,16 +2142,6 @@ let inputCfg = {
   mode: 'replace' as 'replace' | 'append',
 }
 
-/** Known-incompatible site hosts where input-box translation is off by default
- *  (matches Immersive's documented limits). The user can still force-enable it
- *  per-site via a rule, but this avoids flaky behavior on the listed domains. */
-const INPUT_BLACKLIST = ['chrome.google.com', 'notion.so', 'notion.so/', 'larksuite.com', 'feishu.cn']
-
-function inputBoxDisabledForHost(): boolean {
-  const h = location.hostname.toLowerCase()
-  return INPUT_BLACKLIST.some((b) => h.includes(b))
-}
-
 /** Translate the value of an editable field and write it back. The whole source
  *  value is translated (so `/ja hello world` → Japanese for "hello world",
  *  dropping the command prefix). Partial `//word` is handled per-token before
@@ -2208,7 +2198,7 @@ async function translateInputField(el: EditableField, targetOverride?: string) {
  *  slash commands (`/xx `), and partial `//word`. Attached to the document so
  *  dynamically-added fields are covered; we filter to INPUT/TEXTAREA + contenteditable. */
 document.addEventListener('keydown', (e) => {
-  if (!inputCfg.enabled || inputBoxDisabledForHost()) return
+  if (!inputCfg.enabled || inputBoxDisabledForHost(location.hostname)) return
   if (e.key !== ' ' && e.key !== 'Spacebar') return
   const el = e.target as HTMLElement | null
   if (!el) return

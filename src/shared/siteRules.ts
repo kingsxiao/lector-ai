@@ -111,3 +111,24 @@ export function shouldAutoTranslatePage(globalEnabled: boolean, rule?: SiteRule)
   if (rule?.mode === 'always') return true
   return globalEnabled
 }
+
+/** Known-incompatible site hosts where input-box translation is off by
+ *  default (matches Immersive's documented limits). The user can still
+ *  force-enable it per-site via an explicit rule, but this avoids flaky
+ *  behavior on the listed domains. */
+export const INPUT_BLACKLIST: readonly string[] = [
+  'chrome.google.com',
+  'notion.so',
+  'larksuite.com',
+  'feishu.cn',
+] as const
+
+/**
+ * Whether input-box translation is disabled by default for a host. Uses the
+ * proper host-suffix matcher (NOT substring) so 'notion.so' no longer matches
+ * 'notion.so.evil.com'. The host is passed in (pure); content.ts passes
+ * location.hostname.
+ */
+export function inputBoxDisabledForHost(host: string): boolean {
+  return INPUT_BLACKLIST.some((pattern) => matchHost(pattern, host))
+}

@@ -7,6 +7,7 @@ import {
   isValidSiteRuleMode,
   type SiteRule,
   shouldAutoTranslatePage,
+  inputBoxDisabledForHost,
 } from '../src/shared/siteRules'
 
 describe('matchHost', () => {
@@ -117,5 +118,25 @@ describe('normalizeSiteRules', () => {
     ])
     expect(out[0].selectors).toEqual(['p.special'])
     expect(out[0].excludeSelectors).toEqual(['.ad'])
+  })
+})
+
+describe('inputBoxDisabledForHost', () => {
+  it('returns true for exact blacklisted hosts', () => {
+    expect(inputBoxDisabledForHost('notion.so')).toBe(true)
+    expect(inputBoxDisabledForHost('feishu.cn')).toBe(true)
+  })
+  it('returns true for subdomains of blacklisted hosts', () => {
+    expect(inputBoxDisabledForHost('www.notion.so')).toBe(true)
+    expect(inputBoxDisabledForHost('workspace.feishu.cn')).toBe(true)
+  })
+  it('REGRESSION: does NOT match a host that merely contains the pattern as a substring', () => {
+    // The old h.includes(b) impl returned true here — a real bug.
+    expect(inputBoxDisabledForHost('notion.so.evil.com')).toBe(false)
+    expect(inputBoxDisabledForHost('fakenotion.so')).toBe(false)
+  })
+  it('returns false for unrelated hosts', () => {
+    expect(inputBoxDisabledForHost('example.com')).toBe(false)
+    expect(inputBoxDisabledForHost('')).toBe(false)
   })
 })
