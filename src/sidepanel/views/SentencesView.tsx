@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent } from 'react'
+import { useState, useMemo, type ChangeEvent } from 'react'
 import {
   searchSentences,
   groupSentences,
@@ -14,7 +14,7 @@ import { useStore } from '../../shared/store'
 import { renderMarkdown } from '../markdown'
 import { SparklesIcon, DownloadIcon, UploadIcon, XIcon } from '../../shared/icons'
 import { ViewShell, Empty, StatsBar, SrsGradeButtons } from '../components/leaf'
-import { downloadBlob } from '../lib/downloads'
+import { downloadBlob, readJsonFile } from '../lib/downloads'
 import { runSentenceAnalysis } from '../lib/sentences'
 
 interface SentencesViewProps {
@@ -88,9 +88,14 @@ export function SentencesView(props: SentencesViewProps) {
       return next
     })
 
-  const searched = searchSentences(sentences, query)
-  const filtered = cefrFilter ? searched.filter((c) => c.cefr === cefrFilter) : searched
-  const groups = groupSentences(filtered)
+  // Memoize the derived search/filter/group pipeline — it builds a new Map and
+  // re-runs on every render otherwise (e.g. when busyExample flips during
+  // make-card, or any unrelated store slice changes).
+  const { filtered, groups } = useMemo(() => {
+    const searched = searchSentences(sentences, query)
+    const f = cefrFilter ? searched.filter((c) => c.cefr === cefrFilter) : searched
+    return { filtered: f, groups: groupSentences(f) }
+  }, [sentences, query, cefrFilter])
 
   const handleGenerate = async () => {
     const text = pasteText.trim()
@@ -119,26 +124,26 @@ export function SentencesView(props: SentencesViewProps) {
     downloadBlob('lector-sentences.json', exportSentences(sentences), 'application/json')
   }
 
-  const handleImport = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleImport = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
+    e.target.value = '' // allow re-importing the same file
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = importSentences(String(reader.result || ''))
+    try {
+      const result = await readJsonFile(file, importSentences)
       if (!result.ok) {
         setImportMsg({ ok: false, text: tr('side.sentences.importFail').replace('{msg}', result.reason || '') })
         return
       }
       useStore.getState().replaceSentences(result.cards || [])
       setImportMsg({ ok: true, text: tr('side.sentences.importOk').replace('{n}', String(result.cards?.length || 0)) })
+    } catch (err) {
+      setImportMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
     }
-    reader.readAsText(file)
-    e.target.value = ''
   }
 
   return (
     <ViewShell title={tr('side.sentences.title')}>
-      {sentences.filter((c) => c.srs).length > 0 && (
+      {sentences.some((c) => c.srs) && (
         <StatsBar stats={computeReviewStats(sentences)} tr={tr} />
       )}
       {sentences.length === 0 ? (
@@ -215,6 +220,8 @@ export function SentencesView(props: SentencesViewProps) {
                   {cards.map((c) => {
                     const due = c.srs ? isDue(c.srs) : false
                     const isRevealed = revealed.has(c.id)
+                    // Compute once per card per render (was called twice below).
+                    const examples = isRevealed ? extractExamples(c.analysis) : []
                     return (
                       <div key={c.id} className="group row">
                         <div className="flex items-start gap-2">
@@ -286,9 +293,9 @@ export function SentencesView(props: SentencesViewProps) {
                             dangerouslySetInnerHTML={{ __html: renderMarkdown(c.analysis || c.translation) }}
                           />
                         )}
-                        {isRevealed && extractExamples(c.analysis).length > 0 && (
+                        {examples.length > 0 && (
                           <div className="mt-2 space-y-1">
-                            {extractExamples(c.analysis).map((ex, i) => {
+                            {examples.map((ex, i) => {
                               const busy = props.busyExample === ex
                               return (
                                 <div key={i} className="flex items-center gap-2 text-[11px] bg-surface-muted/40 rounded-md px-2 py-1">
