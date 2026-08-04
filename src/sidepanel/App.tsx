@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useStore, type ChatMessage, type ChatSession } from '../shared/store'
 import { renderMarkdown } from './markdown'
 import { renderCitations, type PageBlock } from '../shared/citations'
-import { isDue, scheduleSrs, type Grade } from '../shared/srs'
+import { isDue, scheduleSrs } from '../shared/srs'
 import { toMarkdown } from '../shared/exporters'
 import type { Highlight } from '../shared/highlights'
 import type { VocabEntry } from '../shared/vocabulary'
@@ -172,8 +172,6 @@ export default function App() {
   // example sentence currently being turned into a card, so its row shows a
   // spinner and the others stay clickable. Null when nothing is generating.
   const [busyExample, setBusyExample] = useState<string | null>(null)
-  const [revealedVocab, setRevealedVocab] = useState<Set<string>>(new Set())
-  const [revealedSentences, setRevealedSentences] = useState<Set<string>>(new Set())
   const [bilingualBusy, setBilingualBusy] = useState(false)
   // Live bilingual translation progress ({done,total}) reported by the content
   // script via lector-bilingual-progress. Shown on the header button; cleared
@@ -434,23 +432,7 @@ export default function App() {
     downloadBlob('lector-highlights.md', toMarkdown(hs), 'text/markdown')
   }
 
-  const gradeVocab = (v: VocabEntry, grade: Grade) => {
-    updateVocabSrs(v.id, scheduleSrs(v.srs, grade))
-    setRevealedVocab((cur) => {
-      const next = new Set(cur)
-      next.delete(v.id)
-      return next
-    })
-  }
-
-  const toggleReveal = (id: string) => {
-    setRevealedVocab((cur) => {
-      const next = new Set(cur)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
+  // (gradeVocab + toggleReveal moved into VocabView — reveal-set is single-consumer.)
 
   // Shared sentence-card generator. Lives at App scope so VocabView and the
   // Highlights view (sibling components, not children of SentencesView) can
@@ -1436,12 +1418,12 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
       {activeView === 'vocab' && (
         <VocabView
           vocab={vocab}
-          revealedVocab={revealedVocab}
           ankiConfig={byok.anki}
           tr={tr}
-          onToggleReveal={(id) => toggleReveal(id)}
           onRemoveVocab={removeVocab}
-          onGradeVocab={(v, g) => gradeVocab(v, g)}
+          onGradeVocab={(v, g) => {
+            updateVocabSrs(v.id, scheduleSrs(v.srs, g))
+          }}
           onSaveAnkiConfig={(cfg) => setByok({ anki: cfg })}
           onExplainVocab={(v) => {
             if (!v.context?.trim()) {
@@ -1482,26 +1464,12 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
       {activeView === 'sentences' && (
         <SentencesView
           sentences={sentences}
-          revealed={revealedSentences}
           busyExample={busyExample}
           tr={tr}
-          onToggleReveal={(id) =>
-            setRevealedSentences((prev) => {
-              const next = new Set(prev)
-              if (next.has(id)) next.delete(id)
-              else next.add(id)
-              return next
-            })
-          }
           onRemove={(id) => removeSentence(id)}
           onPromote={(id) => promoteSentenceToReview(id)}
           onGrade={(c, g) => {
             if (c.srs) updateSentenceSrs(c.id, scheduleSrs(c.srs, g))
-            setRevealedSentences((prev) => {
-              const next = new Set(prev)
-              next.delete(c.id)
-              return next
-            })
           }}
           onViewSource={(blockId, url) => {
             if (blockId) {

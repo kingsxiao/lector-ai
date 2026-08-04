@@ -18,10 +18,8 @@ import { formatAnkiResult } from '../lib/ankiFormat'
 
 interface VocabViewProps {
   vocab: VocabEntry[]
-  revealedVocab: Set<string>
   ankiConfig?: { url: string; deckName: string; modelName: string; tags: string[] }
   tr: (key: StringKey) => string
-  onToggleReveal: (id: string) => void
   onRemoveVocab: (id: string) => void
   onGradeVocab: (v: VocabEntry, grade: Grade) => void
   /** Persist the user-edited Anki config back into settings. */
@@ -32,15 +30,31 @@ interface VocabViewProps {
 
 export function VocabView({
   vocab,
-  revealedVocab,
   ankiConfig,
   tr,
-  onToggleReveal,
   onRemoveVocab,
   onGradeVocab,
   onSaveAnkiConfig,
   onExplainVocab,
 }: VocabViewProps) {
+  // Reveal-set is single-consumer (this view only) so it lives here, not in App.
+  const [revealedVocab, setRevealedVocab] = useState<Set<string>>(new Set())
+  const toggleReveal = (id: string) =>
+    setRevealedVocab((cur) => {
+      const next = new Set(cur)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  // Clear the reveal when a card is graded (it leaves the due queue).
+  const gradeAndClear = (v: VocabEntry, g: Grade) => {
+    onGradeVocab(v, g)
+    setRevealedVocab((cur) => {
+      const next = new Set(cur)
+      next.delete(v.id)
+      return next
+    })
+  }
   // Anki export sub-panel state. `showPanel` toggles the form; `sending` and
   // `result` drive the UX during/after the POST.
   const [showPanel, setShowPanel] = useState(false)
@@ -215,7 +229,7 @@ export function VocabView({
                   )}
                   {v.translation && (
                     <button
-                      onClick={() => onToggleReveal(v.id)}
+                      onClick={() => toggleReveal(v.id)}
                       className="text-[10px] text-accent hover:text-accent-hover hover:underline mt-1.5 transition-colors"
                     >
                       {revealed ? v.translation : tr('side.vocab.showTranslation')}
@@ -225,7 +239,7 @@ export function VocabView({
                     <SrsGradeButtons
                       grades={['again', 'hard', 'good', 'easy']}
                       tr={tr}
-                      onGrade={(g) => onGradeVocab(v, g)}
+                      onGrade={(g) => gradeAndClear(v, g)}
                     />
                   )}
                 </div>

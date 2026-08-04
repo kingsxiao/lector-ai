@@ -19,10 +19,8 @@ import { runSentenceAnalysis } from '../lib/sentences'
 
 interface SentencesViewProps {
   sentences: SentenceCard[]
-  revealed: Set<string>
   busyExample: string | null
   tr: (key: StringKey) => string
-  onToggleReveal: (id: string) => void
   onRemove: (id: string) => void
   onPromote: (id: string) => void
   onGrade: (c: SentenceCard, grade: Grade) => void
@@ -74,12 +72,21 @@ function ImportMsg({ msg }: { msg: { ok: boolean; text: string } }) {
 }
 
 export function SentencesView(props: SentencesViewProps) {
-  const { sentences, revealed, tr } = props
+  const { sentences, tr } = props
   const [query, setQuery] = useState('')
   const [cefrFilter, setCefrFilter] = useState<string>('')
   const [pasteText, setPasteText] = useState('')
   const [generating, setGenerating] = useState(false)
   const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  // Reveal-set is single-consumer (this view only) so it lives here, not in App.
+  const [revealed, setRevealed] = useState<Set<string>>(new Set())
+  const toggleReveal = (id: string) =>
+    setRevealed((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
 
   const searched = searchSentences(sentences, query)
   const filtered = cefrFilter ? searched.filter((c) => c.cefr === cefrFilter) : searched
@@ -267,7 +274,7 @@ export function SentencesView(props: SentencesViewProps) {
                         </div>
                         {(c.translation || c.analysis) && (
                           <button
-                            onClick={() => props.onToggleReveal(c.id)}
+                            onClick={() => toggleReveal(c.id)}
                             className="text-[10px] text-accent hover:text-accent-hover hover:underline mt-1.5 transition-colors"
                           >
                             {isRevealed ? tr('side.sentences.hideAnalysis') : tr('side.sentences.showAnalysis')}
@@ -311,7 +318,14 @@ export function SentencesView(props: SentencesViewProps) {
                           <SrsGradeButtons
                             grades={['again', 'hard', 'good', 'easy']}
                             tr={tr}
-                            onGrade={(g) => props.onGrade(c, g)}
+                            onGrade={(g) => {
+                              props.onGrade(c, g)
+                              setRevealed((prev) => {
+                                const next = new Set(prev)
+                                next.delete(c.id)
+                                return next
+                              })
+                            }}
                           />
                         )}
                       </div>
