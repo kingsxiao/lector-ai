@@ -385,14 +385,12 @@ function toggleFabMenu() {
   menu.style.left = `${cx}px`
   menu.style.top = `${cy}px`
   const R = 76 // arc radius (px) from FAB center to each item center
-  const n = actions.length
+  // Spread across the upper semicircle: from 200° (left-up) to 340° (right-up)
+  // so items sit above the FAB and don't overlap the edge. Geometry lives in
+  // src/shared/radialMenu.ts so it can be unit-tested.
+  const positions = fanOutPositions(actions.length, R, 200, 340)
   actions.forEach((a, i) => {
-    // Spread across the upper semicircle: from 200° (left-up) to 340° (right-up)
-    // so items sit above the FAB and don't overlap the edge.
-    const angleDeg = 200 + (i * (340 - 200)) / Math.max(1, n - 1)
-    const rad = (angleDeg * Math.PI) / 180
-    const dx = Math.cos(rad) * R
-    const dy = Math.sin(rad) * R // negative = upward (screen y grows downward)
+    const { dx, dy } = positions[i] // negative dy = upward (screen y grows downward)
     const item = document.createElement('button')
     item.type = 'button'
     item.className = 'lector-fab-item'
@@ -941,6 +939,7 @@ import {
 } from './shared/translationCache'
 import { findRuleForHost, shouldAutoTranslatePage } from './shared/siteRules'
 import { normalizeTranslationSettings, type ByokSettings, type TranslationSettings } from './shared/providers'
+import { fanOutPositions } from './shared/radialMenu'
 
 // --- i18n: content script reads the locale pref from storage once per action ---
 let cachedPref: LocalePref = 'auto'
