@@ -239,6 +239,28 @@ function tryOpenSidePanel() {
   }
 }
 
+/** Shared summarizer system prompt (used by summarizePage + runByokAction). */
+const SUMMARIZE_SYSTEM_PROMPT =
+  'You are Lector AI. Summarize the user content in 3-5 short bullets plus a one-line takeaway. Clean Markdown, no leading heading.'
+
+/** Selector for any Lector-injected UI element. Used to ignore clicks/selections
+ *  that originate inside our own popups/FAB (3 sites used to hand-write this).
+ *  Includes [data-lector-no-translate] which the hover guard already used but the
+ *  click/selection guards missed. */
+const LECTOR_UI_SELECTOR =
+  '#lector-ai-result, #lector-ai-toolbar, #lector-ai-loading, #lector-ai-fab, .lector-fab-menu, [data-lector-no-translate]'
+
+function isLectorUiTarget(target: HTMLElement): boolean {
+  return !!target.closest(LECTOR_UI_SELECTOR)
+}
+
+/** Tear down any currently-open loading/result popup. Replaces the
+ *  `removeLoading(); removeResult();` opener repeated at 3 show* sites. */
+function clearPopups(): void {
+  removeLoading()
+  removeResult()
+}
+
 /** Open the standalone Lector window (the old FAB behavior). Reliable: uses
  *  the cached URL + window.open (page DOM API), so it works even when the
  *  extension context is invalidated. */
@@ -253,18 +275,11 @@ async function summarizePage() {
   const x = rect?.left || 100
   const y = rect?.top || 100
   showLoading(x, y)
-  const settings = await getSettings()
-  cachedPref = settings.locale ?? 'auto'
-  if (!settings.apiKey) {
-    removeLoading()
-    showResult(x, y, tr('err.addKey'), 'translate')
-    tryOpenSidePanel()
-    return
-  }
+  const settings = await requireApiKey(x, y, 'translate')
+  if (!settings) return
   const pageText = extractPage().text
-  const systemPrompt = `You are Lector AI. Summarize the user content in 3-5 short bullets plus a one-line takeaway. Clean Markdown, no leading heading.`
   try {
-    const out = await completeOnce(settings, systemPrompt, pageText.slice(0, 8000), {
+    const out = await completeOnce(settings, SUMMARIZE_SYSTEM_PROMPT, pageText.slice(0, 8000), {
       maxTokens: 900,
       temperature: 0.5,
     })
@@ -534,8 +549,7 @@ function removeToolbar() {
 // Loading + result popups
 // ---------------------------------------------------------------------------
 function showLoading(x: number, y: number) {
-  removeLoading()
-  removeResult()
+  clearPopups()
 
   loadingPopup = document.createElement('div')
   loadingPopup.id = 'lector-ai-loading'
@@ -575,8 +589,7 @@ function removeLoading() {
 }
 
 function showResult(x: number, y: number, result: string, type: 'translate' | 'summary' | 'explain') {
-  removeLoading()
-  removeResult()
+  clearPopups()
 
   resultPopup = document.createElement('div')
   resultPopup.id = 'lector-ai-result'
@@ -679,9 +692,9 @@ function showStreamingTranslateResult(
     sink: { append: (d: string) => void; setText: (s: string) => void },
     signal: AbortSignal
   ) => Promise<void>
-) {
-  removeLoading()
-  removeResult()
+  ) {
+  clearPopups()
+
 
   resultPopup = document.createElement('div')
   resultPopup.id = 'lector-ai-result'
@@ -922,6 +935,29 @@ async function loadPref(): Promise<LocalePref> {
 const tr = (key: StringKey) => t(key, cachedPref)
 
 /**
+ * Load BYOK settings, refresh cachedPref, and if the user has no API key show
+ * the "add key" result popup at (x,y) + open the side panel, returning null.
+ * Centralizes the no-key UX previously duplicated in summarizePage,
+ * handleExplainSentence, and runByokAction. On success returns settings so the
+ * caller avoids a second getSettings() call.
+ */
+async function requireApiKey(
+  x: number,
+  y: number,
+  kind: 'translate' | 'summary' | 'explain'
+): Promise<ByokSettings | null> {
+  const settings = await getSettings()
+  cachedPref = settings.locale ?? 'auto'
+  if (!settings.apiKey) {
+    clearPopups()
+    showResult(x, y, tr('err.addKey'), kind)
+    tryOpenSidePanel()
+    return null
+  }
+  return settings
+}
+
+/**
  * Read the user's glossary from chrome.storage. The zustand store writes to
  * window.localStorage under 'lector-ai-storage', but the content script runs
  * in an isolated world and cannot read window.localStorage of the page. The
@@ -1034,12 +1070,9 @@ async function handleExplainSentence(sentence: string) {
   // No API key: mirror the runByokAction no-key UX — surface an "add key"
   // result popup at the toolbar and open the side panel, instead of silently
   // relaying (which background.ts would drop on the floor). Checklist §14.12.
-  const settings = await getSettings()
-  cachedPref = settings.locale ?? 'auto'
-  if (!settings.apiKey) {
-    const r = () => selectionToolbar?.getBoundingClientRect()
-    showResult(r()?.left || 100, r()?.top || 100, tr('err.addKey'), 'explain')
-    chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
+  const r = () => selectionToolbar?.getBoundingClientRect()
+  const settings = await requireApiKey(r()?.left || 100, r()?.top || 100, 'explain')
+  if (!settings) {
     removeToolbar()
     return
   }
@@ -1076,16 +1109,9 @@ function handleAction(kind: 'translate' | 'summarize' | 'explain' | 'ask', text:
 }
 
 async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: string) {
-  const settings = await getSettings()
-  cachedPref = settings.locale ?? 'auto'
   const r = () => selectionToolbar?.getBoundingClientRect()
-
-  if (!settings.apiKey) {
-    removeLoading()
-    showResult(r()?.left || 100, r()?.top || 100, tr('err.addKey'), 'translate')
-    chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
-    return
-  }
+  const settings = await requireApiKey(r()?.left || 100, r()?.top || 100, 'translate')
+  if (!settings) return
 
   if (kind === 'translate') {
     const tSettings = normalizeTranslationSettings(settings.translation)
@@ -1114,7 +1140,7 @@ async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: 
   let systemPrompt = ''
   let maxTokens = 900
   if (kind === 'summarize') {
-    systemPrompt = `You are Lector AI. Summarize the user content in 3-5 short bullets plus a one-line takeaway. Clean Markdown, no leading heading.`
+    systemPrompt = SUMMARIZE_SYSTEM_PROMPT
   } else {
     systemPrompt = `You are Lector AI. Explain the user content clearly in a few sentences, then give one concrete example. Clean Markdown.`
   }
@@ -2092,7 +2118,7 @@ document.addEventListener('mousemove', (e) => {
   const block = target.closest('p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, dt, dd, figcaption, summary') as HTMLElement | null
   if (!block || block === lastHoverBlock) return
   // Skip our own UI + already-excluded regions.
-  if (block.closest('#lector-ai-result, #lector-ai-toolbar, #lector-ai-loading, #lector-ai-fab, [data-lector-no-translate]')) return
+  if (isLectorUiTarget(block)) return
   lastHoverBlock = block
   if (hoverTimer) clearTimeout(hoverTimer)
   hoverTimer = setTimeout(() => {
@@ -2215,13 +2241,7 @@ document.addEventListener('keydown', (e) => {
 // ---------------------------------------------------------------------------
 document.addEventListener('mouseup', (e) => {
   const target = e.target as HTMLElement
-  if (
-    target.closest('#lector-ai-toolbar') ||
-    target.closest('#lector-ai-result') ||
-    target.closest('#lector-ai-loading') ||
-    target.closest('#lector-ai-fab') ||
-    target.closest('.lector-fab-menu')
-  ) {
+  if (isLectorUiTarget(target)) {
     return
   }
   // Click outside the FAB menu → close it (and don't show a selection toolbar).
@@ -2274,13 +2294,7 @@ document.addEventListener('keydown', (e) => {
 
 document.addEventListener('mousedown', (e) => {
   const target = e.target as HTMLElement
-  if (
-    !target.closest('#lector-ai-toolbar') &&
-    !target.closest('#lector-ai-result') &&
-    !target.closest('#lector-ai-loading') &&
-    !target.closest('#lector-ai-fab') &&
-    !target.closest('.lector-fab-menu')
-  ) {
+  if (!isLectorUiTarget(target)) {
     if (fabMenu) closeFabMenu()
     const sel = window.getSelection()
     if (!sel || sel.isCollapsed) removeToolbar()
