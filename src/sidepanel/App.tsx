@@ -65,6 +65,7 @@ import { isSameQueueSnapshot } from '../shared/storageQueue'
 import { downloadBlob, readJsonFile } from './lib/downloads'
 import { jumpToBlock } from './lib/chromeUtils'
 import { formatAnkiResult } from './lib/ankiFormat'
+import { StatsCell } from './components/Primitives'
 
 interface PageContext {
   title: string
@@ -3384,21 +3385,15 @@ function SrsGradeButtons({
 // VocabView. Renders the aggregated review stats (due / mastered / reviews /
 // retention) computed from the view's items.
 function StatsBar({ stats, tr }: { stats: ReviewStats; tr: (key: StringKey) => string }) {
-  const Cell = ({ label, value }: { label: string; value: string | number }) => (
-    <div className="flex flex-col items-center">
-      <span className="text-[16px] font-bold text-accent leading-none font-serif">{value}</span>
-      <span className="text-[9px] text-ink-faint mt-1 uppercase tracking-wide">{label}</span>
-    </div>
-  )
   return (
     <div className="flex justify-around px-4 py-3 border-b border-line bg-surface-muted/40">
-      <Cell label={tr('stats.due')} value={stats.due} />
+      <StatsCell label={tr('stats.due')} value={stats.due} />
       <span className="w-px bg-line" />
-      <Cell label={tr('stats.mastered')} value={stats.mastered} />
+      <StatsCell label={tr('stats.mastered')} value={stats.mastered} />
       <span className="w-px bg-line" />
-      <Cell label={tr('stats.reviews')} value={stats.totalReviews} />
+      <StatsCell label={tr('stats.reviews')} value={stats.totalReviews} />
       <span className="w-px bg-line" />
-      <Cell label={tr('stats.retention')} value={stats.avgEase.toFixed(1)} />
+      <StatsCell label={tr('stats.retention')} value={stats.avgEase.toFixed(1)} />
     </div>
   )
 }
