@@ -132,24 +132,6 @@ export interface ExtractedPage {
   blocks: ExtractedPageBlock[]
 }
 
-function detectLang(text: string): string {
-  // Count dominant script instead of treating one stray CJK character (footer,
-  // locale switcher, username) as proof that the entire English page is CJK.
-  const script = detectScript(text)
-  if (script === 'cjk') {
-    if (/[\u3040-\u30ff]/.test(text)) return 'ja'
-    if (/[\uac00-\ud7af]/.test(text)) return 'ko'
-    return 'zh'
-  }
-  if (script === 'cyrillic') return 'ru'
-  if (script === 'arabic') return 'ar'
-  if (script === 'hebrew') return 'he'
-  if (script === 'greek') return 'el'
-  if (script === 'devanagari') return 'hi'
-  if (script === 'thai') return 'th'
-  return 'en'
-}
-
 export function extractPage(): ExtractedPage {
   const root = findBestContentRoot()
 
@@ -196,7 +178,7 @@ export function extractPage(): ExtractedPage {
     url: location.href,
     byline: bylineMeta?.getAttribute('content') || null,
     text,
-    lang: detectLang(text),
+    lang: detectSourceLang(text),
     blocks: pageBlocks,
   }
 }
@@ -901,6 +883,7 @@ import {
   filterGlossaryForDirection,
   resolveTargetLang,
   detectScript,
+  detectSourceLang,
   isTranslationLikelyUnchanged,
   maxTokensForChunk,
   EXCLUDED_ANCESTOR_TAGS,
