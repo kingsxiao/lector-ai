@@ -991,6 +991,24 @@ async function loadGlossary(): Promise<GlossaryEntry[]> {
   }
 }
 
+/**
+ * Build the translation prompt bundle (glossary + persona + systemPrompt) for a
+ * given target language. Centralizes the 4-line setup that was duplicated in
+ * runBilingualTranslation, translateBlockOnHover, and translateInputField.
+ * Each of those called loadGlossary() independently (a chrome.storage round
+ * trip) and hand-built the same glossaryBlock/persona/systemPrompt tuple.
+ */
+async function buildTranslationPromptBundle(
+  tSettings: TranslationSettings,
+  target: string
+): Promise<{ systemPrompt: string; glossaryBlock: string; persona: string }> {
+  const glossary = await loadGlossary()
+  const glossaryBlock = renderGlossaryPrompt(filterGlossaryForDirection(glossary, target))
+  const persona = personaPrompt(tSettings.persona)
+  const systemPrompt = buildTranslateSystemPrompt(target, glossaryBlock, persona)
+  return { systemPrompt, glossaryBlock, persona }
+}
+
 // (buildTranslationSystemPrompt now lives in src/shared/translation.ts and is
 // imported above — single source of truth for the selection popup, bilingual
 // mode, vocab save, and sentence card.)
@@ -1925,10 +1943,7 @@ async function runBilingualTranslation() {
     }).catch(() => {})
     return
   }
-  const glossary = await loadGlossary()
-  const glossaryBlock = renderGlossaryPrompt(filterGlossaryForDirection(glossary, target))
-  const persona = personaPrompt(tSettings.persona)
-  const systemPrompt = buildTranslateSystemPrompt(target, glossaryBlock, persona)
+  const { systemPrompt, glossaryBlock, persona } = await buildTranslationPromptBundle(tSettings, target)
 
   // Translation cache (Phase 5): load once per run, persist after. A hit skips
   // the provider call entirely; a miss streams + writes back. ttlDays 0 = off.
@@ -2123,10 +2138,7 @@ async function translateBlockOnHover(block: HTMLElement) {
   const text = (block.textContent || '').trim()
   if (text.length < 3) return
   const target = resolveTargetLang(tSettings.targetLanguage, text)
-  const glossary = await loadGlossary()
-  const glossaryBlock = renderGlossaryPrompt(filterGlossaryForDirection(glossary, target))
-  const persona = personaPrompt(tSettings.persona)
-  const systemPrompt = buildTranslateSystemPrompt(target, glossaryBlock, persona)
+  const { systemPrompt } = await buildTranslationPromptBundle(tSettings, target)
   hoverAbort?.abort()
   const controller = new AbortController()
   hoverAbort = controller
@@ -2228,10 +2240,7 @@ async function translateInputField(el: EditableField, targetOverride?: string) {
   const target = (targetOverride && targetOverride !== 'auto'
     ? targetOverride
     : resolveTargetLang(tSettings.targetLanguage, raw))
-  const glossary = await loadGlossary()
-  const glossaryBlock = renderGlossaryPrompt(filterGlossaryForDirection(glossary, target))
-  const persona = personaPrompt(tSettings.persona)
-  const systemPrompt = buildTranslateSystemPrompt(target, glossaryBlock, persona)
+  const { systemPrompt } = await buildTranslationPromptBundle(tSettings, target)
   try {
     const out = await completeOnce(
       settings,
