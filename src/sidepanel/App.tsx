@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo, memo } from 'react'
 import { useStore, type ChatMessage, type ChatSession } from '../shared/store'
 import { renderMarkdown } from './markdown'
 import { renderCitations, type PageBlock } from '../shared/citations'
@@ -1092,7 +1092,9 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           </div>
         )}
 
-        {messages.map((m) => (
+        {messages.map((m) => {
+          const blockIdsKey = (page?.blocks ?? []).map((b) => b.id).join('\u0000')
+          return (
           <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             {m.role === 'user' ? (
               <div className="max-w-[85%] px-3.5 py-2 bg-accent text-accent-on text-body rounded-2xl rounded-br-md whitespace-pre-wrap break-words shadow-sm">
@@ -1101,12 +1103,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             ) : (
               <div className="max-w-[92%] px-3.5 py-2.5 bg-surface border border-line rounded-2xl rounded-bl-md shadow-sm">
                 {m.content ? (
-                  <CitationContent
-                    html={renderCitations(
-                      renderMarkdown(m.content),
-                      new Set((page?.blocks ?? []).map((b) => b.id))
-                    )}
-                  />
+                  <AssistantBubble content={m.content} blockIdsKey={blockIdsKey} />
                 ) : (
                   <div className="flex items-center gap-2 text-[12px] text-ink-faint">
                     <div className="w-3.5 h-3.5 border-2 border-line border-t-accent rounded-full animate-spin" />
@@ -1130,7 +1127,8 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               </div>
             )}
           </div>
-        ))}
+        )
+        })}
       </div>
 
       {/* Composer */}
@@ -1513,6 +1511,27 @@ function CitationContent({ html }: { html: string }) {
   }, [])
   return <div ref={ref} className="lector-prose" dangerouslySetInnerHTML={{ __html: html }} />
 }
+
+/**
+ * Assistant chat bubble. Memoizes the markdown→HTML→citations pipeline on
+ * `content` + `blockIdsKey` so previously-finished bubbles don't re-parse on
+ * every rAF token frame during a live stream (only the actively-streaming
+ * bubble's content changes frame-to-frame). `blockIdsKey` is a stable joined
+ * string so the useMemo dep is a primitive, not a fresh Set each render.
+ */
+const AssistantBubble = memo(function AssistantBubble({
+  content,
+  blockIdsKey,
+}: {
+  content: string
+  blockIdsKey: string
+}) {
+  const html = useMemo(() => {
+    const blockIds = new Set(blockIdsKey ? blockIdsKey.split('\u0000') : [])
+    return renderCitations(renderMarkdown(content), blockIds)
+  }, [content, blockIdsKey])
+  return <CitationContent html={html} />
+})
 
 // ---------------------------------------------------------------------------
 // "/" template menu — floats above the composer
