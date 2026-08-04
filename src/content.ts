@@ -1942,10 +1942,18 @@ async function runBilingualTranslation() {
   const controller = bilingualAbort
   const total = candidates.length
   let done = 0
-  const report = (complete = false) =>
+  // Throttle progress reports: on a 200-block page this fired ~200 messages in
+  // bursts, each waking the MV3 service worker. Send at most every 250ms during
+  // the run, plus always on the final complete:true.
+  let lastReportAt = 0
+  const report = (complete = false) => {
+    const now = Date.now()
+    if (!complete && now - lastReportAt < 250) return
+    lastReportAt = now
     chrome.runtime
       .sendMessage({ action: 'lector-bilingual-progress', done, total, complete })
       .catch(() => {})
+  }
   report()
 
   // Wrap the run in try/finally so the module-level controller is always
@@ -2119,6 +2127,7 @@ async function translateBlockOnHover(block: HTMLElement) {
   }
 }
 
+let hoverMouseMoveAt = 0
 document.addEventListener('mousemove', (e) => {
   if (!hoverCfg.enabled) return
   // Only trigger when the configured hold key is currently pressed.
@@ -2127,6 +2136,13 @@ document.addEventListener('mousemove', (e) => {
     (hoverCfg.holdKey === 'Control' && e.ctrlKey) ||
     (hoverCfg.holdKey === 'Alt' && e.altKey)
   if (!held) return
+  // Throttle the closest('p, li, ...') ancestor walk — it fires on every
+  // mousemove (60-1000Hz) and is the hot-path cost while holding Shift over
+  // the page. 40ms (~25Hz) is well below the debounceMs translation gate and
+  // imperceptible for hover intent.
+  const now = Date.now()
+  if (now - hoverMouseMoveAt < 40) return
+  hoverMouseMoveAt = now
   const target = e.target as HTMLElement
   if (!target || !target.closest) return
   // Find the nearest translatable block ancestor.
