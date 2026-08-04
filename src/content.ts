@@ -239,6 +239,20 @@ function tryOpenSidePanel() {
   }
 }
 
+/** Best-effort: ask the background to open the side panel WITH a seed (e.g. a
+ *  translation/chat continuation). Same context-invalidation guard as
+ *  tryOpenSidePanel — the raw sendMessage().catch() the seed sites used could
+ *  not catch the synchronous "Extension context invalidated" throw. */
+function tryOpenSidePanelWithSeed(seed: object): void {
+  try {
+    if (typeof chrome !== 'undefined' && chrome.runtime) {
+      chrome.runtime.sendMessage({ action: 'open-side-panel', seed }).catch(() => {})
+    }
+  } catch {
+    /* context invalidated */
+  }
+}
+
 /** Shared summarizer system prompt (used by summarizePage + runByokAction). */
 const SUMMARIZE_SYSTEM_PROMPT =
   'You are Lector AI. Summarize the user content in 3-5 short bullets plus a one-line takeaway. Clean Markdown, no leading heading.'
@@ -651,7 +665,7 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
   chatBtn.className = 'action-btn primary'
   chatBtn.textContent = tr('popup.continueInPanel')
   chatBtn.onclick = () => {
-    chrome.runtime.sendMessage({ action: 'open-side-panel', seed: { kind: type, text: result } }).catch(() => {})
+    tryOpenSidePanelWithSeed({ kind: type, text: result })
     removeResult()
     removeToolbar()
   }
@@ -774,7 +788,7 @@ function showStreamingTranslateResult(
   chatBtn.className = 'action-btn primary'
   chatBtn.textContent = tr('popup.continueInPanel')
   chatBtn.onclick = () => {
-    chrome.runtime.sendMessage({ action: 'open-side-panel', seed: { kind: 'translate', text: content.textContent || '' } }).catch(() => {})
+    tryOpenSidePanelWithSeed({ kind: 'translate', text: content.textContent || '' })
     removeResult()
     removeToolbar()
   }
@@ -1097,9 +1111,7 @@ function handleAction(kind: 'translate' | 'summarize' | 'explain' | 'ask', text:
 
   if (kind === 'ask') {
     // Send the selection to the side panel as a seed question.
-    chrome.runtime
-      .sendMessage({ action: 'open-side-panel', seed: { kind: 'ask', text } })
-      .catch(() => {})
+    tryOpenSidePanelWithSeed({ kind: 'ask', text })
     removeLoading()
     removeToolbar()
     return
