@@ -64,6 +64,7 @@ import {
 import { isSameQueueSnapshot } from '../shared/storageQueue'
 import { downloadBlob, readJsonFile } from './lib/downloads'
 import { jumpToBlock } from './lib/chromeUtils'
+import { formatAnkiResult } from './lib/ankiFormat'
 
 interface PageContext {
   title: string
@@ -1558,7 +1559,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             const deckName = cfg.deckName === DEFAULT_DECK_NAME ? DEFAULT_SENTENCE_DECK_NAME : cfg.deckName
             try {
               const r = await exportSentencesToAnki(cards, { ...cfg, deckName })
-              alert(tr('anki.result').replace('{added}', String(r.added)).replace('{dup}', String(r.duplicated)).replace('{fail}', String(r.failed)))
+              alert(formatAnkiResult(tr('anki.result'), r))
             } catch (e) {
               alert(e instanceof Error ? e.message : String(e))
             }
@@ -1790,10 +1791,7 @@ function VocabView({
                 </div>
                 {result && (
                   <div className="text-[10px] text-success leading-relaxed bg-success-soft/50 rounded-md px-2 py-1.5">
-                    {tr('side.vocab.ankiResult')
-                      .replace('{added}', String(result.added))
-                      .replace('{duplicated}', String(result.duplicated))
-                      .replace('{failed}', String(result.failed))}
+                    {formatAnkiResult(tr('side.vocab.ankiResult'), result)}
                     {result.errors.length > 0 && (
                       <div className="text-danger mt-1">
                         {result.errors.slice(0, 3).join(' ')}
