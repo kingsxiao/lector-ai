@@ -82,23 +82,6 @@ injectStyles()
 // Page extraction — pick the densest article-like container and strip noise.
 // ---------------------------------------------------------------------------
 
-const NOISE_SELECTORS = [
-  'header', 'footer', 'nav', 'aside', 'form', 'iframe',
-  '[role="navigation"]', '[role="banner"]', '[role="contentinfo"]',
-  '.advertisement', '.ads', '.ad', '.share', '.social', '.newsletter',
-  '.related', '.comments', '.comment', '.sidebar', '.cookie',
-]
-
-function scoreNode(el: Element): number {
-  const text = (el.textContent || '').trim()
-  if (!text) return 0
-  const commas = (text.match(/[,.，。、；:;?!]/g) || []).length
-  const links = el.querySelectorAll('a').length
-  // Penalize link-heavy nodes (nav-like); reward long, comma-rich text.
-  const linkDensity = links / Math.max(1, text.split(/\s+/).length)
-  return text.length + commas * 8 - linkDensity * 200
-}
-
 function findBestContentRoot(): Element {
   // Avoid scoring every <div> when semantic article roots exist. Reading
   // textContent for every nested div repeats the same subtree text at each
@@ -120,7 +103,10 @@ function findBestContentRoot(): Element {
   let best: Element | null = null
   let bestScore = 0
   for (const el of candidates) {
-    const score = scoreNode(el)
+    const text = (el.textContent || '').trim()
+    const linkCount = el.querySelectorAll('a').length
+    const wordCount = text ? text.split(/\s+/).length : 0
+    const score = scoreNodeFromStats({ text, linkCount, wordCount })
     if (score > bestScore) {
       bestScore = score
       best = el
@@ -936,6 +922,7 @@ import { findRuleForHost, shouldAutoTranslatePage } from './shared/siteRules'
 import { normalizeTranslationSettings, type ByokSettings, type TranslationSettings } from './shared/providers'
 import { fanOutPositions } from './shared/radialMenu'
 import { parseCssRgb, relativeLuminance } from './shared/color'
+import { NOISE_SELECTORS, scoreNodeFromStats } from './shared/readability'
 
 // --- i18n: content script reads the locale pref from storage once per action ---
 let cachedPref: LocalePref = 'auto'
