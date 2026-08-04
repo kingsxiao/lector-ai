@@ -63,6 +63,7 @@ import {
 } from '../shared/anki'
 import { isSameQueueSnapshot } from '../shared/storageQueue'
 import { downloadBlob, readJsonFile } from './lib/downloads'
+import { jumpToBlock } from './lib/chromeUtils'
 
 interface PageContext {
   title: string
@@ -1546,14 +1547,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           }}
           onViewSource={(blockId, url) => {
             if (blockId) {
-              chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                const tabId = tabs[0]?.id
-                if (tabId !== undefined) {
-                  chrome.tabs.sendMessage(tabId, { action: 'lector-jump-to', blockId }, () => {
-                    void chrome.runtime.lastError
-                  })
-                }
-              })
+              void jumpToBlock(blockId)
             } else if (url) {
               window.open(url, '_blank')
             }
@@ -1608,12 +1602,7 @@ function CitationContent({ html }: { html: string }) {
       const cite = (e.target as HTMLElement).closest<HTMLElement>('.lector-cite')
       if (!cite) return
       const blockId = cite.getAttribute('data-cite') || ''
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-      if (tab?.id) {
-        chrome.tabs.sendMessage(tab.id, { action: 'lector-jump-to', blockId }, () => {
-          void chrome.runtime.lastError
-        })
-      }
+      await jumpToBlock(blockId)
     }
     root.addEventListener('click', onClick)
     return () => root.removeEventListener('click', onClick)
