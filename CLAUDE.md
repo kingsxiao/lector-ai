@@ -40,14 +40,23 @@ Lector AI 是一个 **Chrome 扩展（Manifest V3）**——**纯客户端、BYO
 - `i18n.ts`——`StringKey` 强类型的双语（en/zh）字符串表
 - `providers.ts`——19 家 provider 预设（baseUrl / modelsPath / 默认模型）+ `ByokSettings`
 - `byok.ts`——**唯一的 AI 客户端**。`streamChat`（SSE 流式）、`completeOnce`（非流式包装）、`fetchModels`（一键拉取 `/models`）、`testConnection`、`getSettings`/`saveSettings`（读写 `chrome.storage.local`）
+- `radialMenu.ts`——FAB 径向菜单的纯三角几何（`fanOutPositions`）
+- `color.ts`——`parseCssRgb` + `relativeLuminance`（content script 暗/亮玻璃判定用）
+- `readability.ts`——`scoreNodeFromStats` + `NOISE_SELECTORS`（页面抽取打分，纯函数版）
+- `siteRules.ts`（扩展）——除原有 `matchHost`/`findRuleForHost`/`shouldAutoTranslatePage` 外，还持有 `INPUT_BLACKLIST` + `inputBoxDisabledForHost`（用 `matchHost` 做主机后缀匹配，**不是** `includes` 子串匹配）
 
-这些被 DOM/UI 层（`content.ts`、`sidepanel/App.tsx`、`background.ts`）消费。**禁止在 `src/shared/` 里 import DOM API 或 Chrome API**——正是这条边界让逻辑能在 jsdom 里做单元测试。新增领域逻辑先以纯函数形式落在这里。
+这些被 DOM/UI 层（`content.ts`、`sidepanel/*`、`background.ts`）消费。**禁止在 `src/shared/` 里 import DOM API 或 Chrome API**——正是这条边界让逻辑能在 jsdom 里做单元测试。新增领域逻辑先以纯函数形式落在这里。`content.ts` 里曾经内联的纯逻辑（脚本检测、抽取打分、径向几何、颜色阈值）已全部迁出，content.ts 现在只是"DOM 粘合层"。
 
 ### 扩展各面（`src/`）
 
 - `background.ts`——MV3 service worker。职责（BYOK 下刻意最小）：右键菜单（标题按存储的语言偏好 i18n）、键盘命令（`Alt+H` 高亮、`Alt+S` 存词）转发给 content script、打开 side panel，以及**知识采集中继**（content script → `chrome.storage.local` 队列 `lectorHighlights`/`lectorVocab` → sidepanel 抽干并入 zustand）。存词时用用户自己的 key 调一次翻译（BYOK）。
-- `content.ts`——注入到所有页面（单个 IIFE 包）。页面抽取（一个迷你的 Readability 式打分器，挑出文字最密集的文章容器并剥离噪声）、选择工具栏（翻译/解释/摘要/提问/高亮/存词）、悬浮 FAB、内联双语翻译（逐段，best-effort，首个错误回报给 sidepanel）。给 live DOM 节点打 `data-lector-id="bN"` 标签，让引用能跳回原处。
-- `sidepanel/`——主 React 界面（对话、会话库、高亮抽屉、词汇 SRS 抽屉、模板抽屉、BYOK 设置）。`App.tsx` 消费 shared 模块，用 `renderCitations` 把引用角标渲染到 markdown 之上，角标点击跳回页面原块。
+- `content.ts`——注入到所有页面（单个 IIFE 包）。页面抽取（迷你 Readability 式打分器，挑文字最密集的文章容器并剥离噪声）、选择工具栏（翻译/解释/摘要/提问/高亮/存词）、悬浮 FAB、内联双语翻译（逐段，best-effort，首个错误回报给 sidepanel）。给 live DOM 节点打 `data-lector-id="bN"` 标签，让引用能跳回原处。**纯逻辑已全部迁出到 `src/shared/`**；content.ts 内部统一了若干 helper：`requireApiKey`（集中 3 处 no-key UX）、`clearPopups`（集中 3 处 popup 清场）、`isLectorUiTarget` + `LECTOR_UI_SELECTOR`（集中 3 处"点击是否落在自己 UI 上"判定）、`SUMMARIZE_SYSTEM_PROMPT`（共享摘要 prompt）、`tryOpenSidePanel`/`tryOpenSidePanelWithSeed`（用 try/catch 包裹 `sendMessage`，捕获 orphaned content script 的同步 "Extension context invalidated" 抛错——裸 `.catch()` 抓不到）。
+- `sidepanel/`——主 React 界面（对话、会话库、高亮抽屉、词汇 SRS 抽屉、模板抽屉、BYOK 设置）。目录拆分（god-component 已拆解）：
+  - `App.tsx`——路由/shell（header + tabbar + activeView 路由到各视图 + chat 子系统）。原来 ~3400 行，现在 ~1600 行。
+  - `views/`——各全屏视图：`VocabView`、`TemplatesView`、`GlossaryView`、`SentencesView`、`SettingsView`（含 `LanguageSelect`/`CacheControls`/`SiteRulesControls`/`CurrentSiteChip`）。每个视图是 props 驱动的纯组件，单消费者状态（如 `revealedVocab`/`revealedSentences`）已下沉到对应视图而非 App。
+  - `components/`——`Primitives.tsx`（`<Row>`/`<IconButton>`/`StatsCell`）、`leaf.tsx`（`ViewShell`/`Empty`/`SrsGradeButtons`/`StatsBar`）。
+  - `lib/`——`downloads.ts`（`downloadBlob`/`readJsonFile`）、`chromeUtils.ts`（`jumpToBlock`/`useCurrentHost`）、`ankiFormat.ts`（`formatAnkiResult`）、`sentences.ts`（`runSentenceAnalysis`——sidepanel 侧的句子编排，依赖 store + byok，**不是** shared 纯模块）。
+  - `markdown.ts`——Markdown→HTML 渲染（`renderMarkdown`），引用角标由 `renderCitations` 叠加，角标点击通过 `jumpToBlock` 跳回页面原块。
 - `manifest.json`——MV3，v0.3.0，`sidePanel` + `activeTab` + `storage` + `contextMenus` + `tabs` + `<all_urls>` host。`action.default_icon` 指向 `icons/`。
 
 ### 状态与存储
