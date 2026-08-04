@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, useCallback, useMemo, type ReactNode, type DragEvent } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo, type DragEvent } from 'react'
 import { useStore, type ChatMessage, type ChatSession } from '../shared/store'
 import { renderMarkdown } from './markdown'
 import { renderCitations, type PageBlock } from '../shared/citations'
 import { isDue, scheduleSrs, type Grade } from '../shared/srs'
-import { computeReviewStats, type ReviewStats } from '../shared/stats'
+import { computeReviewStats } from '../shared/stats'
 import { toMarkdown } from '../shared/exporters'
 import type { Highlight } from '../shared/highlights'
 import type { VocabEntry } from '../shared/vocabulary'
@@ -65,7 +65,7 @@ import { isSameQueueSnapshot } from '../shared/storageQueue'
 import { downloadBlob, readJsonFile } from './lib/downloads'
 import { jumpToBlock } from './lib/chromeUtils'
 import { formatAnkiResult } from './lib/ankiFormat'
-import { StatsCell } from './components/Primitives'
+import { ViewShell, Empty, SrsGradeButtons, StatsBar } from './components/leaf'
 
 interface PageContext {
   title: string
@@ -1571,28 +1571,6 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
     </div>
   )
 }
-function ViewShell({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="flex-1 overflow-hidden flex flex-col">
-      <div className="drawer-head">
-        <h3 className="drawer-title">{title}</h3>
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function Empty({ text }: { text: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center text-center py-12 px-6">
-      <div className="w-10 h-10 rounded-full bg-surface-muted flex items-center justify-center mb-3">
-        <span className="block w-1.5 h-1.5 rounded-full bg-line-strong" />
-      </div>
-      <p className="text-[12px] text-ink-faint leading-relaxed max-w-[200px]">{text}</p>
-    </div>
-  )
-}
-
 // Renders assistant HTML and wires citation chips to jump back to the source
 // block on the page (Feature ①). Uses event delegation so re-renders are cheap.
 function CitationContent({ html }: { html: string }) {
@@ -3350,50 +3328,4 @@ function ImportMsg({ msg }: { msg: { ok: boolean; text: string } }) {
 // Shared SRS grade buttons (Again / Hard / Good / Easy). Used by the Vocab
 // and Sentence review drawers. "easy" is subtly emphasized as the positive
 // path; "again" tinted toward danger since it resets the card.
-function SrsGradeButtons({
-  grades,
-  tr,
-  onGrade,
-}: {
-  grades: Grade[]
-  tr: (key: StringKey) => string
-  onGrade: (g: Grade) => void
-}) {
-  return (
-    <div className="grid grid-cols-4 gap-1.5 mt-2.5">
-      {grades.map((g) => (
-        <button
-          key={g}
-          onClick={() => onGrade(g)}
-          className={
-            'py-1.5 text-[10px] font-semibold rounded-md border transition-colors duration-150 ease-out ' +
-            (g === 'again'
-              ? 'border-line text-danger hover:bg-danger-soft/50 hover:border-danger/40'
-              : g === 'easy'
-                ? 'border-line text-success hover:bg-success-soft/50 hover:border-success/40'
-                : 'border-line text-ink-soft hover:bg-surface-muted hover:text-ink')
-          }
-        >
-          {tr(`side.vocab.${g}` as StringKey)}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-// Compact 4-metric stats bar shown at the top of the SentencesView and
-// VocabView. Renders the aggregated review stats (due / mastered / reviews /
-// retention) computed from the view's items.
-function StatsBar({ stats, tr }: { stats: ReviewStats; tr: (key: StringKey) => string }) {
-  return (
-    <div className="flex justify-around px-4 py-3 border-b border-line bg-surface-muted/40">
-      <StatsCell label={tr('stats.due')} value={stats.due} />
-      <span className="w-px bg-line" />
-      <StatsCell label={tr('stats.mastered')} value={stats.mastered} />
-      <span className="w-px bg-line" />
-      <StatsCell label={tr('stats.reviews')} value={stats.totalReviews} />
-      <span className="w-px bg-line" />
-      <StatsCell label={tr('stats.retention')} value={stats.avgEase.toFixed(1)} />
-    </div>
-  )
-}
+// (SrsGradeButtons + StatsBar moved to src/sidepanel/components/leaf.tsx)
