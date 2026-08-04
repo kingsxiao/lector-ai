@@ -2132,8 +2132,12 @@ async function translateBlockOnHover(block: HTMLElement) {
   hoverAbort = controller
   try {
     await translateBlockChunks(settings, systemPrompt, block, target, controller.signal)
-  } catch {
-    /* abort or provider error — leave whatever streamed; user can re-hover */
+  } catch (e) {
+    // Abort (re-hover / hold-key release) is intentional — leave whatever
+    // streamed. A genuine provider error (auth/quota/network) is logged so it
+    // isn't silently indistinguishable from an abort; the user can re-hover.
+    const aborted = controller.signal.aborted || (e instanceof DOMException && e.name === 'AbortError')
+    if (!aborted) console.warn('[Lector] hover-translate failed:', e instanceof Error ? e.message : e)
   } finally {
     if (hoverAbort === controller) hoverAbort = null
   }
@@ -2241,8 +2245,11 @@ async function translateInputField(el: EditableField, targetOverride?: string) {
     } else {
       writeEditableField(el, out)
     }
-  } catch {
-    /* provider error — leave the field unchanged */
+  } catch (e) {
+    // Provider error (auth/quota/network) — leave the field unchanged, but
+    // surface it so a real failure isn't silently indistinguishable from a
+    // no-op (the field stays as-is either way; this only adds observability).
+    console.warn('[Lector] input-field translate failed:', e instanceof Error ? e.message : e)
   }
 }
 
