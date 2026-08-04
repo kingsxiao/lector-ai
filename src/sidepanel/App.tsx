@@ -154,6 +154,23 @@ export default function App() {
   const suggestions = sortedTemplates.slice(0, 4)
 
   const [page, setPage] = useState<PageContext | null>(null)
+  // Stable joined key of the active page's citation block ids. Used by
+  // AssistantBubble (memoized) so unchanged bubbles skip re-parsing during a
+  // stream. Computed once here, not per-message-per-render.
+  const blockIdsKey = useMemo(
+    () => (page?.blocks ?? []).map((b) => b.id).join('\u0000'),
+    [page]
+  )
+  // Translation-history rows filtered by the search box. Memoized so an
+  // unrelated re-render (e.g. chat streaming) doesn't re-filter while the
+  // history view is open.
+  const filteredHistory = useMemo(() => {
+    const q = histSearch.trim()
+    if (!q) return translationHistory
+    return translationHistory.filter(
+      (e) => e.source.includes(q) || e.target.includes(q)
+    )
+  }, [translationHistory, histSearch])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1093,7 +1110,6 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         )}
 
         {messages.map((m) => {
-          const blockIdsKey = (page?.blocks ?? []).map((b) => b.id).join('\u0000')
           return (
           <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             {m.role === 'user' ? (
@@ -1362,13 +1378,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 />
               </div>
               <div className="flex-1 overflow-y-auto">
-                {translationHistory
-                  .filter(
-                    (e) =>
-                      !histSearch.trim() ||
-                      e.source.includes(histSearch.trim()) ||
-                      e.target.includes(histSearch.trim())
-                  )
+                {filteredHistory
                   .map((e) => (
                     <div key={e.id} className="group row">
                       <div className="flex items-start justify-between gap-2">
