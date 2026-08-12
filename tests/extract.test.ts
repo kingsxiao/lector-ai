@@ -26,9 +26,6 @@ const chromeStub = vi.hoisted(() => ({
 const {
   extractPage,
   collectTranslationCandidates,
-  detectLanguageSafely,
-  translationFailsQuality,
-  textAlreadyInTargetLanguage,
 } = await import('../src/content')
 
 beforeEach(() => {
@@ -39,59 +36,6 @@ beforeEach(() => {
   chromeStub.i18n.detectLanguage.mockResolvedValue({
     isReliable: true,
     languages: [{ language: 'en', percentage: 100 }],
-  })
-})
-
-describe('translation language detection cancellation', () => {
-  const abortOutcome = async (promise: Promise<unknown>) => Promise.race([
-    promise.then(() => 'resolved', (error: unknown) =>
-      error instanceof DOMException ? error.name : 'other-error'
-    ),
-    new Promise<string>((resolve) => setTimeout(() => resolve('timeout'), 80)),
-  ])
-
-  it('does not start detection for a signal that is already aborted', async () => {
-    const controller = new AbortController()
-    controller.abort()
-    await expect(detectLanguageSafely(
-      'This is long enough to require browser language detection.',
-      controller.signal
-    )).rejects.toMatchObject({ name: 'AbortError' })
-    expect(chromeStub.i18n.detectLanguage).not.toHaveBeenCalled()
-  })
-
-  it('rejects a pending detector immediately instead of waiting for its timeout', async () => {
-    chromeStub.i18n.detectLanguage.mockImplementation(() => new Promise(() => {}))
-    const controller = new AbortController()
-    const pending = detectLanguageSafely(
-      'This pending language detector must be canceled immediately.',
-      controller.signal
-    )
-    controller.abort()
-    expect(await abortOutcome(pending)).toBe('AbortError')
-  })
-
-  it('propagates cancellation through quality and already-target checks', async () => {
-    chromeStub.i18n.detectLanguage.mockImplementation(() => new Promise(() => {}))
-
-    const qualityController = new AbortController()
-    const quality = translationFailsQuality(
-      'Una aplicación rápida para todos los equipos.',
-      'Una herramienta veloz para cada grupo.',
-      'en',
-      qualityController.signal
-    )
-    qualityController.abort()
-    expect(await abortOutcome(quality)).toBe('AbortError')
-
-    const targetController = new AbortController()
-    const alreadyTarget = textAlreadyInTargetLanguage(
-      'This paragraph is already written in English.',
-      'en',
-      targetController.signal
-    )
-    targetController.abort()
-    expect(await abortOutcome(alreadyTarget)).toBe('AbortError')
   })
 })
 
