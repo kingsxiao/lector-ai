@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, useCallback, useMemo, memo } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo, memo, lazy, Suspense } from 'react'
 import { useStore, type ChatMessage, type ChatSession } from '../shared/store'
 import { renderMarkdown } from './markdown'
 import { renderCitations, type PageBlock } from '../shared/citations'
-import { isDue, scheduleSrs } from '../shared/srs'
+import { isDue, scheduleSrs, type Grade } from '../shared/srs'
 import { toMarkdown } from '../shared/exporters'
 import type { Highlight } from '../shared/highlights'
 import type { VocabEntry } from '../shared/vocabulary'
@@ -41,11 +41,18 @@ import { runSentenceAnalysis } from './lib/sentences'
 import { jumpToBlock } from './lib/chromeUtils'
 import { formatAnkiResult } from './lib/ankiFormat'
 import { ViewShell, Empty } from './components/leaf'
-import { VocabView } from './views/VocabView'
-import { TemplatesView } from './views/TemplatesView'
-import { GlossaryView } from './views/GlossaryView'
-import { SentencesView } from './views/SentencesView'
-import { SettingsView, CurrentSiteChip } from './views/SettingsView'
+import { CurrentSiteChip } from './views/CurrentSiteChip'
+// Secondary views are lazy-loaded: the panel opens on the chat view, so the
+// settings / vocab / templates / glossary / sentences UIs (and their deps,
+// e.g. anki + glossary logic) are split into on-demand chunks. Only one view
+// is mounted at a time, so each gets its own Suspense fallback. Chunks resolve
+// under chrome-extension://<id>/chunks/... (base '/'), which the extension's
+// own side-panel page can load without any web_accessible_resources entry.
+const VocabView     = lazy(() => import('./views/VocabView').then(m => ({ default: m.VocabView })))
+const TemplatesView = lazy(() => import('./views/TemplatesView').then(m => ({ default: m.TemplatesView })))
+const GlossaryView  = lazy(() => import('./views/GlossaryView').then(m => ({ default: m.GlossaryView })))
+const SentencesView = lazy(() => import('./views/SentencesView').then(m => ({ default: m.SentencesView })))
+const SettingsView  = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })))
 
 interface PageContext {
   title: string
@@ -62,6 +69,11 @@ const RELAY_QUEUE_KEYS = [
   'lectorTranslationHistory',
 ] as const
 type RelayQueueKey = (typeof RELAY_QUEUE_KEYS)[number]
+
+// Initial rows rendered by the long-list views (highlights cap 500,
+// translationHistory cap 200). A "Load more" button reveals the next batch so
+// opening a large list doesn't mount hundreds of rows at once.
+const LIST_PAGE_SIZE = 100
 
 /**
  * Merge one content→background relay queue into the persisted zustand store.
@@ -106,6 +118,16 @@ type View =
   | 'library'
   | 'translationHistory'
 
+// Suspense fallback shown while a lazy secondary view's chunk loads. Matches
+// the in-app spinner style; no text so it has no i18n dependency.
+function ViewLoading() {
+  return (
+    <div className="flex-1 grid place-items-center">
+      <div className="w-4 h-4 border-2 border-line border-t-accent rounded-full animate-spin" />
+    </div>
+  )
+}
+
 export default function App() {
   // Subscribe only to the slices this component uses. Calling useStore()
   // without a selector subscribes to the entire persisted object and forces a
@@ -142,11 +164,20 @@ export default function App() {
   const markOpened = useStore((s) => s.markOpened)
   const [hintDismissed, setHintDismissed] = useState(false)
   const [histSearch, setHistSearch] = useState('')
+  // "Load more" limits for the highlights / translation-history list views.
+  // Reset to one page whenever the active view changes, so re-opening a list
+  // after expanding it once doesn't mount hundreds of rows up front.
+  const [highlightLimit, setHighlightLimit] = useState(LIST_PAGE_SIZE)
+  const [historyLimit, setHistoryLimit] = useState(LIST_PAGE_SIZE)
 
-  const tr = (key: StringKey) => t(key, byok.locale)
+  // Stable across renders (they depend only on locale) so memoized child views
+  // don't re-render on every unrelated App state change.
+  const tr = useCallback((key: StringKey) => t(key, byok.locale), [byok.locale])
   // Resolve a template's display title (i18n key for built-ins, raw for custom).
-  const tplTitle = (tpl: PromptTemplate) =>
-    tpl.titleKey ? t(tpl.titleKey, byok.locale) : tpl.title
+  const tplTitle = useCallback(
+    (tpl: PromptTemplate) => (tpl.titleKey ? t(tpl.titleKey, byok.locale) : tpl.title),
+    [byok.locale]
+  )
 
   const sortedTemplates = useMemo(() => sortTemplates(templates), [templates])
   // Empty-state suggestion chips = the first 4 templates (same data source as
@@ -181,6 +212,13 @@ export default function App() {
   // so stacked overlays are physically impossible. See
   // docs/superpowers/specs/2026-07-24-tab-navigation-redesign.md
   const [activeView, setActiveView] = useState<View>('chat')
+  // Reset the long-list "load more" limits whenever the user switches views,
+  // so re-opening a list after expanding it once doesn't mount hundreds of
+  // rows up front.
+  useEffect(() => {
+    setHighlightLimit(LIST_PAGE_SIZE)
+    setHistoryLimit(LIST_PAGE_SIZE)
+  }, [activeView])
   const [showTools, setShowTools] = useState(false) // MoreMenu 下拉开关（局部）
   const [errorBanner, setErrorBanner] = useState<string | null>(null)
   // Hostname of the active tab, for the current-site rule chip in the header.
@@ -456,7 +494,7 @@ export default function App() {
   // fire it from their own item-level "explain this" buttons. Mirrors the
   // core of SentencesView.handleGenerate but parameterizes the inputs
   // (sentence / url / title) so callers don't need their own closure.
-  const generateSentenceCard = async (sentence: string, url: string, title: string) => {
+  const generateSentenceCard = useCallback(async (sentence: string, url: string, title: string) => {
     const settings = useStore.getState().byok
     if (!settings.apiKey) {
       alert(tr('err.addKey'))
@@ -467,31 +505,97 @@ export default function App() {
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e))
     }
-  }
+  }, [tr])
 
   // make-card from a 举一反三 example sentence (inside SentencesView).
   // Wraps generateSentenceCard with per-example busy state so the row shows
   // a spinner; the new card appears at the top of the list via the store.
-  const handleMakeCardFromExample = async (sentence: string, title: string) => {
+  const handleMakeCardFromExample = useCallback(async (sentence: string, title: string) => {
     setBusyExample(sentence)
     try {
       await generateSentenceCard(sentence, '', title)
     } finally {
       setBusyExample(null)
     }
-  }
+  }, [generateSentenceCard])
 
   // make-card from a Highlight's "explain" (Sparkles) button. No per-row busy
   // state here (highlights list is short and the action is secondary); we just
   // surface a lightweight inline state by reusing busyExample keyed on text.
-  const handleMakeCardFromHighlight = async (h: { text: string; url: string; title: string }) => {
+  const handleMakeCardFromHighlight = useCallback(async (h: { text: string; url: string; title: string }) => {
     setBusyExample(h.text)
     try {
       await generateSentenceCard(h.text, h.url, h.title)
     } finally {
       setBusyExample(null)
     }
-  }
+  }, [generateSentenceCard])
+
+  // ---- Stable handlers for the memoized secondary views -------------------
+  // Each wraps a stable store action (Zustand actions keep their identity), so
+  // these callbacks are stable too. Combined with React.memo on the views and
+  // the stable `tr`/`tplTitle` above, an unrelated store change (e.g. a chat
+  // message streaming in while the user sits on Vocab view) no longer
+  // re-renders the currently-mounted view.
+  const handleByokChange = useCallback(
+    async (next: Partial<ByokSettings>) => {
+      setByok(next)
+      await saveSettings({ ...useStore.getState().byok, ...next })
+    },
+    [setByok]
+  )
+
+  const handleGradeVocab = useCallback(
+    (v: VocabEntry, g: Grade) => updateVocabSrs(v.id, scheduleSrs(v.srs, g)),
+    [updateVocabSrs]
+  )
+
+  const handleSaveAnkiConfig = useCallback(
+    (cfg: { url: string; deckName: string; modelName: string; tags: string[] }) =>
+      setByok({ anki: cfg }),
+    [setByok]
+  )
+
+  const handleExplainVocab = useCallback(
+    (v: VocabEntry) => {
+      if (!v.context?.trim()) {
+        alert(tr('side.sentences.noContext'))
+        return
+      }
+      void generateSentenceCard(v.context, v.url, v.title)
+    },
+    [tr, generateSentenceCard]
+  )
+
+  const handleSentenceGrade = useCallback(
+    (c: SentenceCard, g: Grade) => {
+      if (c.srs) updateSentenceSrs(c.id, scheduleSrs(c.srs, g))
+    },
+    [updateSentenceSrs]
+  )
+
+  const handleViewSource = useCallback((blockId: string | undefined, url: string) => {
+    if (blockId) {
+      void jumpToBlock(blockId)
+    } else if (url) {
+      window.open(url, '_blank')
+    }
+  }, [])
+
+  const handleSentenceAnkiExport = useCallback(
+    async (cards: SentenceCard[]) => {
+      const settings = useStore.getState().byok
+      const cfg = withAnkiDefaults(settings.anki)
+      const deckName = cfg.deckName === DEFAULT_DECK_NAME ? DEFAULT_SENTENCE_DECK_NAME : cfg.deckName
+      try {
+        const r = await exportSentencesToAnki(cards, { ...cfg, deckName })
+        alert(formatAnkiResult(tr('anki.result'), r))
+      } catch (e) {
+        alert(e instanceof Error ? e.message : String(e))
+      }
+    },
+    [tr]
+  )
 
   // Inline bilingual translation — ask the active tab's content script to
   // inject paragraph-level translations. The content script tracks which
@@ -1245,13 +1349,12 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
       )}
 
       {activeView === 'settings' && (
+        <Suspense fallback={<ViewLoading />}>
         <SettingsView
           byok={byok}
-          onChange={async (next) => {
-            setByok(next)
-            await saveSettings({ ...useStore.getState().byok, ...next })
-          }}
+          onChange={handleByokChange}
         />
+        </Suspense>
       )}
 
       {/* Library view (flat — replaces the overlay drawer) */}
@@ -1321,7 +1424,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           ) : (
             <>
               <div className="flex-1 overflow-y-auto">
-                {highlights.map((h) => (
+                {highlights.slice(0, highlightLimit).map((h) => (
                   <div key={h.id} className="group row">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
@@ -1349,6 +1452,14 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                     </div>
                   </div>
                 ))}
+                {highlights.length > highlightLimit && (
+                  <button
+                    onClick={() => setHighlightLimit((n) => n + LIST_PAGE_SIZE)}
+                    className="px-4 py-2.5 text-meta text-accent hover:bg-accent-softer border-t border-line transition-colors text-left w-full"
+                  >
+                    {tr('side.loadMore').replace('{n}', String(highlights.length - highlightLimit))}
+                  </button>
+                )}
               </div>
               <button
                 onClick={() => downloadMarkdown(highlights)}
@@ -1379,6 +1490,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               </div>
               <div className="flex-1 overflow-y-auto">
                 {filteredHistory
+                  .slice(0, historyLimit)
                   .map((e) => (
                     <div key={e.id} className="group row">
                       <div className="flex items-start justify-between gap-2">
@@ -1409,6 +1521,14 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                       </div>
                     </div>
                   ))}
+                {filteredHistory.length > historyLimit && (
+                  <button
+                    onClick={() => setHistoryLimit((n) => n + LIST_PAGE_SIZE)}
+                    className="px-4 py-2.5 text-meta text-accent hover:bg-accent-softer border-t border-line transition-colors text-left w-full"
+                  >
+                    {tr('side.loadMore').replace('{n}', String(filteredHistory.length - historyLimit))}
+                  </button>
+                )}
               </div>
               <button
                 onClick={() => clearTranslationHistory()}
@@ -1424,81 +1544,63 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
 
       {/* Vocabulary view (flat) */}
       {activeView === 'vocab' && (
+        <Suspense fallback={<ViewLoading />}>
         <VocabView
           vocab={vocab}
           ankiConfig={byok.anki}
           tr={tr}
           onRemoveVocab={removeVocab}
-          onGradeVocab={(v, g) => {
-            updateVocabSrs(v.id, scheduleSrs(v.srs, g))
-          }}
-          onSaveAnkiConfig={(cfg) => setByok({ anki: cfg })}
-          onExplainVocab={(v) => {
-            if (!v.context?.trim()) {
-              alert(tr('side.sentences.noContext'))
-              return
-            }
-            void generateSentenceCard(v.context, v.url, v.title)
-          }}
+          onGradeVocab={handleGradeVocab}
+          onSaveAnkiConfig={handleSaveAnkiConfig}
+          onExplainVocab={handleExplainVocab}
         />
+        </Suspense>
       )}
 
       {/* Templates view (flat) */}
       {activeView === 'templates' && (
+        <Suspense fallback={<ViewLoading />}>
         <TemplatesView
           templates={sortedTemplates}
           titleFor={tplTitle}
           tr={tr}
-          onAdd={(tpl) => addTemplate(tpl)}
-          onUpdate={(id, patch) => updateTemplate(id, patch)}
-          onRemove={(id) => removeTemplate(id)}
+          onAdd={addTemplate}
+          onUpdate={updateTemplate}
+          onRemove={removeTemplate}
           onReorder={reorderTemplates}
         />
+        </Suspense>
       )}
 
       {/* Glossary view (flat) */}
       {activeView === 'glossary' && (
+        <Suspense fallback={<ViewLoading />}>
         <GlossaryView
           entries={glossary}
           tr={tr}
-          onAdd={(e) => addGlossaryEntry(e)}
-          onUpdate={(id, patch) => updateGlossaryEntry(id, patch)}
-          onRemove={(id) => removeGlossaryEntry(id)}
-          onImport={(entries) => replaceGlossary(entries)}
+          onAdd={addGlossaryEntry}
+          onUpdate={updateGlossaryEntry}
+          onRemove={removeGlossaryEntry}
+          onImport={replaceGlossary}
         />
+        </Suspense>
       )}
 
       {/* Sentence Library view (flat) */}
       {activeView === 'sentences' && (
+        <Suspense fallback={<ViewLoading />}>
         <SentencesView
           sentences={sentences}
           busyExample={busyExample}
           tr={tr}
-          onRemove={(id) => removeSentence(id)}
-          onPromote={(id) => promoteSentenceToReview(id)}
-          onGrade={(c, g) => {
-            if (c.srs) updateSentenceSrs(c.id, scheduleSrs(c.srs, g))
-          }}
-          onViewSource={(blockId, url) => {
-            if (blockId) {
-              void jumpToBlock(blockId)
-            } else if (url) {
-              window.open(url, '_blank')
-            }
-          }}
-          onAnkiExport={async (cards) => {
-            const settings = useStore.getState().byok
-            const cfg = withAnkiDefaults(settings.anki)
-            const deckName = cfg.deckName === DEFAULT_DECK_NAME ? DEFAULT_SENTENCE_DECK_NAME : cfg.deckName
-            try {
-              const r = await exportSentencesToAnki(cards, { ...cfg, deckName })
-              alert(formatAnkiResult(tr('anki.result'), r))
-            } catch (e) {
-              alert(e instanceof Error ? e.message : String(e))
-            }
-          }}
-          onMakeCard={(sentence, title) => handleMakeCardFromExample(sentence, title)}
+          onRemove={removeSentence}
+          onPromote={promoteSentenceToReview}
+          onGrade={handleSentenceGrade}
+          onViewSource={handleViewSource}
+          onAnkiExport={handleSentenceAnkiExport}
+          onMakeCard={handleMakeCardFromExample}
         />
+        </Suspense>
       )}
     </div>
   )

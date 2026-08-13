@@ -13,6 +13,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: false,
+    // Modern Chrome only — skip down-leveling for a smaller, faster-to-parse
+    // content bundle (injected on every page, so size matters here most).
+    target: 'es2022',
     rollupOptions: {
       input: resolve(__dirname, 'src/content.ts'),
       output: {

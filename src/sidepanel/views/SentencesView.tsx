@@ -1,4 +1,4 @@
-import { useState, useMemo, type ChangeEvent } from 'react'
+import { useState, useMemo, useEffect, memo, type ChangeEvent } from 'react'
 import {
   searchSentences,
   groupSentences,
@@ -16,6 +16,10 @@ import { SparklesIcon, DownloadIcon, UploadIcon, XIcon } from '../../shared/icon
 import { ViewShell, Empty, StatsBar, SrsGradeButtons } from '../components/leaf'
 import { downloadBlob, readJsonFile } from '../lib/downloads'
 import { runSentenceAnalysis } from '../lib/sentences'
+
+// Initial cards rendered by the sentence library (store caps at 1000). Without
+// this cap, opening the view mounts every card; "Load more" reveals the rest.
+const SENTENCE_PAGE = 100
 
 interface SentencesViewProps {
   sentences: SentenceCard[]
@@ -71,7 +75,7 @@ function ImportMsg({ msg }: { msg: { ok: boolean; text: string } }) {
   )
 }
 
-export function SentencesView(props: SentencesViewProps) {
+function SentencesViewImpl(props: SentencesViewProps) {
   const { sentences, tr } = props
   const [query, setQuery] = useState('')
   const [cefrFilter, setCefrFilter] = useState<string>('')
@@ -96,6 +100,26 @@ export function SentencesView(props: SentencesViewProps) {
     const f = cefrFilter ? searched.filter((c) => c.cefr === cefrFilter) : searched
     return { filtered: f, groups: groupSentences(f) }
   }, [sentences, query, cefrFilter])
+
+  // "Load more" pagination across the grouped cards. Visible groups are rebuilt
+  // when the limit or the filter pipeline changes; reset to one page whenever
+  // the search box / CEFR filter changes.
+  const [cardLimit, setCardLimit] = useState(SENTENCE_PAGE)
+  const totalCards = filtered.length
+  const visibleGroups = useMemo(() => {
+    let remaining = cardLimit
+    const out: { key: string; title: string; cards: SentenceCard[] }[] = []
+    for (const [key, cards] of groups) {
+      if (remaining <= 0) break
+      const take = cards.slice(0, remaining)
+      remaining -= take.length
+      out.push({ key, title: key.split('\u0000')[0], cards: take })
+    }
+    return out
+  }, [groups, cardLimit])
+  useEffect(() => {
+    setCardLimit(SENTENCE_PAGE)
+  }, [query, cefrFilter])
 
   const handleGenerate = async () => {
     const text = pasteText.trim()
@@ -210,14 +234,13 @@ export function SentencesView(props: SentencesViewProps) {
             </div>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {[...groups.entries()].map(([key, cards]) => {
-              const [title] = key.split('\u0000')
+            {visibleGroups.map((g) => {
               return (
-                <div key={key}>
+                <div key={g.key}>
                   <div className="px-4 py-1.5 bg-surface-muted/70 text-[10px] font-semibold text-ink-faint sticky top-0 uppercase tracking-wide backdrop-blur-sm">
-                    {title || tr('side.sentences.pasteTitle')}
+                    {g.title || tr('side.sentences.pasteTitle')}
                   </div>
-                  {cards.map((c) => {
+                  {g.cards.map((c) => {
                     const due = c.srs ? isDue(c.srs) : false
                     const isRevealed = revealed.has(c.id)
                     // Compute once per card per render (was called twice below).
@@ -341,9 +364,20 @@ export function SentencesView(props: SentencesViewProps) {
                 </div>
               )
             })}
+            {totalCards > cardLimit && (
+              <button
+                onClick={() => setCardLimit((n) => n + SENTENCE_PAGE)}
+                className="px-4 py-2.5 text-meta text-accent hover:bg-accent-softer border-t border-line transition-colors text-left w-full"
+              >
+                {tr('side.loadMore').replace('{n}', String(totalCards - cardLimit))}
+              </button>
+            )}
           </div>
         </>
       )}
     </ViewShell>
   )
 }
+
+// memo'd so unrelated App re-renders don't re-render this view when props are unchanged.
+export const SentencesView = memo(SentencesViewImpl)
