@@ -131,6 +131,7 @@ export const STRINGS = {
     zh: '在任意页面选中文字，点击高亮按钮即可收藏。',
   },
   'side.highlights.export': { en: '⬇ Export Markdown', zh: '⬇ 导出 Markdown' },
+  'side.loadMore': { en: 'Load more ({n})', zh: '加载更多（{n}）' },
 
   // --- side panel: vocabulary review drawer (Feature ③) ---
   'side.vocab.title': { en: 'Vocabulary', zh: '生词本' },

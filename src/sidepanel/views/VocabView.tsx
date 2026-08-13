@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, memo } from 'react'
 import type { VocabEntry } from '../../shared/vocabulary'
 import { isDue, type Grade } from '../../shared/srs'
 import { computeReviewStats } from '../../shared/stats'
@@ -28,7 +28,7 @@ interface VocabViewProps {
   onExplainVocab: (v: VocabEntry) => void
 }
 
-export function VocabView({
+function VocabViewImpl({
   vocab,
   ankiConfig,
   tr,
@@ -251,3 +251,6 @@ export function VocabView({
     </ViewShell>
   )
 }
+
+// memo'd so unrelated App re-renders don't re-render this view when props are unchanged.
+export const VocabView = memo(VocabViewImpl)

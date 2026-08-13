@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, memo } from 'react'
 import { t, resolveLocale, type LocalePref, type StringKey } from '../../shared/i18n'
 import {
   PROVIDERS,
@@ -19,7 +19,6 @@ import {
   matchHost,
   normalizeSiteRules,
   newSiteRuleId,
-  siteToggleState,
   type SiteRule,
 } from '../../shared/siteRules'
 import { CheckIcon, XIcon } from '../../shared/icons'
@@ -228,54 +227,14 @@ function SiteRulesControls({
 }
 
 // ---------------------------------------------------------------------------
-// CurrentSiteChip — a header chip that cycles the active-tab host's translation
-// rule: auto → always → never → auto. Writes a SiteRule (or removes it) via the
-// parent's onToggle, which persists the whole siteRules list.
-export function CurrentSiteChip({
-  host,
-  rules,
-  locale,
-  onToggle,
-}: {
-  host: string
-  rules: SiteRule[]
-  locale: LocalePref
-  onToggle: (next: SiteRule[]) => void
-}) {
-  const state = siteToggleState(rules, host)
-  // Cycle auto → always → never → auto.
-  const cycle = () => {
-    const filtered = rules.filter((r) => r.hostPattern !== host)
-    if (state === 'auto') {
-      onToggle([{ id: newSiteRuleId(), hostPattern: host, mode: 'always', createdAt: Date.now() }, ...filtered])
-    } else if (state === 'always') {
-      onToggle([{ id: newSiteRuleId(), hostPattern: host, mode: 'never', createdAt: Date.now() }, ...filtered])
-    } else {
-      onToggle(filtered) // never → auto (remove rule)
-    }
-  }
-  const label = t(`settings.translation.siteState.${state}` as StringKey, locale)
-  const tone =
-    state === 'always' ? 'text-accent' : state === 'never' ? 'text-danger' : 'text-ink-faint'
-  return (
-    <button
-      type="button"
-      onClick={cycle}
-      title={t('settings.translation.siteState.cycle', locale)}
-      className={`mt-1 inline-flex items-center gap-1 text-[10px] ${tone} hover:underline`}
-    >
-      <span className="truncate max-w-[160px]">{label}</span>
-    </button>
-  )
-}
-
-// ---------------------------------------------------------------------------
+// (CurrentSiteChip moved to ./CurrentSiteChip.tsx so this module can be
+//  lazy-loaded — the chip lives in the always-visible header.)
 export interface SettingsViewProps {
   byok: ByokSettings
   onChange: (next: Partial<ByokSettings>) => void
 }
 
-export function SettingsView({ byok, onChange }: SettingsViewProps) {
+function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
   const [showKey, setShowKey] = useState(false)
   // When true, the model free-text input is shown even if byok.model happens
   // to match a list entry (the user explicitly chose "Custom model id…").
@@ -736,3 +695,6 @@ export function SettingsView({ byok, onChange }: SettingsViewProps) {
     </div>
   )
 }
+
+// memo'd so unrelated App re-renders don't re-render this view when props are unchanged.
+export const SettingsView = memo(SettingsViewImpl)

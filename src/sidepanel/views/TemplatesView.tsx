@@ -1,4 +1,4 @@
-import { useState, useRef, type DragEvent } from 'react'
+import { useState, useRef, memo, type DragEvent } from 'react'
 import { validateTemplate, type PromptTemplate } from '../../shared/promptTemplates'
 import type { StringKey } from '../../shared/i18n'
 import { PlusIcon, GripVerticalIcon, PencilIcon, TrashIcon } from '../../shared/icons'
@@ -14,7 +14,7 @@ interface TemplatesViewProps {
   onReorder: (orderedIds: string[]) => void
 }
 
-export function TemplatesView({
+function TemplatesViewImpl({
   templates,
   titleFor,
   tr,
@@ -194,3 +194,6 @@ export function TemplatesView({
     </ViewShell>
   )
 }
+
+// memo'd so unrelated App re-renders don't re-render this view when props are unchanged.
+export const TemplatesView = memo(TemplatesViewImpl)

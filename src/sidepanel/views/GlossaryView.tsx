@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, memo } from 'react'
 import { validateEntry, exportGlossary, importGlossary, type GlossaryEntry } from '../../shared/glossary'
 import type { StringKey } from '../../shared/i18n'
 import { PlusIcon, DownloadIcon, UploadIcon, PencilIcon, TrashIcon } from '../../shared/icons'
@@ -14,7 +14,7 @@ interface GlossaryViewProps {
   onImport: (entries: GlossaryEntry[]) => void
 }
 
-export function GlossaryView({
+function GlossaryViewImpl({
   entries,
   tr,
   onAdd,
@@ -235,3 +235,6 @@ export function GlossaryView({
     </ViewShell>
   )
 }
+
+// memo'd so unrelated App re-renders don't re-render this view when props are unchanged.
+export const GlossaryView = memo(GlossaryViewImpl)
