@@ -6,18 +6,42 @@ export interface ExportOptions {
   vaultRoot?: string
 }
 
+/** Escape page-controlled text so it can't break out of the markdown we emit.
+ * `title`/`url` come from the captured page — a title like `a](http://evil)`
+ * would otherwise inject arbitrary markdown links into the user's notes, and
+ * brackets/parens in ordinary titles ("Foo (bar)") corrupt the link syntax. */
+function escapeMdLinkText(s: string): string {
+  return s.replace(/([\\[\]])/g, '\\$1')
+}
+
+/** Wrap a URL in <…> so spaces/parens can't terminate the link; drop URLs that
+ * try to smuggle whitespace or angle brackets through. */
+function mdLinkUrl(url: string): string {
+  return /^[\x21-\x7E]+$/.test(url) && !url.includes('<') && !url.includes('>')
+    ? `<${url}>`
+    : ''
+}
+
+/** Prefix every line of multi-line text so blockquote/callout structure holds. */
+function quoteAllLines(s: string): string {
+  return s
+    .split('\n')
+    .map((l) => `> ${l}`)
+    .join('\n')
+}
+
 /** Markdown export: one block per highlight with note + source. */
 export function toMarkdown(hs: Highlight[], _opts: ExportOptions = {}): string {
   return hs
     .map((h) => {
       const lines = [
-        `### ${h.title}`,
+        `### ${escapeMdLinkText(h.title)}`,
         '',
-        `> ${h.text}`,
+        quoteAllLines(h.text),
         '',
         h.note ? `**Note:** ${h.note}` : '',
         '',
-        `Source: [${h.title}](${h.url})`,
+        `Source: [${escapeMdLinkText(h.title)}](${mdLinkUrl(h.url)})`,
         '',
         '---',
         '',
@@ -34,9 +58,13 @@ export function toObsidian(hs: Highlight[], opts: ExportOptions = {}): string {
     const k = h.title
     bySource.set(k, [...(bySource.get(k) ?? []), h])
   }
+  // A URL containing a quote or newline would break the YAML front matter of
+  // the whole export; fall back to an empty value when it can't be quoted.
+  const fmUrl = hs[0]?.url ?? ''
+  const fmUrlSafe = /[\n\r"]/.test(fmUrl) ? '' : fmUrl
   const fm = [
     '---',
-    `source: "${hs[0]?.url ?? ''}"`,
+    `source: "${fmUrlSafe}"`,
     `created: ${new Date().toISOString().slice(0, 10)}`,
     'tags: [lector, highlight]',
     '---',
@@ -47,10 +75,10 @@ export function toObsidian(hs: Highlight[], opts: ExportOptions = {}): string {
       const block = items
         .map(
           (h) =>
-            `> [!quote] ${h.text}${h.note ? `\n> \n> **Note:** ${h.note}` : ''}\n> Source: [${title}](${h.url})`
+            `${quoteAllLines(`[!quote] ${h.text}${h.note ? `\n\n**Note:** ${h.note}` : ''}`)}\n> Source: [${escapeMdLinkText(title)}](${mdLinkUrl(h.url)})`
         )
         .join('\n\n')
-      return `## ${title}\n\n${block}`
+      return `## ${escapeMdLinkText(title)}\n\n${block}`
     })
     .join('\n\n')
   void opts

@@ -81,10 +81,12 @@ async function setupMenus() {
   })
 }
 
-// Open the side panel from the FAB / popup / content script.
-chrome.runtime.onMessage.addListener((message) => {
+// Open the side panel from the FAB / popup / content script. sender.tab carries
+// the originating tab (and thus windowId) synchronously — required to keep
+// chrome.sidePanel.open() inside the user-gesture window.
+chrome.runtime.onMessage.addListener((message, sender) => {
   if (message?.action === 'open-side-panel') {
-    openSidePanel(message.seed || null)
+    openSidePanel(message.seed || null, sender.tab?.windowId)
     return false
   }
   if (message?.action === 'lector-highlight') {
@@ -150,11 +152,10 @@ chrome.commands?.onCommand.addListener((cmd) => {
     const tabId = tabs[0]?.id
     if (tabId === undefined) return
     // Map the manifest command id to the content-script action.
-    //   lector-translate / lector-toggle-bilingual → smart bilingual toggle
-    //   lector-translate-whole-page               → whole-page bilingual
-    //   lector-translate-selection                 → translate the selection
+    //   lector-toggle-bilingual / lector-translate-whole-page → bilingual toggle
+    //   lector-translate-selection → translate the current selection (Alt+Q)
     let action: { action: string; scope?: 'smart' | 'whole'; command?: string }
-    if (cmd === 'lector-translate' || cmd === 'lector-toggle-bilingual') {
+    if (cmd === 'lector-toggle-bilingual') {
       action = { action: 'lector-toggle-bilingual', scope: 'smart' }
     } else if (cmd === 'lector-translate-whole-page') {
       action = { action: 'lector-toggle-bilingual', scope: 'whole' }
@@ -177,6 +178,46 @@ async function handleSaveWordRelay(message: {
   title: string
   blockId?: string
 }) {
+  const entry: VocabEntry = {
+    id: 'v' + Date.now().toString(36),
+    word: message.word,
+    translation: '',
+    context: message.context,
+    url: message.url,
+    title: message.title,
+    // Detect the word's own language family (mirrors content.ts detectLang).
+    lang: /[\u4e00-\u9fff]/.test(message.word) ? 'zh' : 'en',
+    createdAt: Date.now(),
+    srs: { due: Date.now(), interval: 0, ease: 2.5, reps: 0, lapses: 0 },
+  }
+  // Persist IMMEDIATELY with an empty translation. An MV3 service worker can
+  // be torn down after ~30s idle while completeOnce's budget is 60s — with the
+  // old persist-after-translate order, a slow provider call silently lost the
+  // word entirely. The translation is enriched below once it resolves.
+  // Serialized: prevents two quick word-saves from both reading the same base
+  // list and losing one entry to a last-write-wins clobber.
+  vocabChain = appendToList<VocabEntry>(
+    vocabChain,
+    listStore,
+    'lectorVocab',
+    (list) => {
+      const idx = list.findIndex((x) => x.word.toLowerCase() === entry.word.toLowerCase())
+      if (idx === -1) {
+        list.unshift(entry)
+      } else {
+        const existing = list[idx]
+        list[idx] = {
+          ...existing,
+          context: entry.context || existing.context,
+          createdAt: Math.min(existing.createdAt, entry.createdAt),
+          srs: existing.srs,
+        }
+      }
+      return list.slice(0, 2000)
+    },
+    (err) => console.warn('[Lector] vocab queue write failed:', err instanceof Error ? err.message : String(err))
+  )
+
   // Translate the saved word with the user's own key (BYOK). If no key is set,
   // the translation stays empty and is surfaced at review time.
   let translation = ''
@@ -194,37 +235,22 @@ async function handleSaveWordRelay(message: {
   } catch {
     // leave translation empty; flagged at review time
   }
-  const entry: VocabEntry = {
-    id: 'v' + Date.now().toString(36),
-    word: message.word,
-    translation,
-    context: message.context,
-    url: message.url,
-    title: message.title,
-    // Detect the word's own language family (mirrors content.ts detectLang).
-    lang: /[\u4e00-\u9fff]/.test(message.word) ? 'zh' : 'en',
-    createdAt: Date.now(),
-    srs: { due: Date.now(), interval: 0, ease: 2.5, reps: 0, lapses: 0 },
-  }
-  // Serialized: prevents two quick word-saves (each preceded by a ~1s
-  // completeOnce translation call) from both reading the same base list and
-  // losing one entry to a last-write-wins clobber.
-  vocabChain = appendToList<VocabEntry>(vocabChain, listStore, 'lectorVocab', (list) => {
-    const idx = list.findIndex((x) => x.word.toLowerCase() === entry.word.toLowerCase())
-    if (idx === -1) {
-      list.unshift(entry)
-    } else {
-      const existing = list[idx]
-      list[idx] = {
-        ...existing,
-        context: entry.context || existing.context,
-        translation: entry.translation || existing.translation,
-        createdAt: Math.min(existing.createdAt, entry.createdAt),
-        srs: existing.srs,
+  if (!translation) return
+  // Enrich the persisted row (same id). Only fills an EMPTY translation so a
+  // concurrent save of the same word with its own result is never clobbered.
+  vocabChain = appendToList<VocabEntry>(
+    vocabChain,
+    listStore,
+    'lectorVocab',
+    (list) => {
+      const idx = list.findIndex((x) => x.id === entry.id)
+      if (idx !== -1 && !list[idx].translation) {
+        list[idx] = { ...list[idx], translation }
       }
-    }
-    return list.slice(0, 2000)
-  })
+      return list
+    },
+    (err) => console.warn('[Lector] vocab enrich write failed:', err instanceof Error ? err.message : String(err))
+  )
 }
 
 async function handleExplainSentenceRelay(message: {
@@ -241,6 +267,36 @@ async function handleExplainSentenceRelay(message: {
     // case where a relay arrives without a key (e.g. race / direct message).
     return
   }
+  const card: SentenceCard = {
+    id: newCardId(),
+    sentence: message.sentence,
+    translation: '',
+    analysis: '',
+    keywords: [],
+    quote: message.quote,
+    url: message.url,
+    title: message.title,
+    blockId: message.blockId,
+    lang: 'en',
+    cefr: null,
+    createdAt: Date.now(),
+    srs: null,
+  }
+  // Persist IMMEDIATELY with empty analysis (same MV3 idle-out rationale as
+  // handleSaveWordRelay: the analysis call may exceed the ~30s service-worker
+  // lifetime, and the captured sentence must not be lost with it). Enriched
+  // below once the analysis resolves.
+  sentenceChain = appendToList<SentenceCard>(
+    sentenceChain,
+    listStore,
+    'lectorSentences',
+    (list) => {
+      list.unshift(card)
+      return list.slice(0, 50)
+    },
+    (err) => console.warn('[Lector] sentence queue write failed:', err instanceof Error ? err.message : String(err))
+  )
+
   let analysis = ''
   try {
     analysis = await completeOnce(
@@ -252,45 +308,56 @@ async function handleExplainSentenceRelay(message: {
   } catch {
     analysis = '' // 空分析；卡片仍创建，UI 显示占位
   }
-  const card: SentenceCard = {
-    id: newCardId(),
-    sentence: message.sentence,
-    translation: extractTranslation(analysis),
-    analysis,
-    keywords: extractKeywords(analysis),
-    quote: message.quote,
-    url: message.url,
-    title: message.title,
-    blockId: message.blockId,
-    lang: 'en',
-    cefr: extractCefr(analysis),
-    createdAt: Date.now(),
-    srs: null,
-  }
-  // Serialized: prevents two quick sentence-analyses from losing one card.
+  if (!analysis) return
+  // Enrich the persisted card (same id) with the parsed analysis fields.
   sentenceChain = appendToList<SentenceCard>(
     sentenceChain,
     listStore,
     'lectorSentences',
     (list) => {
-      list.unshift(card)
-      return list.slice(0, 50)
-    }
+      const idx = list.findIndex((x) => x.id === card.id)
+      if (idx !== -1 && !list[idx].analysis) {
+        list[idx] = {
+          ...list[idx],
+          translation: extractTranslation(analysis),
+          analysis,
+          keywords: extractKeywords(analysis),
+          cefr: extractCefr(analysis),
+        }
+      }
+      return list
+    },
+    (err) => console.warn('[Lector] sentence enrich write failed:', err instanceof Error ? err.message : String(err))
   )
 }
 
-async function openSidePanel(seed: { kind: string; text: string } | null) {
-  if (seed) {
-    await chrome.storage.local.set({ lectorSeed: seed })
+// Open the side panel. `chrome.sidePanel.open()` must be called synchronously
+// inside the user-gesture-qualified event handler (context-menu click, content
+// message) — awaiting storage/tabs first loses the gesture and Chrome rejects
+// with "may only be called in response to a user gesture". So: open FIRST
+// (windowId is available synchronously from the event args), then persist the
+// seed; the panel reads the seed from storage during its boot, which is slower
+// than this write. If windowId wasn't available on the event (defensive:
+// Chrome always provides it, stubs/tests may not), fall back to querying the
+// active tab and open late rather than never.
+function openSidePanel(seed: { kind: string; text: string } | null, windowId?: number) {
+  if (chrome.sidePanel && windowId !== undefined) {
+    chrome.sidePanel.open({ windowId }).catch(() => {})
+  } else if (chrome.sidePanel) {
+    chrome.tabs
+      .query({ active: true, currentWindow: true })
+      .then(([tab]) => {
+        if (tab?.windowId !== undefined) chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {})
+      })
+      .catch(() => {})
   }
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-  if (tab?.windowId !== undefined && chrome.sidePanel) {
-    chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {})
+  if (seed) {
+    void chrome.storage.local.set({ lectorSeed: seed })
   }
 }
 
 // Context-menu clicks seed the side panel (translate/summarize/explain/ask).
-chrome.contextMenus.onClicked.addListener((info) => {
+chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (!info.selectionText) return
   const map: Record<string, string> = {
     'lector-summarize': 'summarize',
@@ -300,6 +367,6 @@ chrome.contextMenus.onClicked.addListener((info) => {
   }
   const kind = map[info.menuItemId as string]
   if (kind) {
-    openSidePanel({ kind, text: info.selectionText })
+    openSidePanel({ kind, text: info.selectionText }, tab?.windowId)
   }
 })

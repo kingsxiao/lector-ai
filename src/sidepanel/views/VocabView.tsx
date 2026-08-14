@@ -39,6 +39,10 @@ function VocabViewImpl({
 }: VocabViewProps) {
   // Reveal-set is single-consumer (this view only) so it lives here, not in App.
   const [revealedVocab, setRevealedVocab] = useState<Set<string>>(new Set())
+  // List pagination: the store caps vocab at 2000 entries; mounting all rows
+  // would freeze the panel, but a hard 200 cap hides due cards with no way to
+  // reach them — same Load-more pattern as the Highlights/Sentences lists.
+  const [vocabLimit, setVocabLimit] = useState(200)
   const toggleReveal = (id: string) =>
     setRevealedVocab((cur) => {
       const next = new Set(cur)
@@ -189,7 +193,7 @@ function VocabViewImpl({
           </div>
 
           <div className="flex-1 overflow-y-auto">
-            {vocab.slice(0, 200).map((v) => {
+            {vocab.slice(0, vocabLimit).map((v) => {
               const due = isDue(v.srs)
               const revealed = revealedVocab.has(v.id)
               return (
@@ -245,6 +249,14 @@ function VocabViewImpl({
                 </div>
               )
             })}
+            {vocab.length > vocabLimit && (
+              <button
+                onClick={() => setVocabLimit((n) => n + 200)}
+                className="px-4 py-2.5 text-meta text-accent hover:bg-accent-softer border-t border-line transition-colors text-left w-full"
+              >
+                {tr('side.loadMore').replace('{n}', String(vocab.length - vocabLimit))}
+              </button>
+            )}
           </div>
         </>
       )}

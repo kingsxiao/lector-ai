@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, memo } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef, memo } from 'react'
 import { t, resolveLocale, type LocalePref, type StringKey } from '../../shared/i18n'
 import {
   PROVIDERS,
@@ -244,6 +244,13 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
   const [fetchedModels, setFetchedModels] = useState<FetchedModel[] | null>(null)
   const [fetching, setFetching] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  // Debounce handle for the translation-settings tab broadcast. Range sliders
+  // fire onChange continuously during a drag; without a trailing debounce each
+  // tick fans a message out to EVERY tab (chrome.tabs.query({}) + sendMessage).
+  const broadcastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (broadcastTimer.current) clearTimeout(broadcastTimer.current)
+  }, [])
 
   const def = getProvider(byok.provider)
   // Resolve a localized provider description, falling back to the English
@@ -517,17 +524,23 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
               const next = { ...ts, ...patch }
               onChange({ translation: next })
               // Broadcast to content scripts so display mode updates live.
-              if (typeof chrome !== 'undefined' && chrome.tabs) {
-                chrome.tabs.query({}).then((tabs) => {
-                  for (const tab of tabs) {
-                    if (tab.id !== undefined) {
-                      chrome.tabs
-                        .sendMessage(tab.id, { action: 'lector-translation-settings-changed' })
-                        .catch(() => {})
+              // Trailing-debounced 300ms so a slider drag doesn't fan a
+              // message burst out to every tab on every tick.
+              if (broadcastTimer.current) clearTimeout(broadcastTimer.current)
+              broadcastTimer.current = setTimeout(() => {
+                broadcastTimer.current = null
+                if (typeof chrome !== 'undefined' && chrome.tabs) {
+                  chrome.tabs.query({}).then((tabs) => {
+                    for (const tab of tabs) {
+                      if (tab.id !== undefined) {
+                        chrome.tabs
+                          .sendMessage(tab.id, { action: 'lector-translation-settings-changed' })
+                          .catch(() => {})
+                      }
                     }
-                  }
-                }).catch(() => {})
-              }
+                  }).catch(() => {})
+                }
+              }, 300)
             }
             return (
               <div className="pt-1 border-t border-line">

@@ -221,6 +221,12 @@ export default function App() {
   }, [activeView])
   const [showTools, setShowTools] = useState(false) // MoreMenu 下拉开关（局部）
   const [errorBanner, setErrorBanner] = useState<string | null>(null)
+  // Screen-reader announcement for finalized chat turns. The transcript
+  // itself is NOT an aria-live region: with aria-relevant="text" the whole
+  // streaming bubble re-announces on every token batch, drowning the user
+  // in chatter. Instead this single status region receives one short notice
+  // when a reply completes, fails, or is stopped.
+  const [liveNotice, setLiveNotice] = useState('')
   // Hostname of the active tab, for the current-site rule chip in the header.
   const [currentHost, setCurrentHost] = useState('')
   // Inline loading for the 举一反三 → make-card action: tracks the exact
@@ -331,10 +337,23 @@ export default function App() {
         await tabP // ensure the tab read is done before we finish (best-effort)
         if (seed.lectorSeed?.text) {
           chrome.storage.local.remove('lectorSeed')
-          // Use the reconciled chrome.storage locale. Reading the render
-          // closure here used the pre-sync locale on first open.
-          const loc = resolveLocale(reconciledLocale)
-          const translateTarget = loc === 'zh' ? 'English' : '中文'
+          // The translate seed follows the user's CONFIGURED translation
+          // target (same direction the bilingual mode uses), not the inverse
+          // of the UI locale — a zh-locale user translating INTO Chinese got
+          // "Translate this to English" before. 'auto' falls back to the
+          // locale heuristic.
+          let storedTranslation: ReturnType<typeof normalizeTranslationSettings> | null = null
+          try {
+            storedTranslation = normalizeTranslationSettings((await settingsP).translation)
+          } catch {
+            // fall through to the locale heuristic
+          }
+          const translateTarget =
+            storedTranslation && storedTranslation.targetLanguage !== 'auto'
+              ? getLanguage(storedTranslation.targetLanguage).en
+              : resolveLocale(reconciledLocale) === 'zh'
+                ? 'English'
+                : '中文'
           const s = seed.lectorSeed
           const seedPrompt =
             s.kind === 'summarize'
@@ -374,6 +393,13 @@ export default function App() {
       if (changes.lectorTranslationHistory) {
         consumeRelayQueue('lectorTranslationHistory', changes.lectorTranslationHistory.newValue)
       }
+      // Background writes lector_byok_settings directly (e.g. the selection
+      // popup's language selector persists via 'lector-set-translation-target').
+      // Without this, the panel's zustand copy goes stale and the next settings
+      // save would silently clobber the user's choice.
+      if (changes.lector_byok_settings?.newValue) {
+        setByok(changes.lector_byok_settings.newValue as ByokSettings)
+      }
     }
     // Guard: chrome.storage.onChanged may be undefined in some contexts (e.g.
     // when the extension context is invalidated, or in test/stub environments).
@@ -391,7 +417,7 @@ export default function App() {
     })
     chrome.storage.onChanged.addListener(onStorage)
     return () => chrome.storage.onChanged?.removeListener?.(onStorage)
-  }, [])
+  }, [setByok])
 
   // Mirror the glossary out of zustand into chrome.storage.local so the content
   // script (which runs in a separate context and cannot read window.localStorage
@@ -418,6 +444,8 @@ export default function App() {
       done?: number
       total?: number
       complete?: boolean
+      /** Structural cancel flag from the content script's cancelBilingual. */
+      canceled?: boolean
     }) => {
       if (message?.action === 'lector-bilingual-progress') {
         const done = message.done ?? 0
@@ -434,12 +462,13 @@ export default function App() {
         return
       }
       if (message?.action === 'lector-bilingual-error' && message.message) {
-        // Both hard errors and user-cancel send this. Cancel's message is the
-        // bilingual.canceled string; either way the run is over.
+        // Both hard errors and user-cancel send this. Cancel is identified by
+        // the structural `canceled` flag the content script sets — NOT by
+        // string-matching the message: English words such as "stopped" appear
+        // in genuine provider errors that must stay visible.
         setBilingualBusy(false)
         setBilingualProgress(null)
-        const canceled = /cancel|stop/i.test(message.message)
-        if (!canceled) {
+        if (message.canceled !== true) {
           setError(message.message)
           // Key/quota errors surface in a top banner (no auto-opening Settings
           // on top of the current view — the user jumps to Settings themselves).
@@ -780,6 +809,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         }
         const finalMessages = next.concat(finalAssistant)
         setMessages(finalMessages)
+        setLiveNotice(tr('aria.replyReady'))
         // Guard against the session being deleted while the stream was running
         // (user removed it from the Library mid-response). updateSession on a
         // missing id is a silent no-op, but the user would lose the answer;
@@ -832,6 +862,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 : m
             )
           )
+          setLiveNotice(tr('aria.replyStopped'))
         } else {
           const msg = e instanceof Error ? e.message : tr('err.requestFailed')
           setError(msg)
@@ -843,13 +874,14 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               m.id === assistantMsg.id ? { ...m, content: `⚠️ ${msg}` } : m
             )
           )
+          setLiveNotice(tr('aria.replyFailed'))
         }
       } finally {
         abortRef.current = null
         setStreaming(false)
       }
     },
-    [input, streaming, messages, byok, page, activeSessionId, addSession, updateSession]
+    [input, streaming, messages, byok, page, activeSessionId, addSession, updateSession, glossary, tr]
   )
 
   const startNewChat = () => {
@@ -1126,12 +1158,14 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
 
       {activeView === 'chat' && (
         <>
+      {/* Single polite status region for finalized turns — see liveNotice.
+          Kept OUTSIDE the scrolling transcript so streaming token updates in
+          the transcript are never announced token-by-token. */}
+      <div role="status" className="sr-only">{liveNotice}</div>
       {/* Messages */}
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto px-3.5 py-4 space-y-3.5"
-        aria-live="polite"
-        aria-relevant="additions text"
       >
         {!providerConfigured && (
           <div className="p-3 rounded-xl bg-accent-softer border border-accent-soft text-[12px] text-accent-hover leading-relaxed">
@@ -1233,7 +1267,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 {/* Retry affordance on a failed or stopped assistant message:
                     re-send the last user turn. Hidden while a stream is in
                     flight and for the in-progress (empty) bubble. */}
-                {m.content && !streaming && /^(⚠️|\(stopped\))/.test(m.content) && (
+                {m.content && !streaming && /^(⚠️|\(stopped\)|（已停止）)/.test(m.content) && (
                   <div className="mt-1.5">
                     <button
                       onClick={retryLast}

@@ -57,7 +57,7 @@ Lector AI 是一个 **Chrome 扩展（Manifest V3）**——**纯客户端、BYO
   - `components/`——`Primitives.tsx`（`<Row>`/`<IconButton>`/`StatsCell`）、`leaf.tsx`（`ViewShell`/`Empty`/`SrsGradeButtons`/`StatsBar`）。
   - `lib/`——`downloads.ts`（`downloadBlob`/`readJsonFile`）、`chromeUtils.ts`（`jumpToBlock`/`useCurrentHost`）、`ankiFormat.ts`（`formatAnkiResult`）、`sentences.ts`（`runSentenceAnalysis`——sidepanel 侧的句子编排，依赖 store + byok，**不是** shared 纯模块）。
   - `markdown.ts`——Markdown→HTML 渲染（`renderMarkdown`），引用角标由 `renderCitations` 叠加，角标点击通过 `jumpToBlock` 跳回页面原块。
-- `manifest.json`——MV3，v0.3.0，`sidePanel` + `activeTab` + `storage` + `contextMenus` + `tabs` + `<all_urls>` host。`action.default_icon` 指向 `icons/`。
+- `manifest.json`——MV3，v0.3.0，`sidePanel` + `activeTab` + `storage` + `contextMenus` + `<all_urls>` host（`minimum_chrome_version` 114，WAR 带 `use_dynamic_url`）。`action.default_icon` 指向 `icons/`。
 
 ### 状态与存储
 
@@ -73,7 +73,22 @@ Lector AI 是一个 **Chrome 扩展（Manifest V3）**——**纯客户端、BYO
 
 `readSSE` 把 SSE 字节流按 `\n` 切行、`data:` 取载荷、`[DONE]` 结束，跨 chunk 的半截 JSON 靠 try/catch + 下一轮补全。`streamChat(onToken)` 把增量回调给 UI 做流式渲染；`completeOnce` 是它的非流式包装（translate/summarize/explain/testConnection 用）。
 
-引用溯源：content script 抽取的块带 `b0/b1/…` id；sidepanel 的系统提示把块编号成 `[0] [1] …`，要求模型只引用这些编号；`renderCitations` 把 `[N]`/`[bN]` 角标白名单限制在当前页的块 id（`b${N}`），点击发 `lector-jump-to` 消息让 content script 滚动到对应 `data-lector-id` 节点。
+引用溯源：content script 抽取的块带 `b0/b1/…` id；sidepanel 的系统提示把块编号成 `[0] [1] …`，要求模型只引用这些编号；`renderCitations` 把 `[N]`/`[bN]` 角标白名单限制在当前页的块 id（`b${N}`），点击发 `lector-jump-to` 消息让 content script 滚动到对应 `data-lector-id` 节点（每次 `extractPage` 重打标签前先清掉全文档旧标签，SPA 路由切换后不会跳到旧文章的节点）。
+
+### 整页双语翻译管线（content.ts `runBilingualTranslation`）
+
+- **控制器先行：** run 在任何 `await` 之前同步创建并持有 `AbortController`（赋给模块级 `bilingualAbort`），设置尚未加载完就取消也能命中本次 run。
+- **探测优先（probe-first）：** 先只翻译第一个候选块。质量重试仍失败（`TranslationQualityError`）→ 发一条 `bilingual.probeFailed` 并停止整页（其余块不变成 host、零请求）；探测成功 → 该块保留译文（不重复请求），其余块并发。单块页面 = 探测 = 唯一一次付费请求。
+- **结构化翻译请求：** 每块 user turn 走 `buildTranslateUserPrompt(text, target, strictRetry)`——目标语言在 user turn 重复一遍（兼容弱化 system 角色的入口），页面文本包成 `SOURCE_JSON:` JSON 字符串字面量（页面内容永远不可能注入指令）。
+- **取消语义：** `lector-cancel-bilingual` 打 `canceled: true` 结构化标志（不要用消息文本判断取消——"stopped" 是合法错误文案）；run 在 finally 里恢复本次触碰过的所有块（拆掉译文/解包 source 标记/去 host 类），晚到的普通错误不再覆盖取消提示；run 结束不发多余的 complete。
+- **run-active：** run 进行中 `body.lector-bilingual-run-active` 隐藏所有块级 Retry/Copy（CSS `!important`），防止与 run 抢块所有权；错误块的 Retry 按钮常显（`.lector-bilingual.is-error .lector-bi-actions`），Copy 隐藏。
+- **同脚本语言对（如 西→英）：** 纯脚本/相似度判不出"已翻译 vs 换说法"，输入侧（候选过滤）与输出侧（质量门）都用 `chrome.i18n.detectLanguage` 异步判定；检测 await 之后必须复查 `signal.aborted` 再写 DOM/缓存。
+- **失败块可重入：** `.lector-bilingual-host:not(.lector-translation-error)` 只排除成功 host；错误 host 留在候选里，新 run / 手动 Retry 都能重译。run 启动时还会"复活"已失效的错误 host（挪进 no-translate 区域 / 识别为仓库标题的），零请求清理。
+- **手动 Retry 保持整页目标语言：** 块级重试用的是 run 解析出的页面级 `target`，不会对孤立块重新检测方向。
+
+### 后台词汇/句卡中继（先落库再富化）
+
+`handleSaveWordRelay` / `handleExplainSentenceRelay` 先**立即**把词条/句卡（空翻译/空分析）写入 storage 队列，AI 调用完成后再按 id 回填富化——MV3 service worker 约 30 秒闲置回收，60 秒超时的慢请求不再连带丢失用户采集的内容。回填只填空字段，不覆盖并发写入的新值。
 
 ## 测试
 
@@ -81,6 +96,7 @@ Lector AI 是一个 **Chrome 扩展（Manifest V3）**——**纯客户端、BYO
 - BYOK 后无后端，`tests/setup-env.ts` 已无环境变量要设（保留为空占位）。shared 纯逻辑模块零副作用，直接 import 测。
 - `tests/content.test.ts` / `tests/extract.test.ts` import `src/content.ts`（它在 import 期注入样式并 console.log），在 jsdom 里跑抽取/工具栏逻辑。
 - **`tests/browser/*.mjs`** 是真机浏览器 E2E（Playwright 驱动 macOS 上路径硬编码的真实 Chrome），用 mock 后端伺服真实 `dist/` 产物——**先跑 `build:extension`**。可只跑子集：`npm run test:browser:{content,sidepanel,background}`。
+- `build:extension` 组装完会校验 manifest 引用的每个文件都存在于 `dist/`（content.js/background.js/sidepanel HTML/icons），缺失即 `exit 1`——半个构建不会假报成功。
 
 ## 易踩坑点
 

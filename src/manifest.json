@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "minimum_chrome_version": "114",
   "name": "Lector AI - Smart Reading Assistant",
   "version": "0.3.0",
   "description": "AI-powered reading companion: chat with any page, summarize, translate, and learn faster — right from your browser side panel.",
@@ -7,8 +8,7 @@
     "activeTab",
     "storage",
     "contextMenus",
-    "sidePanel",
-    "tabs"
+    "sidePanel"
   ],
   "commands": {
     "highlight-selection": {
@@ -34,6 +34,12 @@
         "default": "Alt+W"
       },
       "description": "Translate the whole page (not just the main content)"
+    },
+    "lector-translate-selection": {
+      "suggested_key": {
+        "default": "Alt+Q"
+      },
+      "description": "Translate the current selection"
     }
   },
   "host_permissions": [
@@ -80,7 +86,8 @@
       ],
       "matches": [
         "<all_urls>"
-      ]
+      ],
+      "use_dynamic_url": true
     }
   ],
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApZycvRsWblJlXSvRNv4bH2fKJnyWik6hEPwHwWOy3e2LlVo1vzy9Eo+9aQ2+SWy8zrm41DBs7KiibK7yQa6IVxw7uCy1vMjMwOlrdapNBM+pMyFsg6nRDUCEgwDTiIT5Jx+g1jH+xUJIBCtkRLrjTDAGMewT33orrvT6TGagdHTaISdwh6Mjl4QjOwuKgPqL9vPUvapc2UtQaSL/V2nIXjIiyqYcwnEpJ2cMxkMgA7n+ur8LbYuSRKmBTZA1fRzVrVnKgxJCkBj+vE67RKb9gYEUptLTFEgkznTmdI0ipE5G5eXHnS/6QGusNCIB52VuEA/G8YPBgswejrOUlVhqIQIDAQAB"

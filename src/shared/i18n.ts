@@ -273,6 +273,9 @@ export const STRINGS = {
 
   // --- aria-labels / titles for icon-only controls (screen-reader names) ---
   'aria.views': { en: 'Views', zh: '视图' },
+  'aria.replyReady': { en: 'Reply ready', zh: '回复已生成' },
+  'aria.replyFailed': { en: 'Reply failed', zh: '回复失败' },
+  'aria.replyStopped': { en: 'Reply stopped', zh: '回复已停止' },
   'aria.library': { en: 'Library', zh: '会话库' },
   'aria.translationHistory': { en: 'Translation history', zh: '翻译历史' },
   'aria.glossary': { en: 'Glossary', zh: '术语表' },

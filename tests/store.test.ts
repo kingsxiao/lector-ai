@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useStore, type ChatSession } from '../src/shared/store'
+import { BUILTIN_TEMPLATES } from '../src/shared/promptTemplates'
 import type { Highlight } from '../src/shared/highlights'
 import type { VocabEntry } from '../src/shared/vocabulary'
 import type { GlossaryEntry } from '../src/shared/glossary'
@@ -284,5 +285,60 @@ describe('persist migration (B5)', () => {
     useStore.setState({ hasOpened: false })
     useStore.getState().markOpened()
     expect(useStore.getState().hasOpened).toBe(true)
+  })
+
+  // Regression: built-ins live inside the persisted templates array, so
+  // trusting the persisted copy froze the built-in list at whatever shipped
+  // at first install — new built-ins never appeared, renamed ones stayed
+  // stale. Rehydration must reconcile against the CURRENT built-ins.
+  it('rehydration replaces stale persisted built-ins with current built-ins', async () => {
+    localStorage.clear()
+    const stale = {
+      state: {
+        templates: [
+          // A built-in row captured from an old release with an outdated body.
+          { id: 'tpl_builtin_summarize', title: 'Old Summarize', content: 'OLD BODY', builtIn: true, order: 0 },
+          // A user-created template — must survive as-is.
+          { id: 'tpl-user', title: 'My template', content: 'MINE', builtIn: false, order: 1 },
+        ],
+      },
+      version: 0,
+    }
+    localStorage.setItem('lector-ai-storage', JSON.stringify(stale))
+    await useStore.persist.rehydrate()
+
+    const templates = useStore.getState().templates
+    const user = templates.find((t) => t.id === 'tpl-user')
+    expect(user?.content).toBe('MINE')
+    if (user) expect(templates.filter((t) => !t.builtIn)).toEqual([user])
+    // Every built-in row matches the shipped body, not the stale copy.
+    const builtIns = templates.filter((t) => t.builtIn)
+    expect(builtIns.length).toBe(BUILTIN_TEMPLATES.length)
+    for (const b of BUILTIN_TEMPLATES) {
+      const row = templates.find((t) => t.id === b.id)
+      expect(row?.content).toBe(b.content)
+    }
+  })
+
+  it('rehydration preserves a user-renamed built-in (cleared titleKey)', async () => {
+    localStorage.clear()
+    const stale = {
+      state: {
+        templates: [
+          { id: 'tpl_builtin_summarize', title: 'My Custom Name', content: 'OLD BODY', builtIn: true, order: 0 },
+        ],
+      },
+      version: 0,
+    }
+    localStorage.setItem('lector-ai-storage', JSON.stringify(stale))
+    await useStore.persist.rehydrate()
+
+    const row = useStore.getState().templates.find((t) => t.id === 'tpl_builtin_summarize')
+    // Custom title wins; shipped content replaces the stale body.
+    expect(row?.title).toBe('My Custom Name')
+    expect(row?.titleKey).toBeUndefined()
+    expect(row?.content).toBe(
+      BUILTIN_TEMPLATES.find((b) => b.id === 'tpl_builtin_summarize')?.content
+    )
   })
 })

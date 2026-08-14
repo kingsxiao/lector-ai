@@ -65,6 +65,12 @@ function injectStyles() {
     @keyframes lectorBlink { 50% { opacity:0; } }
     .lector-bi-actions { position:absolute; right:6px; top:-10px; display:none; gap:4px; background:#FFF8EE; border:1px solid #E8DECC; border-radius:6px; padding:2px 4px; box-shadow:0 2px 8px rgba(0,0,0,.1); z-index:1; }
     .lector-bilingual:hover .lector-bi-actions { display:flex; }
+    /* While a whole-page run is in flight, per-chunk Retry/Copy stay hidden:
+       clicking Retry mid-run would race the run's own ownership of the block. */
+    body.lector-bilingual-run-active .lector-bi-actions { display:none !important; }
+    /* An error chunk has no translation to read on hover — its Retry affordance
+       must be persistently visible, not hover-gated. */
+    .lector-bilingual.is-error .lector-bi-actions { display:flex; }
     .lector-bi-actions button { border:none; background:transparent; color:#9C6B3C; cursor:pointer; font-size:11px; padding:2px 4px; border-radius:4px; }
     .lector-bi-actions button:hover { background:rgba(156,107,60,.12); }
     /* display modes (toggled via body class set by content script) */
@@ -135,14 +141,18 @@ export interface ExtractedPage {
 export function extractPage(): ExtractedPage {
   const root = findBestContentRoot()
 
-  // Clone before stripping so we don't mutate the live page.
-  const clone = root.cloneNode(true) as Element
-  NOISE_SELECTORS.forEach((sel) => {
-    clone.querySelectorAll(sel).forEach((n) => n.remove())
-  })
-
   // Collect paragraph-ish text preserving some structure, tagging the LIVE DOM
   // nodes with stable ids so citations (Feature ①) can jump back to them.
+  // Clear tags from any previous run FIRST: on SPAs the old article's nodes can
+  // survive a route change, and a stale [data-lector-id="bN"] would win the
+  // jump-to querySelector and scroll the citation to the wrong article.
+  document.querySelectorAll('[data-lector-id]').forEach((el) => {
+    try {
+      el.removeAttribute('data-lector-id')
+    } catch {
+      // ignore nodes that reject attribute mutation
+    }
+  })
   const pageBlocks: ExtractedPageBlock[] = []
   const textParts: string[] = []
   const liveNodes = root.querySelectorAll('h1,h2,h3,h4,p,li,blockquote,pre')
@@ -160,6 +170,13 @@ export function extractPage(): ExtractedPage {
   })
   let text = textParts.join('\n\n')
   if (text.length < 200) {
+    // Fallback for extraction-hostile pages: clone and strip noise only now —
+    // the clone is pointless overhead on the (common) happy path.
+    // Clone before stripping so we don't mutate the live page.
+    const clone = root.cloneNode(true) as Element
+    NOISE_SELECTORS.forEach((sel) => {
+      clone.querySelectorAll(sel).forEach((n) => n.remove())
+    })
     text = (clone.textContent || '').replace(/\s+/g, ' ').trim()
   }
   text = text.slice(0, 20000)
@@ -839,20 +856,30 @@ function showStreamingTranslateResult(
       await run(target, mySink, runController.signal)
       if (myGen !== gen) return // superseded; don't touch DOM or history
       if (caret.parentNode === content) content.removeChild(caret)
-      chrome.runtime
-        .sendMessage({
-          action: 'lector-translation-history',
-          entry: {
-            source: sourceText.slice(0, 200),
-            target: (acc || '').slice(0, 200),
-            sourceLang: 'auto',
-            targetLang: target,
-            kind: 'selection',
-            url: location.href,
-            createdAt: Date.now(),
-          },
-        })
-        .catch(() => {})
+      // The history relay is best-effort. It lives OUTSIDE the stream's error
+      // path on purpose: when the extension context is invalidated,
+      // chrome.runtime.sendMessage throws synchronously ("Extension context
+      // invalidated") — a bare .catch() can't catch that, and if it propagated
+      // it would land in the catch below and overwrite the already-streamed,
+      // fully-completed translation with an error message.
+      try {
+        chrome.runtime
+          .sendMessage({
+            action: 'lector-translation-history',
+            entry: {
+              source: sourceText.slice(0, 200),
+              target: (acc || '').slice(0, 200),
+              sourceLang: 'auto',
+              targetLang: target,
+              kind: 'selection',
+              url: location.href,
+              createdAt: Date.now(),
+            },
+          })
+          .catch(() => {})
+      } catch {
+        // Orphaned content script — translation already rendered, just skip history.
+      }
     } catch (e) {
       // A run superseded by a newer language switch was aborted — don't
       // surface its error or touch the DOM; the newer run owns the popup.
@@ -868,8 +895,14 @@ function showStreamingTranslateResult(
       sel.value === 'auto'
         ? resolveTargetLang('auto', sourceText)
         : (sel.value as TargetLangCode)
-    // Persist the user's choice so it sticks for next time.
-    chrome.runtime.sendMessage({ action: 'lector-set-translation-target', target: sel.value }).catch(() => {})
+    // Persist the user's choice so it sticks for next time. try/catch (not
+    // just .catch) — a synchronous "Extension context invalidated" throw here
+    // would otherwise kill the language switch itself.
+    try {
+      chrome.runtime.sendMessage({ action: 'lector-set-translation-target', target: sel.value }).catch(() => {})
+    } catch {
+      // Orphaned content script — still switch the language locally.
+    }
     void execute(code)
   }
 
@@ -907,12 +940,14 @@ import {
   isTextAlreadyInTargetLanguage,
   splitBlockForTranslation,
   buildTranslateSystemPrompt,
+  buildTranslateUserPrompt,
   filterGlossaryForDirection,
   resolveTargetLang,
   detectScript,
   detectSourceLang,
   isTranslationLikelyUnchanged,
   maxTokensForChunk,
+  scriptOfLang,
   EXCLUDED_ANCESTOR_TAGS,
   LANGUAGES,
   getLanguage,
@@ -926,6 +961,7 @@ import {
   putEntry,
   getEntry,
   parseStore,
+  mergeCacheStores,
   type CacheStore,
 } from './shared/translationCache'
 import { findRuleForHost, shouldAutoTranslatePage, inputBoxDisabledForHost } from './shared/siteRules'
@@ -960,7 +996,18 @@ async function requireApiKey(
   y: number,
   kind: 'translate' | 'summary' | 'explain'
 ): Promise<ByokSettings | null> {
-  const settings = await getSettings()
+  let settings: ByokSettings
+  try {
+    settings = await getSettings()
+  } catch (e) {
+    // getSettings() can throw synchronously when the extension context is
+    // invalidated (orphaned content script). Surface the error instead of
+    // leaving a stuck loading spinner + unhandled rejection at the caller.
+    clearPopups()
+    const msg = e instanceof Error ? e.message : tr('err.requestFailed')
+    showResult(x, y, tr('err.failedPrefix').replace('{msg}', msg), kind)
+    return null
+  }
   cachedPref = settings.locale ?? 'auto'
   if (!settings.apiKey) {
     clearPopups()
@@ -1222,7 +1269,10 @@ const TRANSLATION_NOISE_SELECTOR =
 const TRANSLATION_SELF_SELECTOR =
   [
     '#lector-ai-result', '#lector-ai-toolbar', '#lector-ai-loading', '#lector-ai-fab',
-    '[data-lector-no-translate]', '.lector-bilingual-host', '.lector-bi-source',
+    '[data-lector-no-translate]',
+    // A successfully translated host is done; a FAILED host (.lector-translation-error)
+    // must stay eligible so a later run (or Retry) can retranslate it.
+    '.lector-bilingual-host:not(.lector-translation-error)', '.lector-bi-source',
     '.lector-bilingual', '.lector-bi-actions',
   ].join(',')
 
@@ -1233,7 +1283,8 @@ function buildBlockCandidate(el: HTMLElement) {
     text,
     tag: el.tagName,
     isInsideExcluded: !!el.closest(EXCLUDED_SELECTOR),
-    isAlreadyTranslated: !!el.querySelector('.lector-bilingual'),
+    // An error chunk is NOT a translation — its host must stay retryable.
+    isAlreadyTranslated: !!el.querySelector('.lector-bilingual:not(.is-error)'),
     textRatio: text.length / outerLen,
   }
 }
@@ -1512,17 +1563,22 @@ function applyTranslationStyle(ts: TranslationSettings) {
 
 /** Build the per-chunk hover action cluster (retry + copy). Shared by the
  *  streaming path and the cache-hit fast-path so a cached translation gets the
- *  same per-chunk controls. `onRetry` re-runs just this chunk. */
-function makeChunkActions(span: HTMLElement, onRetry: () => void): HTMLElement {
+ *  same per-chunk controls. `onRetry` re-runs just this chunk. On an error
+ *  chunk Copy is hidden (there is no valid translation to copy) while Retry
+ *  stays — the whole point of the error state is retryability. */
+function makeChunkActions(span: HTMLElement, onRetry: () => void, opts: { hideCopy?: boolean } = {}): HTMLElement {
   const actions = document.createElement('span')
   actions.className = 'lector-bi-actions'
   const retry = document.createElement('button')
   retry.type = 'button'
+  retry.className = 'lector-bi-retry'
   retry.textContent = tr('bilingual.retry')
   retry.onclick = (ev) => { ev.stopPropagation(); onRetry() }
   const copy = document.createElement('button')
   copy.type = 'button'
+  copy.className = 'lector-bi-copy'
   copy.textContent = tr('bilingual.copyTranslation')
+  if (opts.hideCopy) copy.style.display = 'none'
   copy.onclick = (ev) => {
     ev.stopPropagation()
     navigator.clipboard.writeText(readChunkTranslation(span)).catch(() => {})
@@ -1591,11 +1647,19 @@ function parseStoreFromString(raw: string): CacheStore {
   }
 }
 
-/** Persist the cache to chrome.storage.local (best-effort, fire-and-forget). */
+/** Persist the cache to chrome.storage.local (best-effort, fire-and-forget).
+ *
+ * Merge-aware: `snapshot` was captured at run start, so blindly overwriting
+ * `lectorCache` would drop entries another tab (or a manual retry) wrote in
+ * the meantime. mergeCacheStores keeps the newest entry per key and trims to
+ * the LRU cap. */
 async function saveCache(store: CacheStore): Promise<void> {
   try {
     if (typeof chrome === 'undefined' || !chrome.storage) return
-    await chrome.storage.local.set({ lectorCache: store })
+    const r = await chrome.storage.local.get('lectorCache')
+    const raw = (r as Record<string, unknown>).lectorCache
+    const latest = raw ? (typeof raw === 'string' ? parseStoreFromString(raw) : parseStore(raw)) : {}
+    await chrome.storage.local.set({ lectorCache: mergeCacheStores(latest, store) })
   } catch {
     /* storage unavailable — caching is best-effort */
   }
@@ -1618,6 +1682,50 @@ class TranslationQualityError extends Error {
     super(message)
     this.name = 'TranslationQualityError'
   }
+}
+
+/** chrome.i18n.detectLanguage wrapper. Returns the top reliable language code
+ *  (base form, e.g. "zh-CN" → "zh") or null when the API is missing/failed.
+ *  Used where the sync script-based checks are blind: Latin-script language
+ *  pairs (Spanish vs English share a script, so character coverage and even
+ *  text similarity cannot tell a real translation from a paraphrase). */
+async function detectLanguageBase(text: string): Promise<string | null> {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.i18n?.detectLanguage) return null
+    const result = await chrome.i18n.detectLanguage(text)
+    const top = result?.languages?.[0]
+    if (!top?.language || result.isReliable === false) return null
+    return top.language.split('-')[0].toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+/** Async-augmented output quality gate for a finished stream. Extends the pure
+ *  isTranslationLikelyUnchanged with the browser language detector for
+ *  same-script pairs (its own comment defers exactly this case). A late cancel
+ *  during the detection await surfaces as AbortError so the caller skips all
+ *  DOM/cache writes. */
+async function outputLooksUntranslated(
+  source: string,
+  output: string,
+  targetLang: TargetLangCode,
+  signal?: AbortSignal
+): Promise<boolean> {
+  if (isTranslationLikelyUnchanged(source, output, targetLang)) return true
+  if (scriptOfLang(targetLang) !== detectScript(source)) return false
+  const detected = await detectLanguageBase(output)
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+  if (detected === null) return false
+  return detected !== targetLang.split('-')[0].toLowerCase()
+}
+
+/** Input-side twin of outputLooksUntranslated: should this block be skipped
+ *  because it is already written in the (same-script) target language? */
+async function textLooksLikeTargetLanguage(text: string, targetLang: TargetLangCode): Promise<boolean> {
+  const detected = await detectLanguageBase(text)
+  if (detected === null) return false
+  return detected === targetLang.split('-')[0].toLowerCase()
 }
 
 /** Translate a single chunk of source text, streaming tokens into a freshly
@@ -1685,13 +1793,16 @@ async function translateOneChunk(
   const caret = document.createElement('span')
   caret.className = 'lector-bi-caret'
   span.appendChild(caret)
-  // Per-chunk hover actions: retry re-runs ONLY this chunk.
-  const actions = makeChunkActions(span, () => {
+  // Manual retry re-runs ONLY this chunk (used by both the normal actions row
+  // and the error-state row rebuilt below).
+  const onManualRetry = () => {
     span.remove()
     // A page-level cancel aborts `signal`; reusing that dead signal would make
     // the visible Retry control permanently inert.
     void translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 0, undefined, cache ? cacheDisabled(cache) : undefined).catch(() => {})
-  })
+  }
+  // Per-chunk hover actions: retry re-runs ONLY this chunk.
+  const actions = makeChunkActions(span, onManualRetry)
   block.appendChild(span)
 
   // On the forced retry, prepend an imperative instruction so the model stops
@@ -1705,7 +1816,13 @@ async function translateOneChunk(
   try {
     await streamChat(
       settings,
-      [{ role: 'system', content: effectiveSystem }, { role: 'user', content: chunkText }],
+      [
+        { role: 'system', content: effectiveSystem },
+        // Structured user turn: repeats the target language (some compatible
+        // endpoints weaken the system role) and wraps the page text as a JSON
+        // string literal so page content can never smuggle instructions.
+        { role: 'user', content: buildTranslateUserPrompt(chunkText, targetLang, attempt > 0) },
+      ],
       { maxTokens: maxTokensForChunk(chunkText.length), temperature: attempt > 0 ? 0 : 0.2 },
       (delta) => {
         acc += delta
@@ -1732,7 +1849,7 @@ async function translateOneChunk(
     span.classList.add('is-error')
     block.classList.add('lector-translation-error')
     span.textContent = tr('bilingual.blockError')
-    span.appendChild(actions)
+    span.appendChild(makeChunkActions(span, onManualRetry, { hideCopy: true }))
     throw e
   }
 
@@ -1740,7 +1857,7 @@ async function translateOneChunk(
   // untranslated result, or empty response gets one stricter retry. Cache
   // lookup is disabled by `attempt`, while a successful retry may safely write
   // the newly validated output.
-  if (isTranslationLikelyUnchanged(chunkText, acc, targetLang)) {
+  if (await outputLooksUntranslated(chunkText, acc, targetLang, signal)) {
     if (attempt === 0) {
       span.remove()
       return translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 1, signal, cache)
@@ -1753,9 +1870,13 @@ async function translateOneChunk(
     span.classList.add('is-error')
     block.classList.add('lector-translation-error')
     span.textContent = message
-    span.appendChild(actions)
+    span.appendChild(makeChunkActions(span, onManualRetry, { hideCopy: true }))
     throw new TranslationQualityError(message)
   }
+
+  // A late cancel (e.g. while the same-script language detector above was
+  // pending) must not write the final DOM state or cache the result.
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
 
   const rendered = acc
   block.classList.remove('lector-translation-error')
@@ -1809,23 +1930,42 @@ function readBlockSourceText(block: HTMLElement): string {
   return sourceNodesFor(block).map((node) => node.textContent || '').join('').trim()
 }
 
+/** Fully undo this run's DOM marks on a block: remove injected translation
+ *  chunks, unwrap source-node markers (restoring bare text nodes), drop host
+ *  classes. Used by page-cancel cleanup and stale-error revalidation — the
+ *  block must read exactly as it did before Lector touched it. */
+function restoreBlockSource(block: HTMLElement): void {
+  block.querySelectorAll(':scope > .lector-bilingual').forEach((n) => n.remove())
+  for (const node of Array.from(block.querySelectorAll(':scope > .lector-bi-source-node'))) {
+    node.classList.remove('lector-bi-source', 'lector-bi-source-node')
+    if ((node as HTMLElement).dataset?.lectorSourceText === 'true') {
+      node.replaceWith(...Array.from(node.childNodes))
+    }
+  }
+  block.classList.remove('lector-bilingual-host', 'lector-translation-error')
+}
+
 /** Translate a DOM block, splitting long text into chunks first so nothing is
  *  silently dropped. Marks original direct children in place, then appends one
  *  `.lector-bilingual` per chunk in order. `signal` aborts every chunk's
- *  request. Returns the concatenation of chunk translations. */
+ *  request. `touched` (when provided) records blocks this run made into hosts
+ *  so a cancel can restore them wholesale. Returns the concatenation of chunk
+ *  translations. */
 async function translateBlockChunks(
   settings: ByokSettings,
   systemPrompt: string,
   block: HTMLElement,
   targetLang: TargetLangCode,
   signal?: AbortSignal,
-  cache?: CacheCtx
+  cache?: CacheCtx,
+  touched?: Set<HTMLElement>
 ): Promise<string> {
   // Mark the host so display-mode CSS (translationOnly / hover) can target it.
   // Source element children stay exactly where they are; only bare text nodes
   // receive a span wrapper for CSS visibility control.
   block.classList.add('lector-bilingual-host')
   block.classList.remove('lector-translation-error')
+  touched?.add(block)
   ensureSourceNodes(block)
   // Read only marked source nodes: block.textContent also includes translations
   // from a previous retry and would pollute the next request.
@@ -1861,6 +2001,11 @@ function reportBilingualTerminal(message: string): void {
   }).catch(() => {})
 }
 
+/** Monotonic run id: only the CURRENT run may remove the body run-active
+ *  class. A re-entering run bumps the serial so the aborted run's finally
+ *  doesn't clear the marker of the run that replaced it. */
+let bilingualRunSerial = 0
+
 async function runBilingualTranslation() {
   // Re-entrancy guard: a second toggle (or a side-panel re-send) must abort
   // any in-flight run FIRST. Otherwise both runs translate the same blocks
@@ -1878,113 +2023,148 @@ async function runBilingualTranslation() {
     clearTimeout(pendingCacheTimer)
     pendingCacheTimer = null
   }
-  const settings = await getSettings()
-  cachedPref = settings.locale ?? 'auto'
-  if (!settings.apiKey) {
-    chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
-    reportBilingualTerminal(tr('err.addKey'))
-    return
-  }
-  const tSettings = normalizeTranslationSettings(settings.translation)
-  applyTranslationStyle(tSettings)
+  // Own the cancellation controller SYNCHRONOUSLY, before the first await: a
+  // cancel that arrives while settings are still loading must already reach
+  // this run, or it would proceed to send provider requests after the UI
+  // reported it canceled.
+  const controller = new AbortController()
+  bilingualAbort = controller
+  const serial = ++bilingualRunSerial
+  document.body.classList.add('lector-bilingual-run-active')
+  // Blocks this run turned into hosts — restored wholesale if the run aborts.
+  const touched = new Set<HTMLElement>()
 
-  // Site rules: per-domain extra selectors / exclusions augment the default
-  // block query. `pageScope` controls whether we translate the smart main
-  // content root only (opt-in) or the whole document.body (default, matches the
-  // long-standing behavior + Immersive Translate). A keyboard override
-  // (Alt+A smart / Alt+W whole) wins for this run, then is cleared.
-  const effectiveScope = bilingualScopeOverride || tSettings.pageScope
-  bilingualScopeOverride = null
-  const host = location.hostname
-  const siteRule = findRuleForHost(tSettings.siteRules, host) || undefined
-  // 'whole' (default) → translate every eligible prose block in the document.
-  // 'smart' → use the detected main-content root. If no root exists we already
-  // use body; if a real root exists but contains no prose, do not fall back to
-  // translating the site's UI chrome.
-  const smartRoot = effectiveScope === 'smart' ? extractPageRoot() : null
-  const scopeRoot: Element = (effectiveScope === 'whole' || !smartRoot) ? document.body : smartRoot
-  const excludeExtra = siteRule?.excludeSelectors?.length
-    ? siteRule.excludeSelectors.map((s) => s.trim()).filter(Boolean)
-    : []
-  let candidates = collectTranslationCandidates(
-    scopeRoot,
-    siteRule?.selectors || [],
-    excludeExtra
-  )
-  if (candidates.length === 0) {
-    reportBilingualTerminal(tr('bilingual.noContent'))
-    return
-  }
-
-  // Resolve auto direction from the same visible, filtered candidates that
-  // will actually be translated. Hidden menus and navigation text must not
-  // decide the direction of the real page prose.
-  const candidateText = candidates
-    .map((el) => (el.textContent || '').trim())
-    .filter(Boolean)
-    .join('\n')
-    .slice(0, 20000)
-  // Detect the source language from the same candidate text (was previously
-  // read off extractPage().lang, which re-traversed h1-h6/p/li/etc. just to
-  // get a lang tag — candidateText is already built and is the visible prose).
-  const pageLang = detectSourceLang(candidateText)
-  const target = resolveTargetLang(tSettings.targetLanguage, candidateText || 'Hello world')
-  candidates = candidates.filter((el) => {
-    const text = (el.textContent || '').trim()
-    return text.length > 0 && !isTextAlreadyInTargetLanguage(text, target)
-  })
-  if (candidates.length === 0) {
-    reportBilingualTerminal(tr('bilingual.noContent'))
-    return
-  }
-  const { systemPrompt, glossaryBlock, persona } = await buildTranslationPromptBundle(tSettings, target)
-
-  // Translation cache (Phase 5): load once per run, persist after. A hit skips
-  // the provider call entirely; a miss streams + writes back. ttlDays 0 = off.
-  const cacheOn = tSettings.cacheTtlDays > 0
-  let cache: CacheStore = cacheOn ? await loadCache() : {}
-  const persistCache = (() => {
-    let scheduled = false
-    let snapshot = cache
-    return (next: CacheStore) => {
-      snapshot = next
-      if (scheduled) return
-      scheduled = true
-      // Debounce persistence so a burst of chunk completements writes once.
-      pendingCacheTimer = setTimeout(() => {
-        scheduled = false
-        pendingCacheTimer = null
-        void saveCache(snapshot)
-      }, 800)
-    }
-  })()
-
-  bilingualAbort = new AbortController()
-  const controller = bilingualAbort
-  const total = candidates.length
-  let done = 0
-  // Throttle progress reports: on a 200-block page this fired ~200 messages in
-  // bursts, each waking the MV3 service worker. Send at most every 250ms during
-  // the run, plus always on the final complete:true.
-  let lastReportAt = 0
-  const report = (complete = false) => {
-    const now = Date.now()
-    if (!complete && now - lastReportAt < 250) return
-    lastReportAt = now
-    chrome.runtime
-      .sendMessage({ action: 'lector-bilingual-progress', done, total, complete })
-      .catch(() => {})
-  }
-  report()
-
-  // Wrap the run in try/finally so the module-level controller is always
-  // released — but only if it is STILL ours. A later run may have already
-  // reassigned bilingualAbort (re-entrancy); nulling it then would orphan the
-  // newer run and make IT uncancellable.
   try {
-  const results = await runConcurrent(
-    candidates,
-    async (block) => {
+    const settings = await getSettings()
+    if (controller.signal.aborted) return
+    cachedPref = settings.locale ?? 'auto'
+    if (!settings.apiKey) {
+      chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
+      reportBilingualTerminal(tr('err.addKey'))
+      return
+    }
+    const tSettings = normalizeTranslationSettings(settings.translation)
+    applyTranslationStyle(tSettings)
+
+    // Site rules: per-domain extra selectors / exclusions augment the default
+    // block query. `pageScope` controls whether we translate the smart main
+    // content root only (opt-in) or the whole document.body (default, matches the
+    // long-standing behavior + Immersive Translate). A keyboard override
+    // (Alt+A smart / Alt+W whole) wins for this run, then is cleared.
+    const effectiveScope = bilingualScopeOverride || tSettings.pageScope
+    bilingualScopeOverride = null
+    const host = location.hostname
+    const siteRule = findRuleForHost(tSettings.siteRules, host) || undefined
+    // 'whole' (default) → translate every eligible prose block in the document.
+    // 'smart' → use the detected main-content root. If no root exists we already
+    // use body; if a real root exists but contains no prose, do not fall back to
+    // translating the site's UI chrome.
+    const smartRoot = effectiveScope === 'smart' ? extractPageRoot() : null
+    const scopeRoot: Element = (effectiveScope === 'whole' || !smartRoot) ? document.body : smartRoot
+
+    // Stale-error revalidation: a host that failed in an earlier run may since
+    // have become untranslatable (moved under no-translate UI, or recognized
+    // as repository/metadata markup). Dead error markers are removed WITHOUT
+    // provider calls so they can't linger on the page forever.
+    scopeRoot.querySelectorAll('.lector-bilingual-host.lector-translation-error').forEach((el) => {
+      const failedHost = el as HTMLElement
+      const text = (failedHost.textContent || '').trim()
+      if (isStructurallyExcluded(failedHost) || isNonProseMetadata(failedHost, text)) {
+        restoreBlockSource(failedHost)
+      }
+    })
+
+    const excludeExtra = siteRule?.excludeSelectors?.length
+      ? siteRule.excludeSelectors.map((s) => s.trim()).filter(Boolean)
+      : []
+    let candidates = collectTranslationCandidates(
+      scopeRoot,
+      siteRule?.selectors || [],
+      excludeExtra
+    )
+    if (candidates.length === 0) {
+      reportBilingualTerminal(tr('bilingual.noContent'))
+      return
+    }
+
+    // Resolve auto direction from the same visible, filtered candidates that
+    // will actually be translated. Hidden menus and navigation text must not
+    // decide the direction of the real page prose.
+    const candidateText = candidates
+      .map((el) => (el.textContent || '').trim())
+      .filter(Boolean)
+      .join('\n')
+      .slice(0, 20000)
+    // Detect the source language from the same candidate text (was previously
+    // read off extractPage().lang, which re-traversed h1-h6/p/li/etc. just to
+    // get a lang tag — candidateText is already built and is the visible prose).
+    const pageLang = detectSourceLang(candidateText)
+    const target = resolveTargetLang(tSettings.targetLanguage, candidateText || 'Hello world')
+    if (scriptOfLang(target) === detectScript(candidateText)) {
+      // Same-script pair (e.g. Spanish page → English target): character
+      // coverage can't tell "already translated" from "needs translation", so
+      // consult the browser language detector per candidate.
+      const kept: HTMLElement[] = []
+      for (const el of candidates) {
+        const text = (el.textContent || '').trim()
+        if (!text) continue
+        const syncSkip = isTextAlreadyInTargetLanguage(text, target)
+        const detectorSkip = syncSkip ? true : await textLooksLikeTargetLanguage(text, target)
+        if (!detectorSkip) kept.push(el)
+        if (controller.signal.aborted) return
+      }
+      candidates = kept
+    } else {
+      candidates = candidates.filter((el) => {
+        const text = (el.textContent || '').trim()
+        return text.length > 0 && !isTextAlreadyInTargetLanguage(text, target)
+      })
+    }
+    if (candidates.length === 0) {
+      reportBilingualTerminal(tr('bilingual.noContent'))
+      return
+    }
+    const { systemPrompt, glossaryBlock, persona } = await buildTranslationPromptBundle(tSettings, target)
+    if (controller.signal.aborted) return
+
+    // Translation cache (Phase 5): load once per run, persist after. A hit skips
+    // the provider call entirely; a miss streams + writes back. ttlDays 0 = off.
+    const cacheOn = tSettings.cacheTtlDays > 0
+    let cache: CacheStore = cacheOn ? await loadCache() : {}
+    if (controller.signal.aborted) return
+    const persistCache = (() => {
+      let scheduled = false
+      let snapshot = cache
+      return (next: CacheStore) => {
+        snapshot = next
+        if (scheduled) return
+        scheduled = true
+        // Debounce persistence so a burst of chunk completements writes once.
+        pendingCacheTimer = setTimeout(() => {
+          scheduled = false
+          pendingCacheTimer = null
+          void saveCache(snapshot)
+        }, 800)
+      }
+    })()
+
+    const total = candidates.length
+    let done = 0
+    // Throttle progress reports: on a 200-block page this fired ~200 messages in
+    // bursts, each waking the MV3 service worker. Send at most every 250ms during
+    // the run, plus always on the final complete:true.
+    let lastReportAt = 0
+    const report = (complete = false) => {
+      const now = Date.now()
+      if (!complete && now - lastReportAt < 250) return
+      lastReportAt = now
+      chrome.runtime
+        .sendMessage({ action: 'lector-bilingual-progress', done, total, complete })
+        .catch(() => {})
+    }
+    report()
+
+    const runBlock = async (block: HTMLElement): Promise<void> => {
       // Build the cache context fresh per worker so it reads the latest shared
       // `cache` store (workers run concurrently and each may add entries). The
       // store field is a getter so a worker always sees sibling writes.
@@ -1999,7 +2179,7 @@ async function runBilingualTranslation() {
           }
         : undefined
       try {
-        await translateBlockChunks(settings, systemPrompt, block, target, controller.signal, cacheCtx)
+        await translateBlockChunks(settings, systemPrompt, block, target, controller.signal, cacheCtx, touched)
       } catch (e) {
         // Don't retry (or count) once the user has cancelled.
         if (controller.signal.aborted) throw e
@@ -2010,7 +2190,7 @@ async function runBilingualTranslation() {
         await new Promise((r) => setTimeout(r, 500))
         if (controller.signal.aborted) throw e
         try {
-          await translateBlockChunks(settings, systemPrompt, block, target, controller.signal, cacheCtx)
+          await translateBlockChunks(settings, systemPrompt, block, target, controller.signal, cacheCtx, touched)
         } catch (e2) {
           // The failed chunk's own span was already marked is-error inside
           // translateOneChunk's catch. Don't reach for the first .lector-bilingual
@@ -2026,48 +2206,90 @@ async function runBilingualTranslation() {
           report()
         }
       }
-    },
-    { concurrency: tSettings.concurrency, signal: controller.signal }
-  )
+    }
 
-  // Relay one history entry for the page (sample = first successfully translated block).
-  const firstOkIdx = results.findIndex((r) => r.ok)
-  if (firstOkIdx >= 0) {
+    // Probe-first: translate ONE candidate before touching the rest. A provider
+    // that echoes the source language (the English→English regression) fails
+    // here after its single semantic retry, and we stop the whole page with one
+    // message instead of N identical paid failures. A successful probe already
+    // leaves that block translated — no duplicate formal request for it.
+    try {
+      await runBlock(candidates[0])
+    } catch (e) {
+      if (e instanceof TranslationQualityError) {
+        chrome.runtime
+          .sendMessage({ action: 'lector-bilingual-error', message: tr('bilingual.probeFailed') })
+          .catch(() => {})
+        report(true)
+        return
+      }
+      throw e
+    }
+
+    const results = await runConcurrent(
+      candidates.slice(1),
+      runBlock,
+      { concurrency: tSettings.concurrency, signal: controller.signal }
+    )
+    if (controller.signal.aborted) return
+
+    // Relay one history entry for the page (sample = first successfully translated block).
+    const firstRestOkIdx = results.findIndex((r) => r.ok)
+    const firstOkIdx = firstRestOkIdx >= 0 ? firstRestOkIdx + 1 : 0
     const sample = candidates[firstOkIdx]
-    const source = readBlockSourceText(sample)
-    const tgt = Array.from(sample.querySelectorAll(':scope > .lector-bilingual'))
-      .map(readChunkTranslation)
-      .join('')
-      .slice(0, 200)
-    chrome.runtime
-      .sendMessage({
-        action: 'lector-translation-history',
-        entry: {
-          source: source.slice(0, 200),
-          target: tgt,
-          sourceLang: pageLang || 'auto',
-          targetLang: target,
-          kind: 'page',
-          url: location.href,
-          createdAt: Date.now(),
-        },
-      })
-      .catch(() => {})
-  }
+    if (sample) {
+      const source = readBlockSourceText(sample)
+      const tgt = Array.from(sample.querySelectorAll(':scope > .lector-bilingual'))
+        .map(readChunkTranslation)
+        .join('')
+        .slice(0, 200)
+      if (source && tgt) {
+        chrome.runtime
+          .sendMessage({
+            action: 'lector-translation-history',
+            entry: {
+              source: source.slice(0, 200),
+              target: tgt,
+              sourceLang: pageLang || 'auto',
+              targetLang: target,
+              kind: 'page',
+              url: location.href,
+              createdAt: Date.now(),
+            },
+          })
+          .catch(() => {})
+      }
+    }
 
-  // First non-abort error surfaces to side panel (preserve existing UX).
-  const firstErr = results.find(
-    (r) => !r.ok && !(r.error instanceof DOMException && (r.error as DOMException).name === 'AbortError')
-  )
-  if (firstErr && !firstErr.ok) {
-    const msg = firstErr.error instanceof Error ? firstErr.error.message : tr('err.requestFailed')
-    chrome.runtime.sendMessage({ action: 'lector-bilingual-error', message: msg }).catch(() => {})
-  }
-  report(true)
+    // First non-abort error surfaces to side panel (preserve existing UX). A
+    // canceled run reports nothing extra — cancelBilingual already sent the
+    // canceled notice, and a late provider error must not overwrite it.
+    const firstErr = results.find(
+      (r) => !r.ok && !(r.error instanceof DOMException && (r.error as DOMException).name === 'AbortError')
+    )
+    if (firstErr && !firstErr.ok && !controller.signal.aborted) {
+      const msg = firstErr.error instanceof Error ? firstErr.error.message : tr('err.requestFailed')
+      chrome.runtime.sendMessage({ action: 'lector-bilingual-error', message: msg }).catch(() => {})
+    }
+    report(true)
+  } catch (e) {
+    // Aborts were user-initiated (cancel / replacement run) — cancelBilingual
+    // already reported. Anything else propagates to toggleBilingual's terminal
+    // reporting. DOM restoration for aborts happens in finally below.
+    if (!controller.signal.aborted) throw e
   } finally {
+    // A canceled/replaced run restores every block it had marked, so partial
+    // output never lingers and the page reads exactly as before. Completed
+    // (non-aborted) runs keep their translations and error markers.
+    if (controller.signal.aborted) {
+      for (const block of touched) restoreBlockSource(block)
+    }
+    if (bilingualRunSerial === serial) {
+      document.body.classList.remove('lector-bilingual-run-active')
+    }
     // Release the controller only if it is still ours. If a newer run already
     // reassigned bilingualAbort (re-entrancy), leave it alone — nulling it
-    // would orphan that newer run and make it uncancellable.
+    // would orphan that newer run and make IT uncancellable.
     if (bilingualAbort === controller) bilingualAbort = null
   }
 }
@@ -2077,8 +2299,10 @@ function cancelBilingual() {
     bilingualAbort.abort()
     bilingualAbort = null
   }
+  // `canceled: true` lets the panel distinguish an intentional stop from a
+  // provider failure; the run suppresses any late ordinary error after it.
   chrome.runtime
-    .sendMessage({ action: 'lector-bilingual-error', message: tr('bilingual.canceled') })
+    .sendMessage({ action: 'lector-bilingual-error', message: tr('bilingual.canceled'), canceled: true })
     .catch(() => {})
 }
 
@@ -2211,7 +2435,24 @@ function writeEditableField(el: EditableField, value: string) {
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
     el.value = value
   } else {
-    el.textContent = value
+    // Rich editors (Gmail/Notion/LinkedIn compose boxes) keep their own model
+    // of the DOM; a wholesale `el.textContent = value` flattens formatting,
+    // signatures and quoted replies into one text node and can desync the
+    // editor. Route the replacement through the editor's input pipeline
+    // instead: select all + execCommand('insertText'). execCommand is
+    // deprecated but remains the reliable cross-editor way to perform a
+    // user-visible edit that frameworks observe; fall back to textContent
+    // only when an editor blocks it.
+    el.focus()
+    const sel = window.getSelection()
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+    if (!document.execCommand('insertText', false, value)) {
+      el.textContent = value
+    }
+    sel?.collapseToEnd()
   }
   el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }))
 }
@@ -2284,6 +2525,10 @@ document.addEventListener('keydown', (e) => {
 // Listeners: selection → toolbar, Escape, side-panel messages
 // ---------------------------------------------------------------------------
 document.addEventListener('mouseup', (e) => {
+  // Only the primary button ends a text selection. Right/middle mouseup (e.g.
+  // releasing over an existing selection to open the context menu) must not
+  // pop the toolbar under the native menu.
+  if (e.button !== 0) return
   const target = e.target as HTMLElement
   if (isLectorUiTarget(target)) {
     return
@@ -2333,6 +2578,7 @@ document.addEventListener('keydown', (e) => {
     if (fabMenu) closeFabMenu()
     removeToolbar()
     removeResult()
+    removeLoading()
   }
 })
 

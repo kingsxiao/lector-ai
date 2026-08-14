@@ -473,6 +473,13 @@ function hasResidualSourcePhrase(
   output: string,
   sourceScript: Script
 ): boolean {
+  // Self-compare fast path: isTextAlreadyInTargetLanguage calls this with
+  // (text, text). Identical text makes every word trivially match, so the
+  // (sourceStart × outputStart) pairing is O(n²) for a question a single
+  // linear walk answers: for identical texts any off-diagonal run reads the
+  // same source tokens as the diagonal run started at the same index and can
+  // only terminate sooner, so the diagonal runs already cover all evidence.
+  if (source === output) return hasResidualSourcePhraseInSelf(source, sourceScript)
   const sourceWords = sourceScriptWordTokens(source, sourceScript)
   const outputWords = sourceScriptWordTokens(output, sourceScript)
   if (sourceWords.length === 0 || outputWords.length === 0) return false
@@ -527,6 +534,50 @@ function hasResidualSourcePhrase(
           !isNaturalPhraseGap(output, outputWords[outputStart + words - 1], nextOutput)
         ) break
       }
+    }
+  }
+  return false
+}
+
+/** Linear self-compare variant of hasResidualSourcePhrase: one pass over the
+ *  text's words, resetting the accumulated run at each non-whitespace gap —
+ *  behaviour-equivalent to running only the diagonal (i, i) start pairs. */
+function hasResidualSourcePhraseInSelf(text: string, sourceScript: Script): boolean {
+  const words = sourceScriptWordTokens(text, sourceScript)
+  if (words.length === 0) return false
+  const protectedRanges = protectedVerbatimRanges(text)
+  const isProtected = (token: WordToken) =>
+    protectedRanges.some((range) => rangeOverlapsToken(range, token))
+
+  let runWords = 0
+  let letters = 0
+  let containsLowercaseProse = false
+  for (let i = 0; i < words.length; i++) {
+    const token = words[i]
+    if (!isProtected(token)) {
+      const tokenLetters = (token.original.match(/\p{L}/gu) || []).length
+      letters += tokenLetters
+      if (startsWithLowercaseLetter(token)) {
+        containsLowercaseProse = true
+        if (
+          tokenLetters >= RESIDUAL_SOURCE_WORD_MIN_LETTERS &&
+          HIGH_CONFIDENCE_PROSE_WORDS.has(token.normalized)
+        ) return true
+      }
+    }
+    runWords++
+    if (
+      runWords >= 2 &&
+      letters >= RESIDUAL_SOURCE_PHRASE_MIN_LETTERS &&
+      containsLowercaseProse
+    ) return true
+
+    const next = words[i + 1]
+    if (!next) break
+    if (!isNaturalPhraseGap(text, token, next)) {
+      runWords = 0
+      letters = 0
+      containsLowercaseProse = false
     }
   }
   return false
@@ -1029,6 +1080,14 @@ export function parseBatchResult(raw: string, count: number): string[] {
   const out: string[] = []
   for (let i = 0; i < count; i++) out.push(parts[i] || '')
   return out
+}
+
+/** Whether a batch response actually contains one segment per input. If the
+ *  model merged or reordered segments, parseBatchResult would silently pad
+ *  every following slot with '' — callers should detect that here and fall
+ *  back to per-segment requests instead of rendering blank translations. */
+export function isBatchResultAligned(raw: string, count: number): boolean {
+  return raw.split(BATCH_SEP).filter((p) => p.trim().length > 0).length === count
 }
 
 // ---------------------------------------------------------------------------

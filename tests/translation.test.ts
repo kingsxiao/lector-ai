@@ -24,6 +24,7 @@ import {
   BATCH_SEP,
   buildBatchPrompt,
   parseBatchResult,
+  isBatchResultAligned,
   isValidDisplayMode,
   type TargetLangCode,
   type TranslationHistoryEntry,
@@ -730,6 +731,13 @@ describe('batch prompt', () => {
   it('parseBatchResult trims extra parts', () => {
     const parts = parseBatchResult('a' + BATCH_SEP + 'b' + BATCH_SEP + 'c', 2)
     expect(parts).toEqual(['a', 'b'])
+  })
+  it('isBatchResultAligned detects merged segments', () => {
+    // Model merged the two segments → misaligned; caller should fall back to
+    // per-segment requests rather than render a blank second translation.
+    expect(isBatchResultAligned('你好世界', 2)).toBe(false)
+    expect(isBatchResultAligned('你好' + BATCH_SEP + '世界', 2)).toBe(true)
+    expect(isBatchResultAligned('a' + BATCH_SEP + 'b' + BATCH_SEP + 'c', 2)).toBe(false)
   })
 })
 

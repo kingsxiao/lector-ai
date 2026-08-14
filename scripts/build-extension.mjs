@@ -75,6 +75,33 @@ if (existsSync(leftoverSrc)) {
   rmSync(leftoverSrc, { recursive: true })
 }
 
+// Validate the assembled dist/: every file the manifest references must exist.
+// Without this, a silent build miss (empty icons/, unrelocated HTML, missing
+// IIFE bundle) still printed "built successfully" and only blew up — or worse,
+// quietly no-op'd — when loaded into Chrome.
+const missing = []
+const checkFile = (relPath) => {
+  if (!relPath || typeof relPath !== 'string') return
+  if (!existsSync(resolve(distDir, relPath))) missing.push(relPath)
+}
+for (const cs of manifest.content_scripts ?? []) {
+  for (const js of cs.js ?? []) checkFile(js)
+  for (const css of cs.css ?? []) checkFile(css)
+}
+if (manifest.background?.service_worker) checkFile(manifest.background.service_worker)
+if (manifest.side_panel?.default_path) checkFile(manifest.side_panel.default_path)
+if (manifest.action?.default_icon) {
+  for (const p of Object.values(manifest.action.default_icon)) checkFile(p)
+}
+if (manifest.icons) {
+  for (const p of Object.values(manifest.icons)) checkFile(p)
+}
+if (missing.length > 0) {
+  console.error('❌ Build incomplete — manifest references missing files in dist/:')
+  for (const p of missing) console.error(`   - ${p}`)
+  process.exit(1)
+}
+
 console.log('✅ Extension built successfully!')
 console.log(`📁 Output: ${distDir}`)
 console.log('')

@@ -51,9 +51,12 @@ function TemplatesViewImpl({
     }
     if (editing.id) {
       // Built-in templates: only allow editing the title (keep content + builtIn).
+      // Clear titleKey so the custom title actually displays — the display path
+      // prefers titleKey (i18n-resolved) over title, so keeping it would make
+      // the edit a silent no-op.
       const existing = templates.find((t) => t.id === editing.id)
       if (existing?.builtIn) {
-        onUpdate(editing.id, { title: editing.title })
+        onUpdate(editing.id, { title: editing.title, titleKey: undefined })
       } else {
         onUpdate(editing.id, { title: editing.title, content: editing.content })
       }

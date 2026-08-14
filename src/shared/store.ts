@@ -349,13 +349,29 @@ export const useStore = create<AppState>()(
       // an invalid provider and crash the entire panel on first render.
       merge: (persisted, current) => {
         const s = (persisted || {}) as Partial<AppState>
+        // Reconcile templates against the CURRENT built-ins. Built-ins live
+        // inside the persisted array, so blindly trusting it would freeze the
+        // built-in list at whatever shipped when the user first installed —
+        // new built-ins would never appear and renamed ones would stay stale.
+        // Keep user templates as-is; replace built-in rows with the current
+        // BUILTIN_TEMPLATES (dropping built-ins that no longer exist).
+        const persistedTemplates = Array.isArray(s.templates) ? s.templates : []
+        const builtIns = BUILTIN_TEMPLATES.map((builtin) => {
+          const override = persistedTemplates.find((t) => t.id === builtin.id && t.builtIn)
+          // A user-renamed built-in carries a cleared titleKey (custom title
+          // wins over the i18n key); anything else takes the shipped body.
+          return override && override.titleKey === undefined
+            ? { ...builtin, title: override.title, titleKey: undefined }
+            : builtin
+        })
+        const templates = [...builtIns, ...persistedTemplates.filter((t) => !t.builtIn)]
         return {
           ...current,
           byok: normalizeByokSettings(s.byok),
           sessions: Array.isArray(s.sessions) ? s.sessions : [],
           highlights: Array.isArray(s.highlights) ? s.highlights : [],
           vocab: Array.isArray(s.vocab) ? s.vocab : [],
-          templates: Array.isArray(s.templates) ? s.templates : BUILTIN_TEMPLATES,
+          templates,
           glossary: Array.isArray(s.glossary) ? s.glossary : [],
           sentences: Array.isArray(s.sentences) ? s.sentences : [],
           translationHistory: Array.isArray(s.translationHistory) ? s.translationHistory : [],
