@@ -8,24 +8,34 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: 'var(--bg)',
+        // RGB-channel tokens + <alpha-value> so /N opacity modifiers
+        // (border-line/60, bg-accent-softer/50 …) compile correctly.
+        // Plain var() colors silently break under opacity modifiers.
+        bg: 'rgb(var(--bg-rgb) / <alpha-value>)',
         surface: {
-          DEFAULT: 'var(--surface)',
-          muted: 'var(--surface-muted)',
-          sunken: 'var(--surface-sunken)',
+          DEFAULT: 'rgb(var(--surface-rgb) / <alpha-value>)',
+          muted: 'rgb(var(--surface-muted-rgb) / <alpha-value>)',
+          sunken: 'rgb(var(--surface-sunken-rgb) / <alpha-value>)',
         },
-        line: { DEFAULT: 'var(--line)', strong: 'var(--line-strong)' },
-        ink: { DEFAULT: 'var(--ink)', soft: 'var(--ink-soft)', faint: 'var(--ink-faint)' },
+        line: { DEFAULT: 'rgb(var(--line-rgb) / <alpha-value>)', strong: 'rgb(var(--line-strong-rgb) / <alpha-value>)' },
+        ink: {
+          DEFAULT: 'rgb(var(--ink-rgb) / <alpha-value>)',
+          soft: 'rgb(var(--ink-soft-rgb) / <alpha-value>)',
+          faint: 'rgb(var(--ink-faint-rgb) / <alpha-value>)',
+        },
         accent: {
-          DEFAULT: 'var(--accent)',
-          hover: 'var(--accent-hover)',
-          soft: 'var(--accent-soft)',
-          softer: 'var(--accent-softer)',
-          on: 'var(--on-accent)',
+          DEFAULT: 'rgb(var(--accent-rgb) / <alpha-value>)',
+          hover: 'rgb(var(--accent-hover-rgb) / <alpha-value>)',
+          soft: 'rgb(var(--accent-soft-rgb) / <alpha-value>)',
+          softer: 'rgb(var(--accent-softer-rgb) / <alpha-value>)',
+          on: 'rgb(var(--on-accent-rgb) / <alpha-value>)',
         },
-        danger: 'var(--danger)',
-        success: 'var(--success)',
-        warn: 'var(--warn)',
+        danger: 'rgb(var(--danger-rgb) / <alpha-value>)',
+        'danger-soft': 'rgb(var(--danger-soft-rgb) / <alpha-value>)',
+        success: 'rgb(var(--success-rgb) / <alpha-value>)',
+        'success-soft': 'rgb(var(--success-soft-rgb) / <alpha-value>)',
+        warn: 'rgb(var(--warn-rgb) / <alpha-value>)',
+        'warn-soft': 'rgb(var(--warn-soft-rgb) / <alpha-value>)',
       },
       fontFamily: {
         serif: 'var(--font-serif)',

@@ -50,8 +50,15 @@ export class ErrorBoundary extends Component<Props, State> {
   override render() {
     if (!this.state.error) return this.props.children
     const msg = this.state.error.message || String(this.state.error)
+    // Self-contained light "paper card": the crash may fire before the theme
+    // class/vars are applied, so this screen must not depend on theme tokens.
     return (
-      <div style={{ padding: 20, fontFamily: '-apple-system,system-ui,sans-serif', color: '#26211B', maxWidth: 420 }}>
+      <div style={{
+        padding: 20, margin: 20, borderRadius: 14,
+        background: '#FFFFFF', border: '1px solid #E2D5BB',
+        fontFamily: '-apple-system,system-ui,sans-serif', color: '#26211B',
+        boxShadow: '0 8px 20px rgba(66,45,16,.12)',
+      }}>
         <h2 style={{ margin: '0 0 8px', fontSize: 15, color: '#c0392b' }}>
           Lector hit an error
         </h2>

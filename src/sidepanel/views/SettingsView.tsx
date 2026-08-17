@@ -322,7 +322,7 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
             {t('settings.privacyNote', byok.locale)}
           </p>
 
-          {/* Language — 连体分段控件（joined segmented control） */}
+          {/* Language + theme — 连体分段控件（joined segmented control） */}
           <section className="settings-card !space-y-2.5">
             <label className="label">{t('settings.language', byok.locale)}</label>
             <div className="flex p-0.5 bg-surface-sunken rounded-lg border border-line/60">
@@ -344,19 +344,38 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                 </button>
               ))}
             </div>
+
+            <label className="label">{t('settings.theme', byok.locale)}</label>
+            <div className="flex p-0.5 bg-surface-sunken rounded-lg border border-line/60">
+              {(['auto', 'light', 'dark'] as const).map((opt) => (
+                <button
+                  key={opt}
+                  onClick={() => onChange({ theme: opt })}
+                  className={`flex-1 px-2 py-1.5 text-[11px] font-medium rounded-[7px] transition-all duration-150 ease-out ${
+                    (byok.theme ?? 'auto') === opt
+                      ? 'bg-surface text-accent shadow-sm border border-accent-soft'
+                      : 'text-ink-soft hover:text-ink'
+                  }`}
+                >
+                  {t(`settings.theme.${opt}` as StringKey, byok.locale)}
+                </button>
+              ))}
+            </div>
           </section>
 
-          {/* Provider picker */}
+          {/* Provider picker — 'custom' is a stored-settings alias of
+              'openrouter-custom' (identical behavior), so it's hidden from
+              the grid; a stored 'custom' highlights the alias target. */}
           <section className="settings-card">
             <label className="label">{t('settings.provider', byok.locale)}</label>
             <div className="grid grid-cols-3 gap-1.5">
-              {Object.values(PROVIDERS).map((p) => (
+              {Object.values(PROVIDERS).filter((p) => p.id !== 'custom').map((p) => (
                 <button
                   key={p.id}
                   onClick={() => handleProviderChange(p.id)}
                   title={p.label}
                   className={`relative px-1.5 py-2 min-h-[38px] text-[10.5px] font-medium rounded-lg border text-center transition-all duration-150 ease-out leading-tight line-clamp-2 ${
-                    byok.provider === p.id
+                    (byok.provider === 'custom' ? 'openrouter-custom' : byok.provider) === p.id
                       ? 'border-accent bg-accent-softer text-accent shadow-sm'
                       : 'border-line text-ink-soft hover:bg-surface-muted hover:text-ink hover:border-line-strong'
                   }`}
@@ -588,7 +607,7 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                     type="checkbox"
                     checked={ts.autoTranslate}
                     onChange={(e) => setTs({ autoTranslate: e.target.checked })}
-                    className="accent-[#8F5E30]"
+                    className="accent-[var(--accent)]"
                   />
                   {t('settings.translation.autoTranslate', byok.locale)}
                 </label>
@@ -604,7 +623,7 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                   max={10}
                   value={ts.concurrency}
                   onChange={(e) => setTs({ concurrency: Number(e.target.value) })}
-                  className="w-full accent-[#8F5E30]"
+                  className="w-full accent-[var(--accent)]"
                 />
 
                 {/* Translation theme (style) picker — Immersive-parity */}
@@ -633,7 +652,7 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                   step={0.02}
                   value={ts.fontSize}
                   onChange={(e) => setTs({ fontSize: Number(e.target.value) })}
-                  className="w-full accent-[#8F5E30] mb-2"
+                  className="w-full accent-[var(--accent)] mb-2"
                 />
 
                 {/* Reading-focus toggle (surpass-feature) */}
@@ -642,7 +661,7 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                     type="checkbox"
                     checked={ts.readingFocus}
                     onChange={(e) => setTs({ readingFocus: e.target.checked })}
-                    className="accent-[#8F5E30]"
+                    className="accent-[var(--accent)]"
                   />
                   {t('settings.translation.readingFocus', byok.locale)}
                 </label>
@@ -701,7 +720,7 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                   max={90}
                   value={ts.cacheTtlDays}
                   onChange={(e) => setTs({ cacheTtlDays: Number(e.target.value) })}
-                  className="w-full accent-[#8F5E30] mb-1"
+                  className="w-full accent-[var(--accent)] mb-1"
                 />
                 <p className="text-[10px] text-ink-faint mb-1">{t('settings.translation.cacheHint', byok.locale)}</p>
                 <CacheControls ttlDays={ts.cacheTtlDays} locale={byok.locale} />

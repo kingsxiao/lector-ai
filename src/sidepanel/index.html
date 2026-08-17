@@ -67,6 +67,16 @@
       @media (prefers-reduced-motion: reduce) {
         .lector-boot__spinner { animation: none; }
       }
+      /* Boot shell renders before React (and before the stored theme is
+         known), so it can only follow the OS scheme; once the app mounts it
+         reconciles with settings.theme. */
+      @media (prefers-color-scheme: dark) {
+        body { background: #1B1712; color: #EAE0CC; }
+        .lector-boot__header { background: #251F18; border-bottom-color: #3B3226; }
+        .lector-boot__mark { background: #C89866; color: #221709; }
+        .lector-boot__status { color: #9A8D72; }
+        .lector-boot__spinner { border-color: #3B3226; border-top-color: #C89866; }
+      }
     </style>
   </head>
   <body>

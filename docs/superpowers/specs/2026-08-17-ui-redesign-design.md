@@ -86,13 +86,44 @@
 
 ## 6. 不做的事（YAGNI）
 
-- 不引入暗色模式（独立大工程，另行立项）
+- ~~不引入暗色模式（独立大工程，另行立项）~~ → 已在 v2.1 补齐（见下）
 - 不换图标库/加图标字体（现线性图标质量已达标）
 - 不动信息架构/导航结构（本次纯视觉层）
 - 不加 CSS-in-JS/组件库（维持 token + tailwind 体系）
 
+## 6a. v2.1 追加（用户"采用"后要求全部处理完）
+
+### 暗色模式 ——「烛下手稿」
+
+- **机制**：tokens.css 增加 `:root.dark` 块整体翻转全部 token（暖棕深色系，
+  `color-scheme: dark` 让原生控件/滚动条跟随）；App 按 `settings.theme`
+  （'auto' | 'light' | 'dark'，默认 auto 跟随 prefers-color-scheme 且
+  live 跟随系统切换）在 `<html>` 上挂 `.dark`。组件零分叉。
+- **存储**：`ByokSettings.theme`（optional，undefined=auto），
+  `normalizeByokSettings` 负责解析/兜底（曾漏掉导致暗色不生效，已修）。
+- **设置入口**：设置页语言卡片内新增"外观"连体分段控件（auto/浅色/深色）。
+- **暗色专调**：accent 反转为高亮度焦糖 + on-accent 深字（按钮倒置）；
+  POS 词性标签/代码块/due 徽章暗色变体；ErrorBoundary 崩溃屏改为
+  自包含纸卡（不依赖主题变量，防主题未应用时不可读）；启动屏 boot shell
+  按 prefers-color-scheme 出暗色（React 挂载后由设置收编）。
+
+### Tailwind var 色透明度修饰符修复
+
+`border-line/60` 一类 /N 修饰符对 `var(--x)` 色值无效，会静默回退到
+浏览器默认边框色（暗色下是刺眼冷白 #e5e7eb）。修复：每个颜色 token
+增加 RGB 通道三元组 `--x-rgb`，tailwind.config 改走
+`rgb(var(--x-rgb) / <alpha-value>)`。全代码库 28 处修饰符用法一并修复
+（顺带让此前从未生效的 `bg-danger-soft/60` 等真正渲染）。
+
+### 其它
+
+- 服务商网格去重：`custom` 是 `openrouter-custom` 的存储兼容别名，
+  从网格隐藏；存量 `provider:'custom'` 的选中态映射到 openrouter-custom。
+- 聊天输入框占位符补 `placeholder:text-ink-faint`（原先为浏览器默认冷灰）。
+- 暗色下次级文字 `--ink-soft` 提亮一档（#B5A88F→#BFB299）。
+
 ## 7. 验证
 
-- `npm run typecheck` + `npm test`（类名保持不变，测试不断言颜色）
-- `npm run build:extension` 产物校验
-- 浏览器实截 before/after 各视图对比图，交用户预览决策
+- `npm run typecheck` + `npm test`（536/536，类名不变）
+- `npm run build:extension` 产物校验 + 真机 sidepanel E2E 22/22
+- 浏览器实截 before/after/after-dark 各视图对比图（preview/，gitignored）

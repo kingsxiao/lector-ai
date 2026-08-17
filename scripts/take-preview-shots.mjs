@@ -8,6 +8,8 @@ import path from 'node:path'
 
 const outDir = process.argv[2] || 'preview/after'
 const base = process.argv[3] || 'http://localhost:5188/src/sidepanel/index.html'
+// Optional third arg pins settings.theme ('dark'/'light'); default follows OS.
+const theme = process.argv[3] ? process.argv[4] : undefined
 mkdirSync(outDir, { recursive: true })
 
 const now = Date.now()
@@ -15,7 +17,7 @@ const day = 86400000
 const mkSrs = (dueInDays, interval, reps) => ({ due: now + dueInDays * day, interval, ease: 2.5, reps })
 const seed = {
   state: {
-    byok: { locale: 'zh' },
+    byok: { locale: 'zh', ...(theme ? { theme } : {}) },
     sessions: [{
       id: 's1', title: 'The Attention Mechanism, Explained', url: 'https://example.com/attention',
       createdAt: now - 2 * 3600e3,

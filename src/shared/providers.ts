@@ -482,8 +482,11 @@ export interface ByokSettings {
   baseUrl: string
   /** UI language: 'auto' follows the browser locale. */
   locale: LocalePref
+  /** Panel color scheme. 'auto' (default when unset) follows
+   * prefers-color-scheme; light/dark pin it explicitly. */
+  theme?: 'auto' | 'light' | 'dark'
   /** AnkiConnect config for the "send to Anki" feature. Optional — when unset
-   *  the UI uses defaults from src/shared/anki.ts via withAnkiDefaults(). */
+   * the UI uses defaults from src/shared/anki.ts via withAnkiDefaults(). */
   anki?: {
     url: string
     deckName: string
@@ -500,6 +503,7 @@ export const DEFAULT_BYOK_SETTINGS: ByokSettings = {
   model: PROVIDERS.openrouter.defaultModel,
   baseUrl: '',
   locale: 'auto',
+  theme: 'auto',
 }
 
 const RETIRED_MODEL_REPLACEMENTS: Partial<Record<ProviderId, Record<string, string>>> = {
@@ -550,6 +554,11 @@ export function normalizeByokSettings(raw: unknown): ByokSettings {
       : getProvider(provider).defaultModel,
     baseUrl: typeof r.baseUrl === 'string' ? r.baseUrl : '',
     locale,
+    // Absent/invalid theme stays undefined — App treats undefined as 'auto'.
+    theme:
+      r.theme === 'dark' || r.theme === 'light' || r.theme === 'auto'
+        ? r.theme
+        : undefined,
   }
   if (r.translation !== undefined) {
     result.translation = normalizeTranslationSettings(r.translation)

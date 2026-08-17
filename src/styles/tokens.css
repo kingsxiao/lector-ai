@@ -1,34 +1,39 @@
 /* Lector AI — Editorial 暖中性设计 token（单一真源）。「精装手稿」v2。
    被 sidepanel/index.css 与 popup/index.css @import。
    content.css 不 import：content script 注入到任意网页，禁用全局 :root，
-   其样式就地引用下列色值常量，避免污染宿主页面。 */
+   其样式就地引用下列色值常量，避免污染宿主页面。
+
+   每个颜色有两份：`--x`（hex，供原始 CSS/color-mix 引用）与 `--x-rgb`
+   （RGB 通道三元组，供 tailwind.config 的 `<alpha-value>` 用——Tailwind
+   无法对 var() hex 施加 /N 透明度修饰符，缺三元组时 border-line/60 会
+   静默回退到浏览器默认边框色）。改色请两处同步。 */
 :root {
   /* 色板 - 暖中性（纸感）。纸底比卡面深一档，白色表面才能"浮"起来。 */
-  --bg: #F5EFE3;
-  --surface: #FFFFFF;
-  --surface-muted: #F1E9D8;
-  --surface-sunken: #EBE0C9;
-  --line: #E2D5BB;
-  --line-strong: #C9B893;
-  --ink: #26211B;
-  --ink-soft: #5C5347;
+  --bg: #F5EFE3;            --bg-rgb: 245 239 227;
+  --surface: #FFFFFF;       --surface-rgb: 255 255 255;
+  --surface-muted: #F1E9D8; --surface-muted-rgb: 241 233 216;
+  --surface-sunken: #EBE0C9;--surface-sunken-rgb: 235 224 201;
+  --line: #E2D5BB;          --line-rgb: 226 213 187;
+  --line-strong: #C9B893;   --line-strong-rgb: 201 184 147;
+  --ink: #26211B;           --ink-rgb: 38 33 27;
+  --ink-soft: #5C5347;      --ink-soft-rgb: 92 83 71;
   /* WCAG AA: used at 9–11px text sizes (StatsCell labels, row subtitles), so
      it must clear 4.5:1 against --bg/--surface. #7A6E5C ≈ 4.6:1 on white. */
-  --ink-faint: #7A6E5C;
+  --ink-faint: #7A6E5C;     --ink-faint-rgb: 122 110 92;
 
-  --accent: #8F5E30;
-  --accent-hover: #7A4E27;
-  --accent-soft: #EAD9BE;
-  --accent-softer: #F4EBD9;
-  --on-accent: #FFF6EA;
+  --accent: #8F5E30;        --accent-rgb: 143 94 48;
+  --accent-hover: #7A4E27;  --accent-hover-rgb: 122 78 39;
+  --accent-soft: #EAD9BE;   --accent-soft-rgb: 234 217 190;
+  --accent-softer: #F4EBD9; --accent-softer-rgb: 244 235 217;
+  --on-accent: #FFF6EA;     --on-accent-rgb: 255 246 234;
 
   /* 语义色（克制的暖调变体，与棕色基调和谐） */
-  --danger: #B4452F;
-  --danger-soft: #FAEEE9;
-  --success: #4E7A4A;
-  --success-soft: #EDF3EB;
-  --warn: #A8761F;
-  --warn-soft: #F7EFDD;
+  --danger: #B4452F;        --danger-rgb: 180 69 47;
+  --danger-soft: #FAEEE9;   --danger-soft-rgb: 250 238 233;
+  --success: #4E7A4A;       --success-rgb: 78 122 74;
+  --success-soft: #EDF3EB;  --success-soft-rgb: 237 243 235;
+  --warn: #A8761F;          --warn-rgb: 168 118 31;
+  --warn-soft: #F7EFDD;     --warn-soft-rgb: 247 239 221;
 
   /* 字体 */
   --font-serif: Georgia, 'Iowan Old Style', 'Source Serif Pro', 'Songti SC', serif;
@@ -69,4 +74,38 @@
 
   /* 过渡 */
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 暗色主题 ——「烛下手稿」：同一暖色基因的深色执行。
+   由 App 按 settings.theme（auto 时跟随 prefers-color-scheme）在
+   <html> 上切换 .dark；所有组件类只引用上面的 token，无需分叉。 */
+:root.dark {
+  color-scheme: dark;
+  --bg: #1B1712;            --bg-rgb: 27 23 18;
+  --surface: #251F18;       --surface-rgb: 37 31 24;
+  --surface-muted: #2C251D; --surface-muted-rgb: 44 37 29;
+  --surface-sunken: #352C22;--surface-sunken-rgb: 53 44 34;
+  --line: #3B3226;          --line-rgb: 59 50 38;
+  --line-strong: #55483A;   --line-strong-rgb: 85 72 58;
+  --ink: #EAE0CC;           --ink-rgb: 234 224 204;
+  --ink-soft: #BFB299;      --ink-soft-rgb: 191 178 153;
+  --ink-faint: #9A8D72;     --ink-faint-rgb: 154 141 114;
+
+  --accent: #C89866;        --accent-rgb: 200 152 102;
+  --accent-hover: #DBAF7E;  --accent-hover-rgb: 219 175 126;
+  --accent-soft: #3E3123;   --accent-soft-rgb: 62 49 35;
+  --accent-softer: #342A1F; --accent-softer-rgb: 52 42 31;
+  --on-accent: #221709;     --on-accent-rgb: 34 23 9;
+
+  --danger: #E2725B;        --danger-rgb: 226 114 91;
+  --danger-soft: #3B2620;   --danger-soft-rgb: 59 38 32;
+  --success: #93BE8C;       --success-rgb: 147 190 140;
+  --success-soft: #28332A;  --success-soft-rgb: 40 51 42;
+  --warn: #D9A648;          --warn-rgb: 217 166 72;
+  --warn-soft: #383021;     --warn-soft-rgb: 56 48 33;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 2px 5px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 4px 10px rgba(0, 0, 0, 0.35), 0 16px 36px rgba(0, 0, 0, 0.45);
+  --shadow-pop: 0 12px 28px -6px rgba(0, 0, 0, 0.5), 0 24px 56px -12px rgba(0, 0, 0, 0.55);
 }

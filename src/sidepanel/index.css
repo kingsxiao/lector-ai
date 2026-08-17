@@ -195,6 +195,8 @@ body {
   line-height: 1.55;
 }
 .lector-prose pre code { background: transparent; color: inherit; padding: 0; }
+/* 代码块在暗色下用近黑底（亮色版的 --ink 底在暗色会变成浅底浅字） */
+.dark .lector-prose pre { background: #151109; color: #EFE3CB; }
 .lector-prose blockquote {
   border-left: 3px solid var(--accent);
   padding: 2px 0 2px 12px;
@@ -218,6 +220,15 @@ body {
 .lector-pos-c { color: #6B6155; background: #F5EFE3; }
 .lector-pos-r { color: #1F7A8C; background: #E8F4F6; }
 .lector-pos-t { color: #A8478F; background: #FAEAF4; }
+/* 暗色变体：同色相、提亮文字、降明度底 */
+.dark .lector-pos-n { color: #9FC1EF; background: #1D2A3D; }
+.dark .lector-pos-v { color: #E89A88; background: #3D2620; }
+.dark .lector-pos-a { color: #A2CE9C; background: #21301F; }
+.dark .lector-pos-d { color: #C9A5E8; background: #312540; }
+.dark .lector-pos-p { color: #E3B183; background: #3B2C1B; }
+.dark .lector-pos-c { color: #B5A88F; background: #322B21; }
+.dark .lector-pos-r { color: #8FC6D4; background: #1D333A; }
+.dark .lector-pos-t { color: #E2A3CE; background: #3A2233; }
 
 /* Scrollbar polish — 细、淡，悬停才醒目 */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -251,6 +262,7 @@ body {
   padding: 2px 5px;
   margin-left: 4px;
 }
+.dark .lector-due-badge { color: #241A08; }
 
 /* 抽屉 / 弹窗入场（克制的位移+淡入） */
 @keyframes lectorSlideIn {

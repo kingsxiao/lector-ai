@@ -599,6 +599,22 @@ export default function App() {
     document.documentElement.lang = resolveLocale(byok.locale)
   }, [byok.locale])
 
+  // Color scheme: settings.theme pins light/dark; 'auto' (default) follows
+  // the OS live — the matchMedia listener keeps following scheme changes
+  // until the user pins a side. The .dark class flips every token in
+  // tokens.css; components never branch on theme themselves.
+  useEffect(() => {
+    const root = document.documentElement
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const apply = () => {
+      const dark = (byok.theme ?? 'auto') === 'dark' || ((byok.theme ?? 'auto') === 'auto' && mq.matches)
+      root.classList.toggle('dark', dark)
+    }
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [byok.theme])
+
   const downloadMarkdown = (hs: Highlight[]) => {
     downloadBlob('lector-highlights.md', toMarkdown(hs), 'text/markdown')
   }
@@ -1361,7 +1377,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 >
                   <span
                     aria-hidden="true"
-                    className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-full bg-accent/45 group-hover:bg-accent group-disabled:bg-line-strong transition-colors duration-150"
+                    className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-accent/45 group-hover:bg-accent group-disabled:bg-line-strong transition-colors duration-150"
                   />
                   {tplTitle(tpl)}
                 </button>
@@ -1495,13 +1511,13 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             }}
             placeholder={providerConfigured ? tr('side.composer.placeholder.ready') : tr('side.composer.placeholder.noKey')}
             rows={1}
-            className="flex-1 max-h-32 resize-none px-3.5 py-2.5 text-body bg-bg border border-line rounded-2xl leading-relaxed focus:outline-none focus:border-accent focus:bg-surface focus:ring-2 focus:ring-accent-soft transition-colors duration-150 ease-out"
+            className="flex-1 max-h-32 resize-none px-3.5 py-2.5 text-body bg-bg border border-line rounded-2xl leading-relaxed placeholder:text-ink-faint focus:outline-none focus:border-accent focus:bg-surface focus:ring-2 focus:ring-accent-soft transition-colors duration-150 ease-out"
           />
           <button
             onClick={() => (streaming ? stopStreaming() : handleSend())}
             disabled={!streaming && (!input.trim() || !providerConfigured)}
             aria-label={streaming ? tr('side.chat.stop') : tr('side.composer.hint')}
-            className="btn-primary w-10 h-10 flex-shrink-0 rounded-2xl !p-0 disabled:opacity-100 disabled:bg-surface-sunken disabled:text-ink-faint/70 disabled:shadow-none disabled:hover:bg-surface-sunken"
+            className="btn-primary w-10 h-10 flex-shrink-0 rounded-2xl !p-0 disabled:opacity-100 disabled:bg-surface-sunken disabled:text-ink-faint disabled:shadow-none disabled:hover:bg-surface-sunken"
           >
             {streaming ? <StopIcon size={14} /> : <SendIcon size={17} />}
           </button>
