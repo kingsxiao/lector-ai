@@ -19,16 +19,17 @@ export function ViewShell({ title, children }: { title: string; children: ReactN
 /** Centered empty-state placeholder. */
 export function Empty({ text }: { text: string }) {
   return (
-    <div className="flex flex-col items-center justify-center text-center py-12 px-6">
-      <div className="w-10 h-10 rounded-full bg-surface-muted flex items-center justify-center mb-3">
-        <span className="block w-1.5 h-1.5 rounded-full bg-line-strong" />
+    <div className="flex flex-col items-center justify-center text-center py-14 px-6">
+      <div className="w-12 h-12 rounded-2xl bg-surface border border-line shadow-sm flex items-center justify-center mb-3.5">
+        <span className="block w-2 h-2 rounded-full bg-line-strong" />
       </div>
-      <p className="text-[12px] text-ink-faint leading-relaxed max-w-[200px]">{text}</p>
+      <p className="text-[12px] text-ink-faint leading-relaxed max-w-[210px]">{text}</p>
     </div>
   )
 }
 
-/** Again/Hard/Good/Easy grade grid shared by Vocab + Sentences review. */
+/** Again/Hard/Good/Easy grade grid shared by Vocab + Sentences review.
+ *  Semantic tint per grade: again=危险红调 / easy=成功绿调，软底填充。 */
 export function SrsGradeButtons({
   grades,
   tr,
@@ -45,12 +46,14 @@ export function SrsGradeButtons({
           key={g}
           onClick={() => onGrade(g)}
           className={
-            'py-1.5 text-[10px] font-semibold rounded-md border transition-colors duration-150 ease-out ' +
+            'py-[7px] text-[10px] font-semibold rounded-md border transition-all duration-150 ease-out active:translate-y-px ' +
             (g === 'again'
-              ? 'border-line text-danger hover:bg-danger-soft/50 hover:border-danger/40'
+              ? 'border-danger/25 bg-danger-soft/60 text-danger hover:bg-danger-soft hover:border-danger/45'
               : g === 'easy'
-                ? 'border-line text-success hover:bg-success-soft/50 hover:border-success/40'
-                : 'border-line text-ink-soft hover:bg-surface-muted hover:text-ink')
+                ? 'border-success/25 bg-success-soft/60 text-success hover:bg-success-soft hover:border-success/45'
+                : g === 'hard'
+                  ? 'border-line bg-surface-muted/60 text-ink-soft hover:bg-surface-muted hover:text-ink'
+                  : 'border-accent/25 bg-accent-softer text-accent hover:bg-accent-soft hover:border-accent/45')
           }
         >
           {tr(`side.vocab.${g}` as StringKey)}
@@ -64,13 +67,13 @@ export function SrsGradeButtons({
  *  Renders aggregated review stats (due / mastered / reviews / retention). */
 export function StatsBar({ stats, tr }: { stats: ReviewStats; tr: (key: StringKey) => string }) {
   return (
-    <div className="flex justify-around px-4 py-3 border-b border-line bg-surface-muted/40">
+    <div className="flex justify-around px-4 py-3.5 border-b border-line bg-surface">
       <StatsCell label={tr('stats.due')} value={stats.due} />
-      <span className="w-px bg-line" />
+      <span className="w-px my-1 bg-line/70" />
       <StatsCell label={tr('stats.mastered')} value={stats.mastered} />
-      <span className="w-px bg-line" />
+      <span className="w-px my-1 bg-line/70" />
       <StatsCell label={tr('stats.reviews')} value={stats.totalReviews} />
-      <span className="w-px bg-line" />
+      <span className="w-px my-1 bg-line/70" />
       <StatsCell label={tr('stats.retention')} value={stats.avgEase.toFixed(1)} />
     </div>
   )

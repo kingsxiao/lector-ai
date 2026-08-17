@@ -12,7 +12,7 @@ import {
   DEFAULT_DECK_NAME,
   DEFAULT_MODEL_NAME,
 } from '../../shared/anki'
-import { SparklesIcon, XIcon } from '../../shared/icons'
+import { SparklesIcon, XIcon, CardsIcon } from '../../shared/icons'
 import { ViewShell, Empty, StatsBar, SrsGradeButtons } from '../components/leaf'
 import { formatAnkiResult } from '../lib/ankiFormat'
 
@@ -107,6 +107,7 @@ function VocabViewImpl({
                 onClick={() => setShowPanel(true)}
                 className="btn-add py-2 text-[12px]"
               >
+                <CardsIcon size={13} />
                 {tr('side.vocab.sendAnki')}
               </button>
             ) : (
@@ -199,7 +200,7 @@ function VocabViewImpl({
               return (
                 <div key={v.id} className="group row">
                   <div className="flex items-center gap-2">
-                    <span className={`text-[12px] font-semibold ${due ? 'text-accent' : 'text-ink'}`}>
+                    <span className={`text-[15px] leading-snug font-serif font-bold ${due ? 'text-accent' : 'text-ink'}`}>
                       {v.word}
                     </span>
                     {due && (

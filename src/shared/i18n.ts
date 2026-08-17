@@ -36,7 +36,7 @@ export const STRINGS = {
     en: 'No API key — tap settings',
     zh: '未设置 API Key — 点击设置',
   },
-  'side.onboard.title': { en: 'Bring your own key 🔑', zh: '自带密钥 🔑' },
+  'side.onboard.title': { en: 'Bring your own key', zh: '自带密钥' },
   'side.onboard.body': {
     en: 'Lector is free and private — you pay your AI provider directly. Open {settings} to add a key (OpenAI, Anthropic, OpenRouter, or any OpenAI-compatible endpoint).',
     zh: 'Lector 免费且私密 —— 你直接向 AI 服务商付费。打开{settings}添加密钥（OpenAI、Anthropic、OpenRouter 或任意 OpenAI 兼容接口）。',
@@ -83,7 +83,7 @@ export const STRINGS = {
   'side.library.clearAll': { en: 'Clear all', zh: '全部清除' },
 
   // --- settings drawer ---
-  'settings.title': { en: '🔑 Bring Your Own Key', zh: '🔑 自带密钥' },
+  'settings.title': { en: 'Bring Your Own Key', zh: '自带密钥' },
   'settings.privacyNote': {
     en: 'Lector is free and private. Your key is stored only in this browser and sent directly to your chosen provider — never to us.',
     zh: 'Lector 免费且私密。你的密钥仅存储在本浏览器中，并直接发送至你选择的服务商 —— 绝不发送给我们。',
@@ -130,7 +130,7 @@ export const STRINGS = {
     en: 'Select text on any page and tap the highlight button to capture it.',
     zh: '在任意页面选中文字，点击高亮按钮即可收藏。',
   },
-  'side.highlights.export': { en: '⬇ Export Markdown', zh: '⬇ 导出 Markdown' },
+  'side.highlights.export': { en: 'Export Markdown', zh: '导出 Markdown' },
   'side.loadMore': { en: 'Load more ({n})', zh: '加载更多（{n}）' },
 
   // --- side panel: vocabulary review drawer (Feature ③) ---
@@ -161,8 +161,8 @@ export const STRINGS = {
   },
   'side.sentences.search': { en: 'Search sentence / word…', zh: '搜索句子或单词…' },
   'side.sentences.filterAll': { en: 'All levels', zh: '全部难度' },
-  'side.sentences.export': { en: '⬇ Export', zh: '⬇ 导出' },
-  'side.sentences.import': { en: '⬆ Import', zh: '⬆ 导入' },
+  'side.sentences.export': { en: 'Export', zh: '导出' },
+  'side.sentences.import': { en: 'Import', zh: '导入' },
   'side.sentences.importFail': { en: 'Import failed: {msg}', zh: '导入失败：{msg}' },
   'side.sentences.importOk': { en: 'Imported {n} cards', zh: '已导入 {n} 张卡片' },
   'side.sentences.viewSource': { en: 'View source', zh: '查看原文' },
@@ -374,8 +374,8 @@ export const STRINGS = {
   'side.glossary.noteField': { en: 'Note (optional)', zh: '备注（可选）' },
   'side.glossary.save': { en: 'Save', zh: '保存' },
   'side.glossary.cancel': { en: 'Cancel', zh: '取消' },
-  'side.glossary.export': { en: '⬇ Export', zh: '⬇ 导出' },
-  'side.glossary.import': { en: '⬆ Import', zh: '⬆ 导入' },
+  'side.glossary.export': { en: 'Export', zh: '导出' },
+  'side.glossary.import': { en: 'Import', zh: '导入' },
   'side.glossary.importFail': {
     en: 'Import failed: {msg}',
     zh: '导入失败：{msg}',
@@ -394,7 +394,7 @@ export const STRINGS = {
   },
 
   // --- Anki export (Feature: Anki 一键制卡) ---
-  'side.vocab.sendAnki': { en: '📤 Send to Anki', zh: '📤 发送到 Anki' },
+  'side.vocab.sendAnki': { en: 'Send to Anki', zh: '发送到 Anki' },
   'side.vocab.ankiTitle': { en: 'Send to Anki', zh: '发送到 Anki' },
   'side.vocab.ankiUrl': { en: 'AnkiConnect URL', zh: 'AnkiConnect 地址' },
   'side.vocab.ankiDeck': { en: 'Deck name', zh: '牌组名称' },

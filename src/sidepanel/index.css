@@ -18,6 +18,13 @@ body {
 }
 
 @layer components {
+  /* —— eyebrow 小节标题（设置页分组 / 统计标签） —— */
+  .eyebrow {
+    @apply block text-[10px] font-semibold uppercase;
+    color: var(--ink-faint);
+    letter-spacing: var(--track-wide);
+  }
+
   /* —— 图标按钮（header 工具栏） —— */
   .icon-btn {
     @apply w-8 h-8 rounded-lg flex items-center justify-center text-ink-faint
@@ -79,11 +86,16 @@ body {
 
   /* —— 卡片 / 列表行 —— */
   .row {
-    @apply px-3.5 py-3 transition-colors duration-150;
-    border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+    @apply px-4 py-3 transition-colors duration-150;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
   }
   .row-hover { @apply cursor-pointer; }
-  .row-hover:hover { background-color: color-mix(in srgb, var(--surface-muted) 60%, transparent); }
+  .row-hover:hover { background-color: color-mix(in srgb, var(--accent-softer) 65%, transparent); }
+
+  /* —— 设置页分组卡片 —— */
+  .settings-card {
+    @apply bg-surface border border-line rounded-xl p-4 space-y-3.5 shadow-sm;
+  }
 
   /* —— 小徽章 —— */
   .chip {
@@ -104,7 +116,8 @@ body {
     backdrop-filter: blur(6px);
   }
   .drawer-title {
-    @apply text-body font-semibold text-ink tracking-tight;
+    font-family: var(--font-serif);
+    @apply text-[15px] font-bold text-ink tracking-tight;
   }
 
   /* —— 顶部 Tab 栏（平铺视图切换） —— */
@@ -118,7 +131,7 @@ body {
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-soft;
   }
   .tab-item-active {
-    @apply bg-accent-softer text-accent;
+    @apply bg-accent-soft text-accent font-semibold;
   }
 
   /* —— 错误提示条（取代报错自动弹设置窗） ——
@@ -138,11 +151,11 @@ body {
 /* Prose styling for streamed Markdown assistant replies — 暖色版. */
 .lector-prose {
   font-size: var(--t-body);
-  line-height: 1.65;
+  line-height: 1.7;
   color: var(--ink);
   word-wrap: break-word;
 }
-.lector-prose p { margin: 0 0 8px; }
+.lector-prose p { margin: 0 0 9px; }
 .lector-prose p:last-child { margin-bottom: 0; }
 .lector-prose h1, .lector-prose h2, .lector-prose h3 {
   font-family: var(--font-serif);
@@ -155,9 +168,14 @@ body {
 .lector-prose h1 { font-size: 17px; }
 .lector-prose h2 { font-size: 15px; }
 .lector-prose h3 { font-size: 14px; }
-.lector-prose ul, .lector-prose ol { margin: 0 0 8px; padding-left: 20px; }
-.lector-prose li { margin: 3px 0; }
+.lector-prose h1:first-child, .lector-prose h2:first-child, .lector-prose h3:first-child { margin-top: 2px; }
+/* Tailwind preflight resets list-style to none — restore real bullets so
+   "give me three bullet points" answers actually render as a list. */
+.lector-prose ul { margin: 0 0 9px; padding-left: 18px; list-style: disc outside; }
+.lector-prose ol { margin: 0 0 9px; padding-left: 20px; list-style: decimal outside; }
+.lector-prose li { margin: 4px 0; }
 .lector-prose li::marker { color: var(--accent); }
+.lector-prose li > p { margin: 0; }
 .lector-prose code {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -172,7 +190,7 @@ body {
   padding: 11px 13px;
   border-radius: var(--r);
   overflow-x: auto;
-  margin: 0 0 8px;
+  margin: 2px 0 10px;
   font-size: 12px;
   line-height: 1.55;
 }
@@ -181,7 +199,7 @@ body {
   border-left: 3px solid var(--accent);
   padding: 2px 0 2px 12px;
   color: var(--ink-soft);
-  margin: 0 0 8px;
+  margin: 0 0 9px;
 }
 .lector-prose a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .lector-prose strong { font-weight: 700; color: var(--ink); }
@@ -201,15 +219,14 @@ body {
 .lector-pos-r { color: #1F7A8C; background: #E8F4F6; }
 .lector-pos-t { color: #A8478F; background: #FAEAF4; }
 
-/* Scrollbar polish */
-::-webkit-scrollbar { width: 8px; height: 8px; }
+/* Scrollbar polish — 细、淡，悬停才醒目 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: var(--line-strong);
-  border-radius: 4px;
-  border: 2px solid var(--bg);
+  background: color-mix(in srgb, var(--line-strong) 55%, transparent);
+  border-radius: 3px;
 }
-::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
+::-webkit-scrollbar-thumb:hover { background: var(--line-strong); }
 
 /* Citation chips (Feature ①) */
 .lector-cite {
@@ -223,11 +240,11 @@ body {
 }
 .lector-cite:hover { text-decoration: underline; text-underline-offset: 2px; }
 
-/* Due badge (Feature ③) */
+/* Due badge (Feature ③) — 琥珀点，语义是"待复习"而非错误 */
 .lector-due-badge {
   display: inline-block;
-  background: var(--danger);
-  color: var(--on-accent);
+  background: var(--warn);
+  color: #FFF9EC;
   font-size: 9px;
   line-height: 1;
   border-radius: 9999px;

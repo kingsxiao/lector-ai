@@ -1,34 +1,33 @@
-/* Lector AI — Editorial 暖中性设计 token（单一真源）。
+/* Lector AI — Editorial 暖中性设计 token（单一真源）。「精装手稿」v2。
    被 sidepanel/index.css 与 popup/index.css @import。
    content.css 不 import：content script 注入到任意网页，禁用全局 :root，
    其样式就地引用下列色值常量，避免污染宿主页面。 */
 :root {
-  /* 色板 - 暖中性（纸感） */
-  --bg: #FBF8F2;
+  /* 色板 - 暖中性（纸感）。纸底比卡面深一档，白色表面才能"浮"起来。 */
+  --bg: #F5EFE3;
   --surface: #FFFFFF;
-  --surface-muted: #F5EFE3;
-  --surface-sunken: #F1E9D8;
-  --line: #E8DECC;
-  --line-strong: #D9CBB0;
-  --ink: #2B2620;
-  --ink-soft: #6B6155;
+  --surface-muted: #F1E9D8;
+  --surface-sunken: #EBE0C9;
+  --line: #E2D5BB;
+  --line-strong: #C9B893;
+  --ink: #26211B;
+  --ink-soft: #5C5347;
   /* WCAG AA: used at 9–11px text sizes (StatsCell labels, row subtitles), so
-     it must clear 4.5:1 against --bg/--surface. #7A6E5C ≈ 4.6:1 on white;
-     the previous #9A8E7A was ~3.0:1. */
+     it must clear 4.5:1 against --bg/--surface. #7A6E5C ≈ 4.6:1 on white. */
   --ink-faint: #7A6E5C;
 
-  --accent: #9C6B3C;
-  --accent-hover: #875A2F;
-  --accent-soft: #F2E6D2;
-  --accent-softer: #F8F0E2;
-  --on-accent: #FFF8EE;
+  --accent: #8F5E30;
+  --accent-hover: #7A4E27;
+  --accent-soft: #EAD9BE;
+  --accent-softer: #F4EBD9;
+  --on-accent: #FFF6EA;
 
   /* 语义色（克制的暖调变体，与棕色基调和谐） */
   --danger: #B4452F;
   --danger-soft: #FAEEE9;
   --success: #4E7A4A;
   --success-soft: #EDF3EB;
-  --warn: #B07D2B;
+  --warn: #A8761F;
   --warn-soft: #F7EFDD;
 
   /* 字体 */
@@ -42,6 +41,10 @@
   --t-body: 13px;
   --t-md: 15px;
   --t-lg: 18px;
+  --t-xl: 22px;
+
+  /* eyebrow 小节标题的字距 */
+  --track-wide: 0.08em;
 
   /* 间距阶梯 */
   --sp-1: 4px;
@@ -59,10 +62,10 @@
   --r-pill: 999px;
 
   /* 阴影（暖灰，不是冷黑） */
-  --shadow-sm: 0 1px 2px rgba(60, 40, 15, 0.05);
-  --shadow-md: 0 4px 14px rgba(60, 40, 15, 0.08);
-  --shadow-lg: 0 12px 32px rgba(60, 40, 15, 0.14);
-  --shadow-pop: 0 20px 50px -12px rgba(60, 40, 15, 0.22);
+  --shadow-sm: 0 1px 2px rgba(66, 45, 16, 0.06);
+  --shadow-md: 0 2px 5px rgba(66, 45, 16, 0.05), 0 8px 20px rgba(66, 45, 16, 0.07);
+  --shadow-lg: 0 4px 10px rgba(66, 45, 16, 0.06), 0 16px 36px rgba(66, 45, 16, 0.12);
+  --shadow-pop: 0 12px 28px -6px rgba(66, 45, 16, 0.16), 0 24px 56px -12px rgba(66, 45, 16, 0.2);
 
   /* 过渡 */
   --ease: cubic-bezier(0.16, 1, 0.3, 1);

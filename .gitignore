@@ -11,3 +11,6 @@ dist.zip
 .zcode
 # Playwright MCP tool artifacts
 .playwright-mcp/
+
+# Local UI preview decision artifacts (before/after screenshots)
+preview/

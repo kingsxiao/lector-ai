@@ -8,9 +8,9 @@
   width: 6px;
 }
 
-.lector-ai-popup::-webkit-scrollbar-track { background: #F5EFE3; border-radius: 3px; }
+.lector-ai-popup::-webkit-scrollbar-track { background: #F1E9D8; border-radius: 3px; }
 
-.lector-ai-popup::-webkit-scrollbar-thumb { background: #D9CBB0; border-radius: 3px; }
+.lector-ai-popup::-webkit-scrollbar-thumb { background: #C9B893; border-radius: 3px; }
 
 /* Citation jump-to pulse (Feature ①) */
 [data-lector-id].lector-pulse {

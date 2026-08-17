@@ -26,44 +26,44 @@ function injectStyles() {
   style.textContent = `
     @keyframes lectorFadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes lectorSpin { to { transform: rotate(360deg); } }
-    @keyframes lectorFabPulse { 0%,100%{ box-shadow: 0 6px 20px rgba(156,107,60,.32);} 50%{ box-shadow: 0 8px 28px rgba(135,90,47,.5);} }
-    #lector-ai-fab { position: fixed; right: 20px; bottom: 24px; width: 48px; height: 48px; border-radius: 50%; background: #9C6B3C; color: #FFF8EE; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 20px; font-family: Georgia, 'Iowan Old Style', 'Source Serif Pro', serif; cursor: pointer; z-index: 2147483646; box-shadow: 0 6px 20px rgba(156,107,60,.32); animation: lectorFabPulse 3s ease-in-out infinite; transition: transform .22s cubic-bezier(0.16,1,0.3,1), background-color .15s ease; user-select: none; }
-    #lector-ai-fab:hover { transform: scale(1.08); background: #875A2F; }
-    #lector-ai-fab.is-open { transform: rotate(45deg); animation: none; background: #875A2F; }
+    @keyframes lectorFabPulse { 0%,100%{ box-shadow: 0 6px 20px rgba(143,94,48,.32);} 50%{ box-shadow: 0 8px 28px rgba(122,78,39,.5);} }
+    #lector-ai-fab { position: fixed; right: 20px; bottom: 24px; width: 48px; height: 48px; border-radius: 50%; background: #8F5E30; color: #FFF6EA; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 20px; font-family: Georgia, 'Iowan Old Style', 'Source Serif Pro', serif; cursor: pointer; z-index: 2147483646; box-shadow: 0 6px 20px rgba(143,94,48,.32); animation: lectorFabPulse 3s ease-in-out infinite; transition: transform .22s cubic-bezier(0.16,1,0.3,1), background-color .15s ease; user-select: none; }
+    #lector-ai-fab:hover { transform: scale(1.08); background: #7A4E27; }
+    #lector-ai-fab.is-open { transform: rotate(45deg); animation: none; background: #7A4E27; }
     #lector-ai-fab.is-open:hover { transform: rotate(45deg) scale(1.08); }
     /* Radial quick-action menu: items fan out from the FAB center along an
        upward arc. Each item is a circular button with a hover tooltip label. */
     .lector-fab-menu { position: fixed; z-index: 2147483645; pointer-events: none; }
-    .lector-fab-item { position: absolute; width: 44px; height: 44px; border-radius: 50%; background: #FFF8EE; color: #6B6155; border: 1px solid #E8DECC; box-shadow: 0 4px 14px rgba(43,38,32,.18); cursor: pointer; display: flex; align-items: center; justify-content: center; pointer-events: auto; opacity: 0; transform: translate(0,0) scale(.4); transition: transform .26s cubic-bezier(0.18,1.2,0.4,1), opacity .18s ease; will-change: transform, opacity; }
+    .lector-fab-item { position: absolute; width: 44px; height: 44px; border-radius: 50%; background: #FFF6EA; color: #5C5347; border: 1px solid #E2D5BB; box-shadow: 0 4px 14px rgba(38,33,27,.18); cursor: pointer; display: flex; align-items: center; justify-content: center; pointer-events: auto; opacity: 0; transform: translate(0,0) scale(.4); transition: transform .26s cubic-bezier(0.18,1.2,0.4,1), opacity .18s ease; will-change: transform, opacity; }
     .lector-fab-item svg { width: 20px; height: 20px; display: block; }
-    .lector-fab-item:hover { background: #9C6B3C; color: #FFF8EE; transform: var(--lector-rest) scale(1.1); }
-    .lector-fab-label { position: absolute; right: 54px; top: 50%; transform: translateY(-50%); background: rgba(43,38,32,.92); color: #FFF8EE; font-size: 11px; font-weight: 500; padding: 3px 8px; border-radius: 6px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s ease; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+    .lector-fab-item:hover { background: #8F5E30; color: #FFF6EA; transform: var(--lector-rest) scale(1.1); }
+    .lector-fab-label { position: absolute; right: 54px; top: 50%; transform: translateY(-50%); background: rgba(38,33,27,.92); color: #FFF6EA; font-size: 11px; font-weight: 500; padding: 3px 8px; border-radius: 6px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s ease; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
     .lector-fab-item:hover .lector-fab-label { opacity: 1; }
     #lector-ai-toolbar { display: flex; align-items: center; gap: 2px; padding: 5px 8px; border-radius: 999px; }
-    #lector-ai-toolbar .t-btn { width: 28px; height: 28px; padding: 0; border: none; border-radius: 999px; background: transparent; color: #6B6155; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: background-color .15s ease, color .15s ease, transform .1s ease; }
+    #lector-ai-toolbar .t-btn { width: 28px; height: 28px; padding: 0; border: none; border-radius: 999px; background: transparent; color: #5C5347; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: background-color .15s ease, color .15s ease, transform .1s ease; }
     #lector-ai-toolbar .t-btn svg { width: 16px; height: 16px; display: block; }
-    #lector-ai-toolbar .t-btn:hover { background: rgba(156,107,60,.12); color: #9C6B3C; }
+    #lector-ai-toolbar .t-btn:hover { background: rgba(143,94,48,.12); color: #8F5E30; }
     #lector-ai-toolbar .t-btn:active { transform: translateY(1px); }
     #lector-ai-toolbar .t-divider { width: 1px; height: 18px; margin: 0 3px; background: currentColor; opacity: .15; flex: none; }
     #lector-ai-toolbar.is-dark .t-btn { color: rgba(255,255,255,.8); }
-    #lector-ai-toolbar.is-dark .t-btn:hover { background: rgba(255,255,255,.12); color: #FFF8EE; }
-    #lector-ai-result .result-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #E8DECC; }
-    #lector-ai-result .result-title { font-size:13px; font-weight:700; color:#9C6B3C; display:flex; align-items:center; gap:6px; }
-    #lector-ai-result .result-content { font-size:13px; line-height:1.7; color:#2B2620; white-space:pre-wrap; word-break:break-word; }
+    #lector-ai-toolbar.is-dark .t-btn:hover { background: rgba(255,255,255,.12); color: #FFF6EA; }
+    #lector-ai-result .result-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #E2D5BB; }
+    #lector-ai-result .result-title { font-size:13px; font-weight:700; color:#8F5E30; display:flex; align-items:center; gap:6px; }
+    #lector-ai-result .result-content { font-size:13px; line-height:1.7; color:#26211B; white-space:pre-wrap; word-break:break-word; }
     #lector-ai-result .result-content p { margin: 0 0 8px; }
     #lector-ai-result .action-btn { flex:1; padding:8px 12px; border:none; border-radius:10px; font-size:12px; font-weight:600; cursor:pointer; transition:background-color .15s ease, box-shadow .15s ease, transform .1s ease; }
     #lector-ai-result .action-btn:active { transform: translateY(1px); }
-    #lector-ai-result .action-btn.primary { background:#9C6B3C; color:#FFF8EE; }
-    #lector-ai-result .action-btn.primary:hover { background:#875A2F; box-shadow:0 4px 12px rgba(156,107,60,.3); }
-    #lector-ai-result .copy-btn { flex:1; padding:8px 12px; border:none; border-radius:10px; font-size:12px; font-weight:600; background:#F5EFE3; color:#6B6155; cursor:pointer; transition:background-color .15s ease, transform .1s ease; }
+    #lector-ai-result .action-btn.primary { background:#8F5E30; color:#FFF6EA; }
+    #lector-ai-result .action-btn.primary:hover { background:#7A4E27; box-shadow:0 4px 12px rgba(143,94,48,.3); }
+    #lector-ai-result .copy-btn { flex:1; padding:8px 12px; border:none; border-radius:10px; font-size:12px; font-weight:600; background:#F1E9D8; color:#5C5347; cursor:pointer; transition:background-color .15s ease, transform .1s ease; }
     #lector-ai-result .copy-btn:active { transform: translateY(1px); }
-    #lector-ai-result .copy-btn:hover { background:#E8DECC; }
-    .lector-bilingual { display:block; font-size:.92em; line-height:1.6; color:#6B6155; border-left:3px solid #9C6B3C; padding:4px 0 4px 12px; margin:8px 0 8px 4px; border-radius:0 3px 3px 0; position:relative; transition:opacity .2s ease; }
+    #lector-ai-result .copy-btn:hover { background:#E2D5BB; }
+    .lector-bilingual { display:block; font-size:.92em; line-height:1.6; color:#5C5347; border-left:3px solid #8F5E30; padding:4px 0 4px 12px; margin:8px 0 8px 4px; border-radius:0 3px 3px 0; position:relative; transition:opacity .2s ease; }
     .lector-bilingual.is-loading { opacity:.6; }
     .lector-bilingual.is-error { border-left-color:#c0392b; color:#c0392b; }
-    .lector-bi-caret { display:inline-block; width:2px; height:1em; background:#9C6B3C; vertical-align:text-bottom; margin-left:1px; animation:lectorBlink 1s steps(2) infinite; }
+    .lector-bi-caret { display:inline-block; width:2px; height:1em; background:#8F5E30; vertical-align:text-bottom; margin-left:1px; animation:lectorBlink 1s steps(2) infinite; }
     @keyframes lectorBlink { 50% { opacity:0; } }
-    .lector-bi-actions { position:absolute; right:6px; top:-10px; display:none; gap:4px; background:#FFF8EE; border:1px solid #E8DECC; border-radius:6px; padding:2px 4px; box-shadow:0 2px 8px rgba(0,0,0,.1); z-index:1; }
+    .lector-bi-actions { position:absolute; right:6px; top:-10px; display:none; gap:4px; background:#FFF6EA; border:1px solid #E2D5BB; border-radius:6px; padding:2px 4px; box-shadow:0 2px 8px rgba(0,0,0,.1); z-index:1; }
     .lector-bilingual:hover .lector-bi-actions { display:flex; }
     /* While a whole-page run is in flight, per-chunk Retry/Copy stay hidden:
        clicking Retry mid-run would race the run's own ownership of the block. */
@@ -71,8 +71,8 @@ function injectStyles() {
     /* An error chunk has no translation to read on hover — its Retry affordance
        must be persistently visible, not hover-gated. */
     .lector-bilingual.is-error .lector-bi-actions { display:flex; }
-    .lector-bi-actions button { border:none; background:transparent; color:#9C6B3C; cursor:pointer; font-size:11px; padding:2px 4px; border-radius:4px; }
-    .lector-bi-actions button:hover { background:rgba(156,107,60,.12); }
+    .lector-bi-actions button { border:none; background:transparent; color:#8F5E30; cursor:pointer; font-size:11px; padding:2px 4px; border-radius:4px; }
+    .lector-bi-actions button:hover { background:rgba(143,94,48,.12); }
     /* display modes (toggled via body class set by content script) */
     body.lector-dm-translationOnly .lector-bilingual-host > .lector-bi-source-node { display:none !important; }
     body.lector-dm-translationOnly .lector-bilingual-host.lector-translation-error > .lector-bi-source-node { display:initial !important; }
@@ -528,7 +528,7 @@ function createToolbar(x: number, y: number, text: string) {
   if (dark) selectionToolbar.classList.add('is-dark')
   selectionToolbar.style.cssText = dark
     ? `position: fixed; left: ${x}px; top: ${y}px; display: flex; align-items: center; gap: 2px; padding: 5px 8px; background: rgba(28,28,30,.82); backdrop-filter: blur(14px) saturate(1.6); -webkit-backdrop-filter: blur(14px) saturate(1.6); border: 1px solid rgba(255,255,255,.12); border-radius: 999px; box-shadow: 0 4px 16px rgba(0,0,0,.28), 0 1px 2px rgba(0,0,0,.18); color: #fff; z-index: 2147483647; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; animation: lectorFadeIn .2s ease-out;`
-    : `position: fixed; left: ${x}px; top: ${y}px; display: flex; align-items: center; gap: 2px; padding: 5px 8px; background: rgba(255,255,255,.82); backdrop-filter: blur(14px) saturate(1.6); -webkit-backdrop-filter: blur(14px) saturate(1.6); border: 1px solid rgba(255,255,255,.6); border-radius: 999px; box-shadow: 0 4px 16px rgba(43,38,32,.14), 0 1px 2px rgba(43,38,32,.06); color: #2B2620; z-index: 2147483647; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; animation: lectorFadeIn .2s ease-out;`
+    : `position: fixed; left: ${x}px; top: ${y}px; display: flex; align-items: center; gap: 2px; padding: 5px 8px; background: rgba(255,255,255,.82); backdrop-filter: blur(14px) saturate(1.6); -webkit-backdrop-filter: blur(14px) saturate(1.6); border: 1px solid rgba(255,255,255,.6); border-radius: 999px; box-shadow: 0 4px 16px rgba(38,33,27,.14), 0 1px 2px rgba(38,33,27,.06); color: #26211B; z-index: 2147483647; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; animation: lectorFadeIn .2s ease-out;`
 
   const mk = (actionId: string, label: string, fn: () => void) => {
     const b = document.createElement('button')
@@ -598,12 +598,12 @@ function showLoading(x: number, y: number) {
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: #9C6B3C;
+    color: #8F5E30;
   `
 
   const spinner = document.createElement('div')
   spinner.style.cssText = `
-    width:16px;height:16px;border:2px solid #E8DECC;border-top-color:#9C6B3C;border-radius:50%;animation:lectorSpin .8s linear infinite;
+    width:16px;height:16px;border:2px solid #E2D5BB;border-top-color:#8F5E30;border-radius:50%;animation:lectorSpin .8s linear infinite;
   `
   const label = document.createElement('span')
   label.textContent = tr('popup.loading')
@@ -655,7 +655,7 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
   title.innerHTML = titleMap[type]
 
   const closeBtn = document.createElement('button')
-  closeBtn.style.cssText = 'padding:4px 8px;border:none;background:#f1f5f9;border-radius:4px;cursor:pointer;font-size:11px;color:#94a3b8;'
+  closeBtn.style.cssText = 'padding:4px 8px;border:none;background:#F1E9D8;border-radius:4px;cursor:pointer;font-size:11px;color:#7A6E5C;'
   closeBtn.textContent = tr('popup.close')
   closeBtn.onclick = () => removeResult()
 
@@ -667,7 +667,7 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
   content.textContent = result
 
   const footer = document.createElement('div')
-  footer.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid #E8DECC;display:flex;gap:8px;'
+  footer.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid #E2D5BB;display:flex;gap:8px;'
 
   const copyBtn = document.createElement('button')
   copyBtn.className = 'action-btn copy-btn'
@@ -745,11 +745,11 @@ function showStreamingTranslateResult(
 
   // Target language selector.
   const langWrap = document.createElement('label')
-  langWrap.style.cssText = 'font-size:11px;color:#6B6155;display:flex;align-items:center;gap:4px;'
+  langWrap.style.cssText = 'font-size:11px;color:#5C5347;display:flex;align-items:center;gap:4px;'
   const langLabel = document.createElement('span')
   langLabel.textContent = tr('popup.result.targetLang')
   const sel = document.createElement('select')
-  sel.style.cssText = 'font-size:11px;border:1px solid #E8DECC;border-radius:6px;padding:2px 4px;'
+  sel.style.cssText = 'font-size:11px;border:1px solid #E2D5BB;border-radius:6px;padding:2px 4px;'
   const autoOpt = document.createElement('option')
   autoOpt.value = 'auto'
   autoOpt.textContent = tr('settings.translation.targetLanguage.auto')
@@ -765,7 +765,7 @@ function showStreamingTranslateResult(
   langWrap.appendChild(sel)
 
   const closeBtn = document.createElement('button')
-  closeBtn.style.cssText = 'padding:4px 8px;border:none;background:#f1f5f9;border-radius:4px;cursor:pointer;font-size:11px;color:#94a3b8;'
+  closeBtn.style.cssText = 'padding:4px 8px;border:none;background:#F1E9D8;border-radius:4px;cursor:pointer;font-size:11px;color:#7A6E5C;'
   closeBtn.textContent = tr('popup.close')
   closeBtn.onclick = () => removeResult()
   header.appendChild(title)
@@ -779,7 +779,7 @@ function showStreamingTranslateResult(
   content.appendChild(caret)
 
   const footer = document.createElement('div')
-  footer.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid #E8DECC;display:flex;gap:8px;flex-wrap:wrap;'
+  footer.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid #E2D5BB;display:flex;gap:8px;flex-wrap:wrap;'
   const speakSrc = document.createElement('button')
   speakSrc.className = 'copy-btn'
   speakSrc.type = 'button'

@@ -169,6 +169,9 @@ export default function App() {
   const hasOpened = useStore((s) => s.hasOpened)
   const markOpened = useStore((s) => s.markOpened)
   const [hintDismissed, setHintDismissed] = useState(false)
+  // BYOK onboarding strip dismiss (session-only; unlike the quick tour this
+  // isn't persisted — the strip returns next session until a key is set).
+  const [byokBannerDismissed, setByokBannerDismissed] = useState(false)
   const [histSearch, setHistSearch] = useState('')
   // "Load more" limits for the highlights / translation-history list views.
   // Reset to one page whenever the active view changes, so re-opening a list
@@ -571,7 +574,9 @@ export default function App() {
     if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current)
     scrollFrameRef.current = requestAnimationFrame(() => {
       const node = scrollRef.current
-      if (node) {
+      // Empty transcript (onboarding hero): keep the top anchored — scrolling
+      // to the bottom would clip the BYOK banner above the fold on short panels.
+      if (node && messages.length > 0) {
         // Re-starting a smooth animation for every streamed token causes a
         // visible lag/backlog. Keep token streaming pinned synchronously and
         // reserve smooth scrolling for discrete message changes.
@@ -1056,10 +1061,16 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           <div className="text-[13px] font-semibold text-ink truncate leading-tight">
             {page?.title || tr('side.header.defaultTitle')}
           </div>
-          <div className="text-[10px] text-ink-faint truncate max-w-[200px] mt-0.5">
-            {providerConfigured
-              ? `${getProvider(byok.provider).label} · ${byok.model || 'model'}`
-              : tr('side.header.noKey')}
+          <div className="flex items-center gap-1.5 text-[10px] text-ink-faint mt-0.5 max-w-[200px]">
+            <span
+              aria-hidden="true"
+              className={`flex-shrink-0 w-1.5 h-1.5 rounded-full ${providerConfigured ? 'bg-success' : 'bg-warn'}`}
+            />
+            <span className="truncate">
+              {providerConfigured
+                ? `${getProvider(byok.provider).label} · ${byok.model || 'model'}`
+                : tr('side.header.noKey')}
+            </span>
           </div>
           {/* Current-site quick toggle (Immersive-parity site rules). Cycles
               auto → always → never for the active tab's host. */}
@@ -1269,8 +1280,8 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         ref={scrollRef}
         className="flex-1 overflow-y-auto px-3.5 py-4 space-y-3.5"
       >
-        {!providerConfigured && (
-          <div className="p-3 rounded-xl bg-accent-softer border border-accent-soft text-[12px] text-accent-hover leading-relaxed">
+        {!providerConfigured && !byokBannerDismissed && (
+          <div className="relative p-3 pr-8 rounded-xl bg-accent-softer border border-accent-soft text-[12px] text-accent-hover leading-relaxed">
             <div className="font-semibold mb-1">{tr('side.onboard.title')}</div>
             {(() => {
               const body = tr('side.onboard.body')
@@ -1285,15 +1296,26 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 </>
               )
             })()}
+            <button
+              onClick={() => setByokBannerDismissed(true)}
+              aria-label={tr('side.error.dismiss')}
+              className="absolute top-2 right-2 p-1 rounded-md text-accent-hover/70 hover:text-accent-hover hover:bg-accent-soft/60 transition-colors"
+            >
+              <XIcon size={12} />
+            </button>
           </div>
         )}
 
         {messages.length === 0 && (
-          <div className="text-center pt-6 pb-2">
+          <div className="min-h-full flex flex-col py-6 pb-10">
+            {/* my-auto: vertically centers the hero group when there's room,
+                and collapses to zero margin when the content is taller than
+                the viewport (justify-center would clip the top instead). */}
+            <div className="my-auto text-center">
             <div className="w-14 h-14 rounded-2xl bg-accent text-accent-on font-bold flex items-center justify-center text-2xl mx-auto mb-4 shadow-md font-serif">
               L
             </div>
-            <h2 className="text-[15px] font-semibold text-ink mb-1 font-serif tracking-tight">{tr('side.empty.title')}</h2>
+            <h2 className="text-[22px] leading-snug font-semibold text-ink mb-1.5 font-serif tracking-[-0.015em]">{tr('side.empty.title')}</h2>
             <p className="text-xs text-ink-faint mb-6 px-8 leading-relaxed">
               {tr('side.empty.subtitle')}
             </p>
@@ -1315,7 +1337,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 script toolbar / FAB / bilingual features a first-time user
                 can't otherwise discover from this panel. */}
             {!hintDismissed && !hasOpened && (
-              <div className="mx-2 mb-5 text-left p-3 rounded-xl bg-surface border border-line">
+              <div className="mx-2 mb-5 text-left p-3 rounded-xl bg-surface border border-line shadow-sm">
                 <div className="text-[12px] font-semibold text-ink mb-1">{tr('side.onboard.hintTitle')}</div>
                 <p className="text-[11px] text-ink-soft leading-relaxed mb-2">{tr('side.onboard.hintBody')}</p>
                 <button
@@ -1335,8 +1357,12 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                   key={tpl.id}
                   onClick={() => sendTemplate(tpl)}
                   disabled={!page || !providerConfigured}
-                  className="px-3 py-2.5 text-left text-[12px] font-medium text-ink-soft bg-surface border border-line rounded-xl hover:border-accent hover:bg-accent-softer hover:text-accent transition-colors duration-150 ease-out disabled:opacity-40 disabled:hover:border-line disabled:hover:bg-surface disabled:hover:text-ink-soft"
+                  className="group relative px-3 py-2.5 pl-3.5 text-left text-[12px] font-medium text-ink-soft bg-surface border border-line rounded-xl shadow-sm hover:border-accent/60 hover:bg-accent-softer hover:text-accent transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-soft disabled:text-ink-faint/80 disabled:shadow-none disabled:hover:border-line disabled:hover:bg-surface disabled:hover:text-ink-faint/80"
                 >
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-full bg-accent/45 group-hover:bg-accent group-disabled:bg-line-strong transition-colors duration-150"
+                  />
                   {tplTitle(tpl)}
                 </button>
               ))}
@@ -1346,41 +1372,50 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 {tr('side.empty.noPage')}
               </p>
             )}
+            </div>
           </div>
         )}
 
         {messages.map((m) => {
           return (
-          <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div key={m.id} className={`flex gap-2 ${m.role === 'user' ? 'justify-end items-end' : 'justify-start items-start'}`}>
             {m.role === 'user' ? (
-              <div className="max-w-[85%] px-3.5 py-2 bg-accent text-accent-on text-body rounded-2xl rounded-br-md whitespace-pre-wrap break-words shadow-sm">
+              <div className="max-w-[80%] px-3.5 py-2 bg-accent text-accent-on text-body rounded-2xl rounded-br-md whitespace-pre-wrap break-words shadow-sm">
                 {m.content}
               </div>
             ) : (
-              <div className="max-w-[92%] px-3.5 py-2.5 bg-surface border border-line rounded-2xl rounded-bl-md shadow-sm">
-                {m.content ? (
-                  <AssistantBubble content={m.content} blockIdsKey={blockIdsKey} />
-                ) : (
-                  <div className="flex items-center gap-2 text-[12px] text-ink-faint">
-                    <div className="w-3.5 h-3.5 border-2 border-line border-t-accent rounded-full animate-spin" />
-                    {tr('side.thinking')}
-                  </div>
-                )}
-                {/* Retry affordance on a failed or stopped assistant message:
-                    re-send the last user turn. Hidden while a stream is in
-                    flight and for the in-progress (empty) bubble. */}
-                {m.content && !streaming && FAILED_TURN_RE.test(m.content) && (
-                  <div className="mt-1.5">
-                    <button
-                      onClick={retryLast}
-                      className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent-hover transition-colors"
-                    >
-                      <RotateIcon size={12} />
-                      {tr('side.chat.retry')}
-                    </button>
-                  </div>
-                )}
-              </div>
+              <>
+                <div
+                  aria-hidden="true"
+                  className="flex-shrink-0 w-[22px] h-[22px] rounded-lg bg-accent-softer border border-accent-soft text-accent font-serif font-bold text-[13px] flex items-center justify-center select-none mt-1"
+                >
+                  L
+                </div>
+                <div className="max-w-[calc(100%-30px)] px-3.5 py-2.5 bg-surface border border-line rounded-2xl rounded-bl-md shadow-sm">
+                  {m.content ? (
+                    <AssistantBubble content={m.content} blockIdsKey={blockIdsKey} />
+                  ) : (
+                    <div className="flex items-center gap-2 text-[12px] text-ink-faint">
+                      <div className="w-3.5 h-3.5 border-2 border-line border-t-accent rounded-full animate-spin" />
+                      {tr('side.thinking')}
+                    </div>
+                  )}
+                  {/* Retry affordance on a failed or stopped assistant message:
+                      re-send the last user turn. Hidden while a stream is in
+                      flight and for the in-progress (empty) bubble. */}
+                  {m.content && !streaming && FAILED_TURN_RE.test(m.content) && (
+                    <div className="mt-1.5">
+                      <button
+                        onClick={retryLast}
+                        className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent-hover transition-colors"
+                      >
+                        <RotateIcon size={12} />
+                        {tr('side.chat.retry')}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </div>
         )
@@ -1466,13 +1501,16 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             onClick={() => (streaming ? stopStreaming() : handleSend())}
             disabled={!streaming && (!input.trim() || !providerConfigured)}
             aria-label={streaming ? tr('side.chat.stop') : tr('side.composer.hint')}
-            className="btn-primary w-10 h-10 flex-shrink-0 rounded-2xl !p-0"
+            className="btn-primary w-10 h-10 flex-shrink-0 rounded-2xl !p-0 disabled:opacity-100 disabled:bg-surface-sunken disabled:text-ink-faint/70 disabled:shadow-none disabled:hover:bg-surface-sunken"
           >
             {streaming ? <StopIcon size={14} /> : <SendIcon size={17} />}
           </button>
         </div>
         <div className="flex items-center justify-between mt-1.5 px-1">
-          <span className="text-[10px] text-ink-faint">
+          <span
+            aria-hidden={!providerConfigured}
+            className={`text-[10px] leading-relaxed transition-colors ${providerConfigured ? 'text-ink-faint' : 'text-ink-faint/0 select-none'}`}
+          >
             {tr('side.composer.hint')} · {tr('composer.templates.hint')}
           </span>
           {messages.length > 0 && (

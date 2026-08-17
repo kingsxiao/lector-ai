@@ -317,25 +317,23 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
         <h3 className="drawer-title">{t('settings.title', byok.locale)}</h3>
       </div>
 
-      <div className="overflow-y-auto px-4 py-3.5 space-y-3.5">
-          <p className="text-[11px] text-ink-soft leading-relaxed bg-surface-muted/50 rounded-lg px-3 py-2">
+      <div className="overflow-y-auto px-4 py-4 space-y-4">
+          <p className="text-[11px] text-ink-soft leading-relaxed bg-surface-muted/60 border border-line/60 rounded-lg px-3 py-2">
             {t('settings.privacyNote', byok.locale)}
           </p>
 
-          {/* Language */}
-          <div>
-            <label className="label mb-1.5">
-              {t('settings.language', byok.locale)}
-            </label>
-            <div className="grid grid-cols-3 gap-1.5">
+          {/* Language — 连体分段控件（joined segmented control） */}
+          <section className="settings-card !space-y-2.5">
+            <label className="label">{t('settings.language', byok.locale)}</label>
+            <div className="flex p-0.5 bg-surface-sunken rounded-lg border border-line/60">
               {(['auto', 'en', 'zh'] as LocalePref[]).map((opt) => (
                 <button
                   key={opt}
                   onClick={() => onChange({ locale: opt })}
-                  className={`px-2 py-2 text-[11px] font-medium rounded-lg border transition-colors duration-150 ease-out ${
+                  className={`flex-1 px-2 py-1.5 text-[11px] font-medium rounded-[7px] transition-all duration-150 ease-out ${
                     byok.locale === opt
-                      ? 'border-accent bg-accent-softer text-accent'
-                      : 'border-line text-ink-soft hover:bg-surface-muted hover:text-ink'
+                      ? 'bg-surface text-accent shadow-sm border border-accent-soft'
+                      : 'text-ink-soft hover:text-ink'
                   }`}
                 >
                   {opt === 'auto'
@@ -346,177 +344,187 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                 </button>
               ))}
             </div>
-          </div>
+          </section>
 
           {/* Provider picker */}
-          <div>
-            <label className="label mb-1.5">{t('settings.provider', byok.locale)}</label>
+          <section className="settings-card">
+            <label className="label">{t('settings.provider', byok.locale)}</label>
             <div className="grid grid-cols-3 gap-1.5">
               {Object.values(PROVIDERS).map((p) => (
                 <button
                   key={p.id}
                   onClick={() => handleProviderChange(p.id)}
-                  className={`px-1.5 py-2 text-[10.5px] font-medium rounded-lg border transition-colors duration-150 ease-out leading-tight ${
+                  title={p.label}
+                  className={`relative px-1.5 py-2 min-h-[38px] text-[10.5px] font-medium rounded-lg border text-center transition-all duration-150 ease-out leading-tight line-clamp-2 ${
                     byok.provider === p.id
-                      ? 'border-accent bg-accent-softer text-accent'
-                      : 'border-line text-ink-soft hover:bg-surface-muted hover:text-ink'
+                      ? 'border-accent bg-accent-softer text-accent shadow-sm'
+                      : 'border-line text-ink-soft hover:bg-surface-muted hover:text-ink hover:border-line-strong'
                   }`}
                 >
+                  {byok.provider === p.id && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-accent"
+                    />
+                  )}
                   {p.label}
                 </button>
               ))}
             </div>
-            <p className="text-[10px] text-ink-faint mt-1.5 leading-relaxed">{providerDesc}</p>
-          </div>
+            <p className="text-[10px] text-ink-faint leading-relaxed">{providerDesc}</p>
+          </section>
 
-          {/* Custom base URL */}
-          {(byok.provider === 'custom' || byok.provider === 'openrouter-custom') && (
-            <div>
-              <label htmlFor="lector-base-url" className="label mb-1.5">
-                {t('settings.baseUrl', byok.locale)} <span className="text-ink-faint font-normal">{t('settings.baseUrl.hint', byok.locale)}</span>
-              </label>
-              <input
-                id="lector-base-url"
-                type="url"
-                value={byok.baseUrl}
-                onChange={(e) => onChange({ baseUrl: e.target.value })}
-                placeholder="https://api.deepseek.com/v1"
-                className="field"
-              />
-            </div>
-          )}
-
-          {/* API key */}
-          <div>
-            <label htmlFor="lector-api-key" className="label mb-1.5">{t('settings.apiKey', byok.locale)}</label>
-            <div className="relative">
-              <input
-                id="lector-api-key"
-                type={showKey ? 'text' : 'password'}
-                value={byok.apiKey}
-                onChange={(e) => {
-                  onChange({ apiKey: e.target.value })
-                  setTestResult(null)
-                }}
-                placeholder={t('settings.apiKey.placeholder', byok.locale)}
-                autoComplete="off"
-                spellCheck={false}
-                className="field pr-16 font-mono"
-              />
-              <button
-                onClick={() => setShowKey((v) => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-ink-faint hover:text-ink-soft px-1.5 py-0.5 transition-colors"
-              >
-                {showKey ? t('settings.apiKey.hide', byok.locale) : t('settings.apiKey.show', byok.locale)}
-              </button>
-            </div>
-            {def.keyUrl && (
-              <a
-                href={def.keyUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block mt-1.5 text-[10px] text-accent hover:text-accent-hover hover:underline"
-              >
-                {t('settings.apiKey.getKey', byok.locale).replace('{label}', def.label)}
-              </a>
-            )}
-          </div>
-
-          {/* Model picker */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="lector-model" className="label">{t('settings.model', byok.locale)}</label>
-              <button
-                onClick={runFetch}
-                disabled={fetching || !byok.apiKey || ((byok.provider === 'custom' || byok.provider === 'openrouter-custom') && !byok.baseUrl)}
-                title={t('settings.model.fetch', byok.locale)}
-                className="text-[10px] text-accent hover:text-accent-hover disabled:opacity-40 transition-colors"
-              >
-                {fetching ? t('settings.model.fetching', byok.locale) : fetchedModels ? t('settings.model.refetch', byok.locale) : t('settings.model.fetch', byok.locale)}
-              </button>
-            </div>
-
-            {/* Dropdown: prefer fetched models, fall back to presets. */}
-            {(() => {
-              const list = fetchedModels && fetchedModels.length > 0
-                ? fetchedModels.map((m) => ({ id: m.id, label: m.label || m.id }))
-                : def.models.map((m) => ({ id: m.id, label: m.label || m.id }))
-              const currentInList = list.some((m) => m.id === byok.model)
-              if (list.length > 0) {
-                return (
-                  <select
-                    id="lector-model"
-                    value={currentInList && !customMode ? byok.model : '__custom__'}
-                    onChange={(e) => {
-                      if (e.target.value === '__custom__') {
-                        // Reveal the free-text input WITHOUT discarding the
-                        // current model. Previously this reset byok.model to
-                        // the provider default (customModel was '' on first
-                        // switch), silently losing whatever the user had set.
-                        setCustomMode(true)
-                      } else {
-                        setCustomMode(false)
-                        onChange({ model: e.target.value })
-                      }
-                    }}
-                    className="field"
-                  >
-                    {list.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                    <option value="__custom__">{t('settings.model.custom', byok.locale)}</option>
-                  </select>
-                )
-              }
-              return null
-            })()}
-
-            {fetchError && (
-              <div className="mt-1.5 text-[10px] text-warn bg-warn-soft/50 rounded-md px-2 py-1">{fetchError}</div>
-            )}
-            {fetchedModels && fetchedModels.length > 0 && (
-              <div className="mt-1 text-[10px] text-ink-faint">{t('settings.model.fetchedCount', byok.locale).replace('{n}', String(fetchedModels.length))}</div>
-            )}
-
-            {/* Free-text input: when custom mode is on, or no list matches. */}
-            {(customMode ||
-              !(fetchedModels && fetchedModels.length > 0 ? fetchedModels : def.models).some((m) => m.id === byok.model)
-            ) && (
-              <input
-                type="text"
-                aria-label={t('settings.model', byok.locale)}
-                value={byok.model}
-                onChange={(e) => onChange({ model: e.target.value })}
-                placeholder={def.defaultModel || 'model id, e.g. gpt-4o-mini'}
-                className="field mt-1.5 font-mono"
-              />
-            )}
-          </div>
-
-          {/* Test connection */}
-          <div className="pt-0.5">
-            <button
-              onClick={runTest}
-              disabled={testing || !byok.apiKey || ((byok.provider === 'custom' || byok.provider === 'openrouter-custom') && !byok.baseUrl)}
-              className="btn-outline w-full py-2 text-[12px]"
-            >
-              {testing ? t('settings.testing', byok.locale) : t('settings.test', byok.locale)}
-            </button>
-            {testResult && (
-              <div
-                className={`mt-2 text-[11px] px-2.5 py-2 rounded-lg flex items-start gap-1.5 leading-relaxed ${
-                  testResult.ok ? 'bg-success-soft/60 text-success' : 'bg-danger-soft/60 text-danger'
-                }`}
-              >
-                <span className="mt-px flex-shrink-0">
-                  {testResult.ok ? <CheckIcon size={13} /> : <XIcon size={13} />}
-                </span>
-                <span>{testResult.message}</span>
+          {/* API key + model + test — one "connection" card */}
+          <section className="settings-card">
+              {/* Custom base URL */}
+              {(byok.provider === 'custom' || byok.provider === 'openrouter-custom') && (
+              <div>
+                <label htmlFor="lector-base-url" className="label mb-1.5">
+                  {t('settings.baseUrl', byok.locale)} <span className="text-ink-faint font-normal">{t('settings.baseUrl.hint', byok.locale)}</span>
+                </label>
+                <input
+                  id="lector-base-url"
+                  type="url"
+                  value={byok.baseUrl}
+                  onChange={(e) => onChange({ baseUrl: e.target.value })}
+                  placeholder="https://api.deepseek.com/v1"
+                  className="field"
+                />
               </div>
             )}
-          </div>
+
+              {/* API key */}
+              <div>
+              <label htmlFor="lector-api-key" className="label mb-1.5">{t('settings.apiKey', byok.locale)}</label>
+              <div className="relative">
+                <input
+                  id="lector-api-key"
+                  type={showKey ? 'text' : 'password'}
+                  value={byok.apiKey}
+                  onChange={(e) => {
+                    onChange({ apiKey: e.target.value })
+                    setTestResult(null)
+                  }}
+                  placeholder={t('settings.apiKey.placeholder', byok.locale)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="field pr-16 font-mono"
+                />
+                <button
+                  onClick={() => setShowKey((v) => !v)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-medium text-ink-faint bg-surface-muted/80 hover:text-ink hover:bg-surface-sunken px-2 py-1 rounded-md border border-line/60 transition-colors"
+                >
+                  {showKey ? t('settings.apiKey.hide', byok.locale) : t('settings.apiKey.show', byok.locale)}
+                </button>
+              </div>
+              {def.keyUrl && (
+                <a
+                  href={def.keyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block mt-1.5 text-[10px] text-accent hover:text-accent-hover hover:underline"
+                >
+                  {t('settings.apiKey.getKey', byok.locale).replace('{label}', def.label)}
+                </a>
+              )}
+            </div>
+
+              {/* Model picker */}
+              <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label htmlFor="lector-model" className="label">{t('settings.model', byok.locale)}</label>
+                <button
+                  onClick={runFetch}
+                  disabled={fetching || !byok.apiKey || ((byok.provider === 'custom' || byok.provider === 'openrouter-custom') && !byok.baseUrl)}
+                  title={t('settings.model.fetch', byok.locale)}
+                  className="text-[10px] font-medium text-accent hover:text-accent-hover disabled:opacity-40 transition-colors"
+                >
+                  {fetching ? t('settings.model.fetching', byok.locale) : fetchedModels ? t('settings.model.refetch', byok.locale) : t('settings.model.fetch', byok.locale)}
+                </button>
+              </div>
+
+                {/* Dropdown: prefer fetched models, fall back to presets. */}
+                {(() => {
+                const list = fetchedModels && fetchedModels.length > 0
+                  ? fetchedModels.map((m) => ({ id: m.id, label: m.label || m.id }))
+                  : def.models.map((m) => ({ id: m.id, label: m.label || m.id }))
+                const currentInList = list.some((m) => m.id === byok.model)
+                if (list.length > 0) {
+                  return (
+                    <select
+                      id="lector-model"
+                      value={currentInList && !customMode ? byok.model : '__custom__'}
+                      onChange={(e) => {
+                        if (e.target.value === '__custom__') {
+                          // Reveal the free-text input WITHOUT discarding the
+                          // current model. Previously this reset byok.model to
+                          // the provider default (customModel was '' on first
+                          // switch), silently losing whatever the user had set.
+                          setCustomMode(true)
+                        } else {
+                          setCustomMode(false)
+                          onChange({ model: e.target.value })
+                        }
+                      }}
+                      className="field"
+                    >
+                      {list.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                      <option value="__custom__">{t('settings.model.custom', byok.locale)}</option>
+                    </select>
+                  )
+                }
+                return null
+              })()}
+
+                {fetchError && (
+                <div className="mt-1.5 text-[10px] text-warn bg-warn-soft/70 rounded-md px-2 py-1">{fetchError}</div>
+              )}
+              {fetchedModels && fetchedModels.length > 0 && (
+                <div className="mt-1 text-[10px] text-ink-faint">{t('settings.model.fetchedCount', byok.locale).replace('{n}', String(fetchedModels.length))}</div>
+              )}
+
+                {/* Free-text input: when custom mode is on, or no list matches. */}
+                {(customMode ||
+                !(fetchedModels && fetchedModels.length > 0 ? fetchedModels : def.models).some((m) => m.id === byok.model)
+              ) && (
+                <input
+                  type="text"
+                  aria-label={t('settings.model', byok.locale)}
+                  value={byok.model}
+                  onChange={(e) => onChange({ model: e.target.value })}
+                  placeholder={def.defaultModel || 'model id, e.g. gpt-4o-mini'}
+                  className="field mt-1.5 font-mono"
+                />
+              )}
+            </div>
+
+              {/* Test connection */}
+              <div className="pt-0.5">
+              <button
+                onClick={runTest}
+                disabled={testing || !byok.apiKey || ((byok.provider === 'custom' || byok.provider === 'openrouter-custom') && !byok.baseUrl)}
+                className="btn-outline w-full py-2 text-[12px]"
+              >
+                {testing ? t('settings.testing', byok.locale) : t('settings.test', byok.locale)}
+              </button>
+              {testResult && (
+                <div
+                  className={`mt-2 text-[11px] px-2.5 py-2 rounded-lg flex items-start gap-1.5 leading-relaxed border ${
+                    testResult.ok ? 'bg-success-soft/60 text-success border-success/20' : 'bg-danger-soft/60 text-danger border-danger/20'
+                  }`}
+                >
+                  <span className="mt-px flex-shrink-0">
+                    {testResult.ok ? <CheckIcon size={13} /> : <XIcon size={13} />}
+                  </span>
+                  <span>{testResult.message}</span>
+                </div>
+              )}
+            </div>
+          </section>
 
           {/* Translation settings */}
           {(() => {
@@ -544,11 +552,11 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
               }, 300)
             }
             return (
-              <div className="pt-1 border-t border-line">
-                <label className="label mb-1.5 block">{t('settings.translation.title', byok.locale)}</label>
+              <section className="settings-card">
+                <label className="label">{t('settings.translation.title', byok.locale)}</label>
 
                 {/* Target language (searchable — 100+ langs need search) */}
-                <label className="text-[11px] text-ink-soft mb-1 block">{t('settings.translation.targetLanguage', byok.locale)}</label>
+                <span className="eyebrow mb-1">{t('settings.translation.targetLanguage', byok.locale)}</span>
                 <LanguageSelect
                   value={ts.targetLanguage}
                   locale={byok.locale}
@@ -557,16 +565,16 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                 />
 
                 {/* Display mode */}
-                <label className="text-[11px] text-ink-soft mb-1 block">{t('settings.translation.displayMode', byok.locale)}</label>
+                <span className="eyebrow mb-1 block">{t('settings.translation.displayMode', byok.locale)}</span>
                 <div className="grid grid-cols-3 gap-1.5 mb-3">
                   {(['bilingual', 'translationOnly', 'hover'] as const).map((m) => (
                     <button
                       key={m}
                       onClick={() => setTs({ displayMode: m })}
-                      className={`px-1 py-1.5 text-[10.5px] font-medium rounded-lg border transition-colors duration-150 ease-out leading-tight ${
+                      className={`px-1 py-1.5 text-[10.5px] font-medium rounded-lg border transition-all duration-150 ease-out leading-tight ${
                         ts.displayMode === m
-                          ? 'border-accent bg-accent-softer text-accent'
-                          : 'border-line text-ink-soft hover:bg-surface-muted hover:text-ink'
+                          ? 'border-accent bg-accent-softer text-accent shadow-sm'
+                          : 'border-line text-ink-soft hover:bg-surface-muted hover:text-ink hover:border-line-strong'
                       }`}
                     >
                       {t(('settings.translation.displayMode.' + m) as StringKey, byok.locale)}
@@ -580,14 +588,15 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                     type="checkbox"
                     checked={ts.autoTranslate}
                     onChange={(e) => setTs({ autoTranslate: e.target.checked })}
-                    className="accent-[#9C6B3C]"
+                    className="accent-[#8F5E30]"
                   />
                   {t('settings.translation.autoTranslate', byok.locale)}
                 </label>
 
                 {/* Concurrency slider */}
-                <label className="text-[11px] text-ink-soft mb-1 block">
-                  {t('settings.translation.concurrency', byok.locale)}: {ts.concurrency}
+                <label className="eyebrow mb-1 flex items-baseline justify-between">
+                  <span>{t('settings.translation.concurrency', byok.locale)}</span>
+                  <span className="text-ink-soft font-serif text-[13px] font-bold tracking-normal normal-case">{ts.concurrency}</span>
                 </label>
                 <input
                   type="range"
@@ -595,11 +604,11 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                   max={10}
                   value={ts.concurrency}
                   onChange={(e) => setTs({ concurrency: Number(e.target.value) })}
-                  className="w-full accent-[#9C6B3C]"
+                  className="w-full accent-[#8F5E30]"
                 />
 
                 {/* Translation theme (style) picker — Immersive-parity */}
-                <label className="text-[11px] text-ink-soft mb-1 mt-3 block">{t('settings.translation.theme', byok.locale)}</label>
+                <span className="eyebrow mb-1 mt-3 block">{t('settings.translation.theme', byok.locale)}</span>
                 <select
                   value={ts.theme}
                   onChange={(e) => setTs({ theme: e.target.value })}
@@ -613,8 +622,9 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                 </select>
 
                 {/* Font size slider */}
-                <label className="text-[11px] text-ink-soft mb-1 block">
-                  {t('settings.translation.fontSize', byok.locale)}: {ts.fontSize.toFixed(2)}
+                <label className="eyebrow mb-1 flex items-baseline justify-between">
+                  <span>{t('settings.translation.fontSize', byok.locale)}</span>
+                  <span className="text-ink-soft font-serif text-[13px] font-bold tracking-normal normal-case">{ts.fontSize.toFixed(2)}</span>
                 </label>
                 <input
                   type="range"
@@ -623,7 +633,7 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                   step={0.02}
                   value={ts.fontSize}
                   onChange={(e) => setTs({ fontSize: Number(e.target.value) })}
-                  className="w-full accent-[#9C6B3C] mb-2"
+                  className="w-full accent-[#8F5E30] mb-2"
                 />
 
                 {/* Reading-focus toggle (surpass-feature) */}
@@ -632,13 +642,13 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                     type="checkbox"
                     checked={ts.readingFocus}
                     onChange={(e) => setTs({ readingFocus: e.target.checked })}
-                    className="accent-[#9C6B3C]"
+                    className="accent-[#8F5E30]"
                   />
                   {t('settings.translation.readingFocus', byok.locale)}
                 </label>
 
                 {/* AI Expert persona */}
-                <label className="text-[11px] text-ink-soft mb-1 block">{t('settings.translation.persona', byok.locale)}</label>
+                <span className="eyebrow mb-1 block">{t('settings.translation.persona', byok.locale)}</span>
                 <select
                   value={ts.persona}
                   onChange={(e) => setTs({ persona: e.target.value })}
@@ -652,16 +662,16 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                 </select>
 
                 {/* Page scope (smart vs whole) */}
-                <label className="text-[11px] text-ink-soft mb-1 block">{t('settings.translation.pageScope', byok.locale)}</label>
+                <span className="eyebrow mb-1 block">{t('settings.translation.pageScope', byok.locale)}</span>
                 <div className="grid grid-cols-2 gap-1.5 mb-2">
                   {(['smart', 'whole'] as const).map((s) => (
                     <button
                       key={s}
                       onClick={() => setTs({ pageScope: s })}
-                      className={`px-1 py-1.5 text-[10.5px] font-medium rounded-lg border transition-colors duration-150 ease-out leading-tight ${
+                      className={`px-1 py-1.5 text-[10.5px] font-medium rounded-lg border transition-all duration-150 ease-out leading-tight ${
                         ts.pageScope === s
-                          ? 'border-accent bg-accent-softer text-accent'
-                          : 'border-line text-ink-soft hover:bg-surface-muted hover:text-ink'
+                          ? 'border-accent bg-accent-softer text-accent shadow-sm'
+                          : 'border-line text-ink-soft hover:bg-surface-muted hover:text-ink hover:border-line-strong'
                       }`}
                     >
                       {t(('settings.translation.pageScope.' + s) as StringKey, byok.locale)}
@@ -670,7 +680,7 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                 </div>
 
                 {/* Custom CSS (advanced) */}
-                <label className="text-[11px] text-ink-soft mb-1 block">{t('settings.translation.customCss', byok.locale)}</label>
+                <span className="eyebrow mb-1 block">{t('settings.translation.customCss', byok.locale)}</span>
                 <textarea
                   value={ts.customCss}
                   onChange={(e) => setTs({ customCss: e.target.value })}
@@ -681,8 +691,9 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                 <p className="text-[10px] text-ink-faint mb-2">{t('settings.translation.customCssHint', byok.locale)}</p>
 
                 {/* Translation cache */}
-                <label className="text-[11px] text-ink-soft mb-1 block">
-                  {t('settings.translation.cacheTtl', byok.locale)}: {ts.cacheTtlDays}
+                <label className="eyebrow mb-1 flex items-baseline justify-between">
+                  <span>{t('settings.translation.cacheTtl', byok.locale)}</span>
+                  <span className="text-ink-soft font-serif text-[13px] font-bold tracking-normal normal-case">{ts.cacheTtlDays}</span>
                 </label>
                 <input
                   type="range"
@@ -690,19 +701,19 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                   max={90}
                   value={ts.cacheTtlDays}
                   onChange={(e) => setTs({ cacheTtlDays: Number(e.target.value) })}
-                  className="w-full accent-[#9C6B3C] mb-1"
+                  className="w-full accent-[#8F5E30] mb-1"
                 />
                 <p className="text-[10px] text-ink-faint mb-1">{t('settings.translation.cacheHint', byok.locale)}</p>
                 <CacheControls ttlDays={ts.cacheTtlDays} locale={byok.locale} />
 
                 {/* Site rules */}
-                <label className="text-[11px] text-ink-soft mb-1 mt-1 block">{t('settings.translation.siteRules', byok.locale)}</label>
+                <span className="eyebrow mb-1 mt-1 block">{t('settings.translation.siteRules', byok.locale)}</span>
                 <SiteRulesControls
                   rules={ts.siteRules}
                   locale={byok.locale}
                   onChange={(next) => setTs({ siteRules: next })}
                 />
-              </div>
+              </section>
             )
           })()}
         </div>

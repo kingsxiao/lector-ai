@@ -51,17 +51,17 @@ export class ErrorBoundary extends Component<Props, State> {
     if (!this.state.error) return this.props.children
     const msg = this.state.error.message || String(this.state.error)
     return (
-      <div style={{ padding: 20, fontFamily: '-apple-system,system-ui,sans-serif', color: '#2B2620', maxWidth: 420 }}>
+      <div style={{ padding: 20, fontFamily: '-apple-system,system-ui,sans-serif', color: '#26211B', maxWidth: 420 }}>
         <h2 style={{ margin: '0 0 8px', fontSize: 15, color: '#c0392b' }}>
           Lector hit an error
         </h2>
-        <p style={{ fontSize: 12, lineHeight: 1.6, color: '#6B6155', margin: '0 0 12px' }}>
+        <p style={{ fontSize: 12, lineHeight: 1.6, color: '#5C5347', margin: '0 0 12px' }}>
           The side panel failed to render. This is usually caused by a stale or
           corrupted settings object from an older version. Resetting your local
           settings (your API key will need to be re-entered) almost always fixes it.
         </p>
         <pre style={{
-          fontSize: 10.5, lineHeight: 1.5, color: '#6B6155',
+          fontSize: 10.5, lineHeight: 1.5, color: '#5C5347',
           background: '#F5EFE3', padding: 8, borderRadius: 6,
           whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: '0 0 12px',
           maxHeight: 160, overflow: 'auto',
@@ -70,7 +70,7 @@ export class ErrorBoundary extends Component<Props, State> {
           onClick={this.resetAndReload}
           style={{
             padding: '8px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-            background: '#9C6B3C', color: '#FFF8EE', border: 'none', borderRadius: 8,
+            background: '#8F5E30', color: '#FFF6EA', border: 'none', borderRadius: 8,
           }}
         >
           Reset settings &amp; reload
