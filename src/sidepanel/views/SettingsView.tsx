@@ -16,7 +16,6 @@ import { TRANSLATION_THEMES } from '../../shared/translationThemes'
 import { TRANSLATION_PERSONAS } from '../../shared/translationPersonas'
 import { totalSavedTokens } from '../../shared/translationCache'
 import {
-  matchHost,
   normalizeSiteRules,
   newSiteRuleId,
   type SiteRule,
@@ -165,8 +164,10 @@ function SiteRulesControls({
 
   const addCurrent = (mode: 'always' | 'never') => {
     if (!currentHost) return
-    // Replace any existing rule for the same host, then prepend.
-    const filtered = rules.filter((r) => !matchHost(r.hostPattern, currentHost) || r.hostPattern !== currentHost)
+    // Replace any existing rule for the same host (exact pattern), then
+    // prepend. Broader suffix patterns (e.g. "com" matching example.com) are
+    // deliberately kept — only the exact-host rule is replaced.
+    const filtered = rules.filter((r) => r.hostPattern !== currentHost)
     onChange([{ id: newSiteRuleId(), hostPattern: currentHost, mode, createdAt: Date.now() }, ...filtered])
   }
   const removeRule = (id: string) => onChange(rules.filter((r) => r.id !== id))

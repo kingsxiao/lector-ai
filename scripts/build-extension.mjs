@@ -1,39 +1,45 @@
 import { execSync } from 'child_process'
-import { copyFileSync, mkdirSync, existsSync, rmSync, readdirSync, cpSync, readFileSync, writeFileSync } from 'fs'
+import { copyFileSync, mkdirSync, existsSync, rmSync, cpSync, readFileSync, writeFileSync, renameSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const rootDir = resolve(__dirname, '..')
 const distDir = resolve(rootDir, 'dist')
+// Staging directory: everything is assembled here and only swapped into dist/
+// after the manifest validation passes. A failed build (vite error, missing
+// artifact) therefore leaves the previous dist/ intact — the loaded unpacked
+// extension keeps working instead of pointing at a half-written manifest.
+const stagingDir = resolve(rootDir, 'dist.tmp')
 
-// Clean dist
-if (existsSync(distDir)) {
-  rmSync(distDir, { recursive: true })
+if (existsSync(stagingDir)) {
+  rmSync(stagingDir, { recursive: true })
 }
-mkdirSync(distDir, { recursive: true })
+mkdirSync(stagingDir, { recursive: true })
 
-// Build with Vite
+// Build with Vite. --outDir redirects the config's `dist` to the staging dir;
+// the CLI flag takes precedence over vite.config.ts's build.outDir.
 console.log('Building with Vite...')
-execSync('npm run build', { cwd: rootDir, stdio: 'inherit' })
+execSync('npx vite build --outDir dist.tmp', { cwd: rootDir, stdio: 'inherit' })
 
 // Rebuild the content script as a single self-contained IIFE bundle.
 // MV3 content scripts cannot be ES modules (content_scripts has no `type:
 // "module"` option), so the default ES build above — which emits an `import`
 // of a shared chunk — fails at runtime. This standalone config inlines all
-// shared deps (byok, i18n) into one content.js with no chunk imports.
+// shared deps (byok, i18n) into one content.js with no chunk imports. Its
+// emptyOutDir:false keeps the sidepanel/background output already in staging.
 console.log('Rebuilding content script as IIFE bundle...')
-execSync('npx vite build --config vite.content.config.ts', {
+execSync('npx vite build --config vite.content.config.ts --outDir dist.tmp', {
   cwd: rootDir,
   stdio: 'inherit',
 })
 
-// Copy manifest.json to dist, stripping the `key` field. The key is kept in
+// Copy manifest.json to staging, stripping the `key` field. The key is kept in
 // src/manifest.json so local development uses a stable extension ID, but the
 // Chrome Web Store rejects uploads that include it.
 console.log('Copying manifest.json...')
 const manifestSrc = resolve(rootDir, 'src/manifest.json')
-const manifestDest = resolve(distDir, 'manifest.json')
+const manifestDest = resolve(stagingDir, 'manifest.json')
 const manifest = JSON.parse(readFileSync(manifestSrc, 'utf8'))
 delete manifest.key
 writeFileSync(manifestDest, JSON.stringify(manifest, null, 2) + '\n')
@@ -41,7 +47,7 @@ writeFileSync(manifestDest, JSON.stringify(manifest, null, 2) + '\n')
 // Copy icons
 console.log('Copying icons...')
 const iconsSrc = resolve(rootDir, 'public/icons')
-const iconsDest = resolve(distDir, 'icons')
+const iconsDest = resolve(stagingDir, 'icons')
 if (existsSync(iconsSrc)) {
   cpSync(iconsSrc, iconsDest, { recursive: true })
 } else {
@@ -51,16 +57,16 @@ if (existsSync(iconsSrc)) {
 // Copy content.css
 console.log('Copying content.css...')
 const contentCssSrc = resolve(rootDir, 'src/content.css')
-const contentCssDest = resolve(distDir, 'content.css')
+const contentCssDest = resolve(stagingDir, 'content.css')
 if (existsSync(contentCssSrc)) {
   copyFileSync(contentCssSrc, contentCssDest)
 }
 
 // Vite emits each HTML entry under src/<entry>/index.html. Relocate them to
-// the dist root so the manifest paths resolve correctly.
+// the staging root so the manifest paths resolve correctly.
 function relocateHtml(entryName) {
-  const src = resolve(distDir, 'src', entryName, 'index.html')
-  const destDir = resolve(distDir, entryName)
+  const src = resolve(stagingDir, 'src', entryName, 'index.html')
+  const destDir = resolve(stagingDir, entryName)
   if (existsSync(src)) {
     mkdirSync(destDir, { recursive: true })
     cpSync(src, resolve(destDir, 'index.html'))
@@ -70,19 +76,19 @@ function relocateHtml(entryName) {
 relocateHtml('sidepanel')
 
 // Remove the leftover src/ tree Vite produced.
-const leftoverSrc = resolve(distDir, 'src')
+const leftoverSrc = resolve(stagingDir, 'src')
 if (existsSync(leftoverSrc)) {
   rmSync(leftoverSrc, { recursive: true })
 }
 
-// Validate the assembled dist/: every file the manifest references must exist.
-// Without this, a silent build miss (empty icons/, unrelocated HTML, missing
-// IIFE bundle) still printed "built successfully" and only blew up — or worse,
-// quietly no-op'd — when loaded into Chrome.
+// Validate the assembled staging dir: every file the manifest references must
+// exist. Without this, a silent build miss (empty icons/, unrelocated HTML,
+// missing IIFE bundle) still printed "built successfully" and only blew up —
+// or worse, quietly no-op'd — when loaded into Chrome.
 const missing = []
 const checkFile = (relPath) => {
   if (!relPath || typeof relPath !== 'string') return
-  if (!existsSync(resolve(distDir, relPath))) missing.push(relPath)
+  if (!existsSync(resolve(stagingDir, relPath))) missing.push(relPath)
 }
 for (const cs of manifest.content_scripts ?? []) {
   for (const js of cs.js ?? []) checkFile(js)
@@ -97,10 +103,18 @@ if (manifest.icons) {
   for (const p of Object.values(manifest.icons)) checkFile(p)
 }
 if (missing.length > 0) {
-  console.error('❌ Build incomplete — manifest references missing files in dist/:')
+  console.error('❌ Build incomplete — manifest references missing files:')
   for (const p of missing) console.error(`   - ${p}`)
   process.exit(1)
 }
+
+// Swap the validated staging dir into place. rmSync+renameSync is atomic
+// enough for the dev loop: a Chrome reload during the swap sees either the
+// complete old dist or the complete new one, never a half-written state.
+if (existsSync(distDir)) {
+  rmSync(distDir, { recursive: true })
+}
+renameSync(stagingDir, distDir)
 
 console.log('✅ Extension built successfully!')
 console.log(`📁 Output: ${distDir}`)

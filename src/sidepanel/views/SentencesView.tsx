@@ -257,7 +257,7 @@ function SentencesViewImpl(props: SentencesViewProps) {
                                 onClick={() => props.onViewSource(c.blockId, c.url)}
                                 title={tr('side.sentences.viewSource')}
                                 aria-label={tr('aria.viewSource')}
-                                className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
+                                className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                               >
                                 <SparklesIcon size={13} />
                               </button>
@@ -266,14 +266,14 @@ function SentencesViewImpl(props: SentencesViewProps) {
                               onClick={() => props.onAnkiExport([c])}
                               title={tr('side.sentences.toAnkiOne')}
                               aria-label={tr('aria.sendToAnki')}
-                              className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
+                              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                             >
                               <DownloadIcon size={13} />
                             </button>
                             <button
                               onClick={() => props.onRemove(c.id)}
                               aria-label={tr('side.sentences.remove')}
-                              className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
+                              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-danger transition-opacity"
                             >
                               <XIcon size={15} />
                             </button>

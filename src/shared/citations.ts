@@ -62,6 +62,8 @@ export function renderCitations(html: string, validIds: Set<string>): string {
     const display = inside.replace(/^b/, '')
     const raw = `b${display}`
     if (!validIds.has(raw)) return ''
-    return `<sup class="lector-cite" data-cite="${raw}" title="Source block ${display}">[${display}]</sup>`
+    // tabindex+role make the chip reachable and activatable by keyboard; the
+    // sidepanel's delegated keydown handler listens for Enter/Space.
+    return `<sup class="lector-cite" data-cite="${raw}" title="Source block ${display}" role="button" tabindex="0" aria-label="Source block ${display}">[${display}]</sup>`
   })
 }

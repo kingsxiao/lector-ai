@@ -23,8 +23,16 @@ function renderInline(s: string): string {
     /\[(n|v|a|d|p|c|r|t)\]([^\[]*?)\[\/\1\]/g,
     (_m, code, text) => `<span class="lector-pos lector-pos-${code}">${text}</span>`
   )
-  // inline code first so its content isn't re-processed
-  out = out.replace(/`([^`]+)`/g, (_m, c) => `<code>${c}</code>`)
+  // Inline code spans are extracted into placeholders FIRST so the later
+  // bold/italic/link passes can't reach inside them (`` `**x**` `` must stay a
+  // literal code span, not become <code><strong>x</strong></code>). Content is
+  // already escaped; restored verbatim at the end. \u0000 can't occur in
+  // escaped output, so the placeholders are collision-free.
+  const codeSpans: string[] = []
+  out = out.replace(/`([^`]+)`/g, (_m, c) => {
+    codeSpans.push(`<code>${c}</code>`)
+    return `\u0000${codeSpans.length - 1}\u0000`
+  })
   // bold
   out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
   out = out.replace(/__([^_]+)__/g, '<strong>$1</strong>')
@@ -36,6 +44,8 @@ function renderInline(s: string): string {
   out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_m, text, url) => {
     return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`
   })
+  // Restore code spans after every other rule has run.
+  out = out.replace(/\u0000(\d+)\u0000/g, (_m, idx) => codeSpans[Number(idx)] ?? '')
   return out
 }
 

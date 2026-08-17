@@ -201,6 +201,11 @@ async function main() {
 
   let page
   let bootPage
+  // Kill the detached Chrome + drop the temp profile on Ctrl-C / SIGTERM too —
+  // the normal cleanup() only runs when main() completes, so an interrupted
+  // run would otherwise leak a headless Chrome process group.
+  process.on('SIGINT', () => { void cleanup(); process.exit(130) })
+  process.on('SIGTERM', () => { void cleanup(); process.exit(143) })
   try {
     for (let i = 0; i < 80; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/json/version`)).ok) break } catch {} await sleep(250) }
 
@@ -386,6 +391,9 @@ async function main() {
     await cleanup()
   } catch (e) {
     console.error('E2E error:', e.stack || e.message)
+    // Never let an exception truncate the suite and still report success —
+    // mark it failed explicitly (mirrors run-browser-e2e.mjs).
+    check('sidepanel E2E completed without uncaught error', false, e instanceof Error ? e.message : String(e))
     await cleanup()
   }
 

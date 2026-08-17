@@ -743,7 +743,12 @@ export async function fetchModels(settings: ByokSettings): Promise<FetchedModel[
   if (!base) return []
 
   const url = `${base}${def.modelsPath}`
-  const res = await fetch(url, { method: 'GET', headers: buildHeaders(settings, def) })
+  // Same timeout guard as the chat transports: a hanging /models endpoint
+  // (mis-typed custom baseUrl, half-open connection) would otherwise leave the
+  // "fetch models" UI spinning until the browser's own (minutes-long) timeout.
+  const res = await withRequestTimeout(undefined, (requestSignal) =>
+    fetch(url, { method: 'GET', headers: buildHeaders(settings, def), signal: requestSignal })
+  )
 
   if (!res.ok) {
     // Surface the error so the UI can tell the user why the fetch failed

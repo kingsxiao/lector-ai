@@ -46,6 +46,11 @@ function build() {
       console.log('   → Reload the extension in Chrome to see changes')
       console.log('   → Press r + Enter to rebuild after changes')
       console.log('')
+    } else {
+      console.log('')
+      console.log(`[${new Date().toLocaleTimeString()}] ❌ Build failed (exit ${code}) — dist/ keeps the last successful build`)
+      console.log('   → Fix the error above, then press r + Enter to rebuild')
+      console.log('')
     }
   })
 }
@@ -61,7 +66,9 @@ rl.on('line', (input) => {
   if (cmd === 'r') {
     build()
   } else if (cmd === 'p') {
-    exec('open "https://chrome.google.com/webstore/devconsole"')
+    // The dev loop reloads the unpacked extension on chrome://extensions —
+    // open that page (in Chrome itself), not the Web Store dev console.
+    exec('open -a "Google Chrome" "chrome://extensions/"')
   } else if (cmd === 'q') {
     console.log('👋 Goodbye!')
     process.exit(0)

@@ -84,6 +84,14 @@ function GlossaryViewImpl({
       setFlash(tr('side.glossary.importFail').replace('{msg}', res.reason || ''))
       return
     }
+    // A valid top-level array whose rows ALL fail validation parses to ok with
+    // zero entries (e.g. an array of plain strings). Importing that would
+    // replace the user's existing glossary with an empty list — treat it as a
+    // failed import instead.
+    if (res.entries.length === 0) {
+      setFlash(tr('side.glossary.importFail').replace('{msg}', '0'))
+      return
+    }
     onImport(res.entries)
     setFlash(tr('side.glossary.importOk').replace('{n}', String(res.entries.length)))
   }
@@ -213,7 +221,7 @@ function GlossaryViewImpl({
                       onClick={() => startEdit(e)}
                       aria-label={tr('aria.edit')}
                       title={tr('aria.edit')}
-                      className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
+                      className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                     >
                       <PencilIcon size={14} />
                     </button>
@@ -221,7 +229,7 @@ function GlossaryViewImpl({
                       onClick={() => onRemove(e.id)}
                       aria-label={tr('aria.delete')}
                       title={tr('aria.delete')}
-                      className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
+                      className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-danger transition-opacity"
                     >
                       <TrashIcon size={14} />
                     </button>

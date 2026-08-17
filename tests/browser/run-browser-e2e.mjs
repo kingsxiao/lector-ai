@@ -227,9 +227,15 @@ async function main() {
   ], { stdio: 'ignore', detached: true })
 
   let page
+  // Kill the detached Chrome + drop the temp profile on Ctrl-C / SIGTERM too —
+  // the normal cleanup() only runs when main() completes, so an interrupted
+  // run would otherwise leak a headless Chrome process group.
+  process.on('SIGINT', () => { void cleanup(); process.exit(130) })
+  process.on('SIGTERM', () => { void cleanup(); process.exit(143) })
   try {
-    for (let i = 0; i < 80; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/json/version`)).ok) break } catch {} await sleep(250) }
-    check('Chrome (headless=new) launches with remote debugging', true, `port ${port}`)
+    let launched = false
+    for (let i = 0; i < 80; i++) { try { if ((await fetch(`http://127.0.0.1:${port}/json/version`)).ok) { launched = true; break } } catch {} await sleep(250) }
+    check('Chrome (headless=new) launches with remote debugging', launched, `port ${port}`)
 
     await openTab(port, ARTICLE)
     await sleep(1500)

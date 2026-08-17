@@ -30,6 +30,18 @@ describe('renderMarkdown', () => {
     expect(out).toContain('<code>const x = 1</code>')
   })
 
+  it('does not re-process inline code content with later inline rules', () => {
+    // Bold/link markers inside a code span must stay literal…
+    let out = renderMarkdown('`**x**` and `[a](https://x)`')
+    expect(out).toContain('<code>**x**</code>')
+    expect(out).not.toContain('<code><strong>')
+    expect(out).toContain('<code>[a](https://x)</code>')
+    expect(out).not.toContain('<code><a')
+    // …while the same markers OUTSIDE code spans still apply.
+    out = renderMarkdown('`**x**` vs **real bold**')
+    expect(out).toContain('<strong>real bold</strong>')
+  })
+
   it('renders fenced code blocks and escapes inner HTML', () => {
     const out = renderMarkdown('```\n<a href="x">hi</a>\n```')
     expect(out).toContain('<pre><code>')

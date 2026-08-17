@@ -105,6 +105,12 @@ function newId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
 }
 
+// Marker prefixes the catch paths in handleSend write onto a failed/stopped
+// assistant turn. Drives both the Retry affordance and the provider-history
+// filter (a ⚠️/stopped placeholder must never be sent back to the model as
+// conversation context, nor duplicated into a retried request).
+const FAILED_TURN_RE = /^(⚠️|\(stopped\)|（已停止）)/
+
 
 /** Flat, mutually-exclusive side-panel views (replaces overlay drawers). */
 type View =
@@ -196,10 +202,10 @@ export default function App() {
   // unrelated re-render (e.g. chat streaming) doesn't re-filter while the
   // history view is open.
   const filteredHistory = useMemo(() => {
-    const q = histSearch.trim()
+    const q = histSearch.trim().toLowerCase()
     if (!q) return translationHistory
     return translationHistory.filter(
-      (e) => e.source.includes(q) || e.target.includes(q)
+      (e) => e.source.toLowerCase().includes(q) || e.target.toLowerCase().includes(q)
     )
   }, [translationHistory, histSearch])
   const [input, setInput] = useState('')
@@ -246,8 +252,20 @@ export default function App() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const scrollFrameRef = useRef<number | null>(null)
   const toolsRef = useRef<HTMLDivElement>(null)
+  // The "⋯ More" trigger — refocused when its dropdown closes via item pick or
+  // Escape, so keyboard users don't get dropped to <body> when the focused
+  // menu item unmounts.
+  const toolsTriggerRef = useRef<HTMLButtonElement>(null)
   const assistantBuf = useRef<string>('')
   const tokenFrameRef = useRef<number | null>(null)
+  // Tab hosting the in-flight bilingual run; consumed by the lifetime watchdog
+  // effect (tabs.onRemoved / onUpdated) so a closed/navigated tab can't leave
+  // the header button spinning forever.
+  const bilingualTabIdRef = useRef<number | null>(null)
+  // Pending "clear the {done/total} readout" timer. Tracked so a new run can
+  // cancel it — an untracked stale timer would fire mid-run and wipe the new
+  // run's live progress badge.
+  const progressClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // AbortController for the in-flight chat stream. Lets the user Stop a long
   // response, and lets us abort cleanly on unmount / session switch so the
   // stream can't write into the wrong session or an unmounted component.
@@ -269,7 +287,12 @@ export default function App() {
       }
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowTools(false)
+      if (e.key === 'Escape') {
+        setShowTools(false)
+        // Restore focus to the trigger: the previously focused menu item just
+        // unmounted, which would otherwise drop keyboard focus to <body>.
+        toolsTriggerRef.current?.focus()
+      }
     }
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
@@ -278,6 +301,43 @@ export default function App() {
       document.removeEventListener('keydown', onKey)
     }
   }, [showTools])
+
+  // Seed the composer from a one-shot relay value (selection-toolbar or
+  // context-menu translate/explain/summarize/ask → panel opens with a
+  // prefilled prompt). Shared by the mount-time read AND the live storage
+  // listener below: the background writes lectorSeed unconditionally, and
+  // chrome.sidePanel.open() is a no-op when the panel is already open —
+  // without the live path, a docked panel would silently ignore the action
+  // and replay the stale seed on its next (possibly days-later) reload.
+  const applySeed = useCallback(
+    (seed: { kind: string; text: string }, stored: ByokSettings | null) => {
+      chrome.storage.local.remove('lectorSeed')
+      // The translate seed follows the user's CONFIGURED translation target
+      // (the same direction bilingual mode uses), not the inverse of the UI
+      // locale — a zh-locale user translating INTO Chinese used to get
+      // "Translate this to English". 'auto' falls back to the locale heuristic.
+      const storedTranslation = stored ? normalizeTranslationSettings(stored.translation) : null
+      const translateTarget =
+        storedTranslation && storedTranslation.targetLanguage !== 'auto'
+          ? getLanguage(storedTranslation.targetLanguage).en
+          : resolveLocale(stored?.locale ?? useStore.getState().byok.locale) === 'zh'
+            ? 'English'
+            : '中文'
+      const seedPrompt =
+        seed.kind === 'summarize'
+          ? 'Summarize this in a few bullets:\n\n'
+          : seed.kind === 'translate'
+            ? `Translate this to ${translateTarget}:\n\n`
+            : seed.kind === 'explain'
+              ? 'Explain this clearly:\n\n'
+              : ''
+      setInput(`${seedPrompt}${seed.text}`.slice(0, 4000))
+      // Make the prefilled prompt visible: on the live path the user may be in
+      // any view when they trigger a toolbar/context-menu action.
+      setActiveView('chat')
+    },
+    []
+  )
 
   // Pull the page from the active tab's content script + read any seed.
   //
@@ -320,10 +380,10 @@ export default function App() {
 
       // Reconcile settings from chrome.storage (the content/background may have
       // written a newer value). Use the already-pending promise; no extra call.
-      let reconciledLocale = useStore.getState().byok.locale
+      let storedSettings: ByokSettings | null = null
       try {
         const stored = await settingsP
-        reconciledLocale = stored.locale
+        storedSettings = stored
         if (!cancelled) setByok(stored)
       } catch {
         // ignore — keep the synchronous zustand value
@@ -336,41 +396,14 @@ export default function App() {
         if (cancelled) return
         await tabP // ensure the tab read is done before we finish (best-effort)
         if (seed.lectorSeed?.text) {
-          chrome.storage.local.remove('lectorSeed')
-          // The translate seed follows the user's CONFIGURED translation
-          // target (same direction the bilingual mode uses), not the inverse
-          // of the UI locale — a zh-locale user translating INTO Chinese got
-          // "Translate this to English" before. 'auto' falls back to the
-          // locale heuristic.
-          let storedTranslation: ReturnType<typeof normalizeTranslationSettings> | null = null
-          try {
-            storedTranslation = normalizeTranslationSettings((await settingsP).translation)
-          } catch {
-            // fall through to the locale heuristic
-          }
-          const translateTarget =
-            storedTranslation && storedTranslation.targetLanguage !== 'auto'
-              ? getLanguage(storedTranslation.targetLanguage).en
-              : resolveLocale(reconciledLocale) === 'zh'
-                ? 'English'
-                : '中文'
-          const s = seed.lectorSeed
-          const seedPrompt =
-            s.kind === 'summarize'
-              ? 'Summarize this in a few bullets:\n\n'
-              : s.kind === 'translate'
-                ? `Translate this to ${translateTarget}:\n\n`
-                : s.kind === 'explain'
-                  ? 'Explain this clearly:\n\n'
-                  : ''
-          setInput(`${seedPrompt}${s.text}`.slice(0, 4000))
+          applySeed(seed.lectorSeed, storedSettings)
         }
       } catch {
         // ignore
       }
     })()
     return () => { cancelled = true }
-  }, [setByok])
+  }, [setByok, applySeed])
 
   // Sync knowledge captured by the content→background relay (chrome.storage)
   // into the zustand store so the Highlights / Vocab drawers stay live.
@@ -400,6 +433,20 @@ export default function App() {
       if (changes.lector_byok_settings?.newValue) {
         setByok(changes.lector_byok_settings.newValue as ByokSettings)
       }
+      // Live seed relay: consumed at mount too, but when this panel is already
+      // open the page does NOT reload — without this branch a toolbar/context-
+      // menu action would visibly do nothing and the stale seed would replay
+      // on the next panel open.
+      if (changes.lectorSeed?.newValue) {
+        const seed = changes.lectorSeed.newValue as { kind: string; text: string }
+        if (seed.text) {
+          void (async () => {
+            let stored: ByokSettings | null = null
+            try { stored = await getSettings() } catch { stored = null }
+            applySeed(seed, stored)
+          })()
+        }
+      }
     }
     // Guard: chrome.storage.onChanged may be undefined in some contexts (e.g.
     // when the extension context is invalidated, or in test/stub environments).
@@ -417,7 +464,7 @@ export default function App() {
     })
     chrome.storage.onChanged.addListener(onStorage)
     return () => chrome.storage.onChanged?.removeListener?.(onStorage)
-  }, [setByok])
+  }, [setByok, applySeed])
 
   // Mirror the glossary out of zustand into chrome.storage.local so the content
   // script (which runs in a separate context and cannot read window.localStorage
@@ -455,9 +502,15 @@ export default function App() {
         // run completes; release the busy state then so the button resets.
         if (message.complete || (total > 0 && done >= total)) {
           setBilingualBusy(false)
+          bilingualTabIdRef.current = null
           // Keep the {total/total} readout briefly so the user sees completion,
-          // then clear it.
-          setTimeout(() => setBilingualProgress(null), 1200)
+          // then clear it. Cancel any pending clear first: an untracked stale
+          // timer would fire during a freshly started run and wipe its badge.
+          if (progressClearTimerRef.current !== null) clearTimeout(progressClearTimerRef.current)
+          progressClearTimerRef.current = setTimeout(() => {
+            progressClearTimerRef.current = null
+            setBilingualProgress(null)
+          }, 1200)
         }
         return
       }
@@ -468,6 +521,7 @@ export default function App() {
         // in genuine provider errors that must stay visible.
         setBilingualBusy(false)
         setBilingualProgress(null)
+        bilingualTabIdRef.current = null
         if (message.canceled !== true) {
           setError(message.message)
           // Key/quota errors surface in a top banner (no auto-opening Settings
@@ -483,6 +537,34 @@ export default function App() {
     if (typeof chrome === 'undefined' || !chrome.runtime?.onMessage?.addListener) return
     chrome.runtime.onMessage.addListener(onMessage)
     return () => chrome.runtime.onMessage?.removeListener?.(onMessage)
+  }, [])
+
+  // Bilingual-run lifetime watchdog. The busy state is normally released by the
+  // content script's terminal progress/error messages — but if the run's tab is
+  // closed or navigates away mid-run, that report never arrives and the header
+  // button would spin forever (recoverable only by clicking it as cancel). A
+  // full navigation tears the content script down (tabs.onUpdated fires with
+  // status 'loading'); SPA route changes don't fire it, correctly matching the
+  // run's own lifetime (the script — and its in-flight run — survive those).
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.tabs?.onRemoved?.addListener) return
+    const release = () => {
+      bilingualTabIdRef.current = null
+      setBilingualBusy(false)
+      setBilingualProgress(null)
+    }
+    const onRemoved = (tabId: number) => {
+      if (bilingualTabIdRef.current === tabId) release()
+    }
+    const onUpdated = (tabId: number, changeInfo: { status?: string }) => {
+      if (bilingualTabIdRef.current === tabId && changeInfo.status === 'loading') release()
+    }
+    chrome.tabs.onRemoved.addListener(onRemoved)
+    chrome.tabs.onUpdated.addListener(onUpdated)
+    return () => {
+      chrome.tabs.onRemoved.removeListener(onRemoved)
+      chrome.tabs.onUpdated.removeListener(onUpdated)
+    }
   }, [])
 
   useEffect(() => {
@@ -566,12 +648,20 @@ export default function App() {
   // the stable `tr`/`tplTitle` above, an unrelated store change (e.g. a chat
   // message streaming in while the user sits on Vocab view) no longer
   // re-renders the currently-mounted view.
+
+  // Apply a partial byok patch + persist it. Reads the base from
+  // useStore.getState() so a patch computed from a stale render can never
+  // resurrect older fields. Single implementation — header chip, quick
+  // toggles and the Settings form all delegate here.
+  const saveByok = useCallback(async (patch: Partial<ByokSettings>) => {
+    const next = { ...useStore.getState().byok, ...patch }
+    setByok(next)
+    await saveSettings(next)
+  }, [setByok])
+
   const handleByokChange = useCallback(
-    async (next: Partial<ByokSettings>) => {
-      setByok(next)
-      await saveSettings({ ...useStore.getState().byok, ...next })
-    },
-    [setByok]
+    async (next: Partial<ByokSettings>) => saveByok(next),
+    [saveByok]
   )
 
   const handleGradeVocab = useCallback(
@@ -655,10 +745,16 @@ export default function App() {
       })
       setBilingualBusy(false)
       setBilingualProgress(null)
+      bilingualTabIdRef.current = null
       return
     }
     setBilingualBusy(true)
     setBilingualProgress(null)
+    bilingualTabIdRef.current = tab.id
+    if (progressClearTimerRef.current !== null) {
+      clearTimeout(progressClearTimerRef.current)
+      progressClearTimerRef.current = null
+    }
     chrome.tabs.sendMessage(tab.id, { action: 'lector-toggle-bilingual' }, () => {
       const failed = chrome.runtime.lastError
       if (failed) {
@@ -736,6 +832,34 @@ export default function App() {
       // whatever streamed so far.
       abortRef.current = new AbortController()
 
+      // Persist the finalized turn into the session store. Guarded against the
+      // session being deleted while the stream was running (user removed it
+      // from the Library mid-response): updateSession on a missing id is a
+      // silent no-op, but the user would lose the answer — fall back to
+      // creating a fresh session so the exchange isn't dropped. Used by the
+      // success AND the abort/error paths: a stopped or failed turn must not
+      // silently diverge from the Library copy (it would vanish on reopen).
+      const persistTurn = (finalMessages: ChatMessage[]) => {
+        if (activeSessionId) {
+          const stillExists = useStore
+            .getState()
+            .sessions.some((s) => s.id === activeSessionId)
+          if (stillExists) {
+            updateSession(activeSessionId, { messages: finalMessages })
+            return
+          }
+        }
+        const session: ChatSession = {
+          id: newId(),
+          title: page?.title || text.slice(0, 60),
+          url: page?.url || '',
+          createdAt: Date.now(),
+          messages: finalMessages,
+        }
+        addSession(session)
+        setActiveSessionId(session.id)
+      }
+
       try {
         // Build citation-grounded page context: number the extracted blocks so
         // the model can cite them inline as [0], [1], … which we render as
@@ -766,8 +890,15 @@ ${citeContext.slice(0, 12000)}
 """
 ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}`
 
+        // Provider history: drop empty turns AND failed/stopped marker turns —
+        // sending "⚠️ Provider error …" back as assistant context poisons the
+        // next request (and a retry's re-sent user turn would sit next to it).
         const history: WireMessage[] = messages
-          .filter((m) => m.content.trim().length > 0)
+          .filter(
+            (m) =>
+              m.content.trim().length > 0 &&
+              !(m.role === 'assistant' && FAILED_TURN_RE.test(m.content))
+          )
           .slice(-10)
           .map((m) => ({ role: m.role, content: m.content }))
 
@@ -810,38 +941,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         const finalMessages = next.concat(finalAssistant)
         setMessages(finalMessages)
         setLiveNotice(tr('aria.replyReady'))
-        // Guard against the session being deleted while the stream was running
-        // (user removed it from the Library mid-response). updateSession on a
-        // missing id is a silent no-op, but the user would lose the answer;
-        // fall back to creating a fresh session so the exchange isn't dropped.
-        if (activeSessionId) {
-          const stillExists = useStore
-            .getState()
-            .sessions.some((s) => s.id === activeSessionId)
-          if (stillExists) {
-            updateSession(activeSessionId, { messages: finalMessages })
-          } else {
-            const session: ChatSession = {
-              id: newId(),
-              title: page?.title || text.slice(0, 60),
-              url: page?.url || '',
-              createdAt: Date.now(),
-              messages: finalMessages,
-            }
-            addSession(session)
-            setActiveSessionId(session.id)
-          }
-        } else {
-          const session: ChatSession = {
-            id: newId(),
-            title: page?.title || text.slice(0, 60),
-            url: page?.url || '',
-            createdAt: Date.now(),
-            messages: finalMessages,
-          }
-          addSession(session)
-          setActiveSessionId(session.id)
-        }
+        persistTurn(finalMessages)
       } catch (e) {
         if (tokenFrameRef.current !== null) {
           cancelAnimationFrame(tokenFrameRef.current)
@@ -855,6 +955,9 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           (e instanceof DOMException && e.name === 'AbortError')
         if (aborted) {
           const partial = assistantBuf.current
+          // cur.map (not setMessages(final)): if the user switched sessions
+          // mid-stream, the visible transcript belongs to the NEW session and
+          // must not be clobbered — map is a no-op when the bubble id is absent.
           setMessages((cur) =>
             cur.map((m) =>
               m.id === assistantMsg.id
@@ -863,6 +966,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             )
           )
           setLiveNotice(tr('aria.replyStopped'))
+          persistTurn(next.concat({ ...assistantMsg, content: partial || tr('side.chat.canceled') }))
         } else {
           const msg = e instanceof Error ? e.message : tr('err.requestFailed')
           setError(msg)
@@ -875,6 +979,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             )
           )
           setLiveNotice(tr('aria.replyFailed'))
+          persistTurn(next.concat({ ...assistantMsg, content: `⚠️ ${msg}` }))
         }
       } finally {
         abortRef.current = null
@@ -925,14 +1030,6 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
     const lastUser = [...messages].reverse().find((m) => m.role === 'user')
     if (lastUser) handleSend(lastUser.content)
   }
-
-  // Apply a partial byok patch + persist it (header chip + quick toggles use
-  // this so they don't each re-implement the setByok + saveSettings dance).
-  const saveByok = useCallback(async (patch: Partial<ByokSettings>) => {
-    const next = { ...useStore.getState().byok, ...patch }
-    setByok(next)
-    await saveSettings(next)
-  }, [setByok])
 
   // Pop Lector out into its own standalone window (the old FAB behavior, now
   // surfaced as a header button). Runs in the extension context, so
@@ -1028,12 +1125,14 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         </div>
       </header>
 
-      {/* TabBar: flat view switching (high-frequency tabs + MoreMenu). */}
-      <nav className="tab-bar" role="tablist" aria-label={tr('aria.views')}>
+      {/* TabBar: flat view switching (high-frequency tabs + MoreMenu). Plain
+          nav + aria-current rather than role=tablist: the "⋯" trigger controls
+          a menu, not a tab, so the full tabs pattern (tabpanel linkage, roving
+          tabindex) can't be completed without splitting the bar. */}
+      <nav className="tab-bar" aria-label={tr('aria.views')}>
         <button
           onClick={() => setActiveView('chat')}
-          role="tab"
-          aria-selected={activeView === 'chat'}
+          aria-current={activeView === 'chat' ? 'page' : undefined}
           className={`tab-item ${activeView === 'chat' ? 'tab-item-active' : ''}`}
           aria-label={tr('side.tab.chat')}
         >
@@ -1042,8 +1141,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         </button>
         <button
           onClick={() => setActiveView('sentences')}
-          role="tab"
-          aria-selected={activeView === 'sentences'}
+          aria-current={activeView === 'sentences' ? 'page' : undefined}
           className={`tab-item relative ${activeView === 'sentences' ? 'tab-item-active' : ''}`}
           aria-label={tr('side.tab.sentences')}
         >
@@ -1055,8 +1153,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         </button>
         <button
           onClick={() => setActiveView('highlights')}
-          role="tab"
-          aria-selected={activeView === 'highlights'}
+          aria-current={activeView === 'highlights' ? 'page' : undefined}
           className={`tab-item relative ${activeView === 'highlights' ? 'tab-item-active' : ''}`}
           aria-label={tr('side.tab.highlights')}
         >
@@ -1066,8 +1163,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         </button>
         <button
           onClick={() => setActiveView('vocab')}
-          role="tab"
-          aria-selected={activeView === 'vocab'}
+          aria-current={activeView === 'vocab' ? 'page' : undefined}
           className={`tab-item relative ${activeView === 'vocab' ? 'tab-item-active' : ''}`}
           aria-label={tr('side.tab.vocab')}
         >
@@ -1078,18 +1174,21 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         {/* ⋯ MoreMenu: low-frequency views (Templates / Glossary / Library) */}
         <div className="relative" ref={toolsRef}>
           <button
+            ref={toolsTriggerRef}
             onClick={() => setShowTools((v) => !v)}
-            className={`tab-item ${activeView === 'templates' || activeView === 'glossary' || activeView === 'library' ? 'tab-item-active' : ''}`}
+            className={`tab-item ${activeView === 'templates' || activeView === 'glossary' || activeView === 'library' || activeView === 'translationHistory' ? 'tab-item-active' : ''}`}
             aria-label={tr('side.tab.more')}
             aria-expanded={showTools}
+            aria-haspopup="menu"
           >
             <GridIcon size={14} />
             <span>{tr('side.tab.more')}</span>
           </button>
           {showTools && (
-            <div className="absolute right-0 top-full mt-1 w-48 bg-surface border border-line rounded-xl shadow-pop z-30 py-1 lector-anim-fade">
+            <div role="menu" className="absolute right-0 top-full mt-1 w-48 bg-surface border border-line rounded-xl shadow-pop z-30 py-1 lector-anim-fade">
               <button
-                onClick={() => { setActiveView('library'); setShowTools(false) }}
+                onClick={() => { setActiveView('library'); setShowTools(false); toolsTriggerRef.current?.focus() }}
+                role="menuitem"
                 aria-label={tr('aria.library')}
                 className="tools-item"
               >
@@ -1097,7 +1196,8 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 <span className="flex-1 text-left">{tr('side.tab.more.library')}</span>
               </button>
               <button
-                onClick={() => { setActiveView('translationHistory'); setShowTools(false) }}
+                onClick={() => { setActiveView('translationHistory'); setShowTools(false); toolsTriggerRef.current?.focus() }}
+                role="menuitem"
                 aria-label={tr('aria.translationHistory')}
                 className="tools-item relative"
               >
@@ -1106,7 +1206,8 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 {translationHistory.length > 0 && <span className="dot-badge" />}
               </button>
               <button
-                onClick={() => { setActiveView('glossary'); setShowTools(false) }}
+                onClick={() => { setActiveView('glossary'); setShowTools(false); toolsTriggerRef.current?.focus() }}
+                role="menuitem"
                 aria-label={tr('aria.glossary')}
                 className="tools-item relative"
               >
@@ -1115,7 +1216,8 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 {glossary.length > 0 && <span className="dot-badge" />}
               </button>
               <button
-                onClick={() => { setActiveView('templates'); setShowTools(false) }}
+                onClick={() => { setActiveView('templates'); setShowTools(false); toolsTriggerRef.current?.focus() }}
+                role="menuitem"
                 aria-label={tr('aria.templates')}
                 className="tools-item relative"
               >
@@ -1267,7 +1369,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 {/* Retry affordance on a failed or stopped assistant message:
                     re-send the last user turn. Hidden while a stream is in
                     flight and for the in-progress (empty) bubble. */}
-                {m.content && !streaming && /^(⚠️|\(stopped\)|（已停止）)/.test(m.content) && (
+                {m.content && !streaming && FAILED_TURN_RE.test(m.content) && (
                   <div className="mt-1.5">
                     <button
                       onClick={retryLast}
@@ -1300,6 +1402,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
             templates={filterTemplates(sortedTemplates, slashMenu.query)}
             activeIdx={slashMenu.activeIdx}
             titleFor={tplTitle}
+            builtInLabel={tr('side.templates.builtIn')}
             emptyText={tr('side.templates.menuEmpty')}
             onPick={(tpl) => applyTemplate(tpl)}
             onHover={(idx) => setSlashMenu((m) => ({ ...m, activeIdx: idx }))}
@@ -1427,7 +1530,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                         if (activeSessionId === s.id) startNewChat()
                       }}
                       aria-label={tr('aria.deleteConversation')}
-                      className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
+                      className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-danger transition-opacity"
                     >
                       <XIcon size={15} />
                     </button>
@@ -1471,14 +1574,14 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                           onClick={() => void handleMakeCardFromHighlight(h)}
                           title={tr('side.sentences.fromHighlight')}
                           aria-label={tr('aria.makeCard')}
-                          className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
+                          className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                         >
                           <SparklesIcon size={14} />
                         </button>
                         <button
                           onClick={() => removeHighlight(h.id)}
                           aria-label={tr('aria.deleteHighlight')}
-                          className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
+                          className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-danger transition-opacity"
                         >
                           <XIcon size={15} />
                         </button>
@@ -1534,7 +1637,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                               {tr(('side.translationHistory.kind.' + e.kind) as StringKey)}
                             </span>
                             <span className="text-[10px] text-ink-faint">
-                              {getLanguage(e.targetLang)[byok.locale === 'zh' || (byok.locale === 'auto' && navigator.language?.toLowerCase().startsWith('zh')) ? 'zh' : 'en']}
+                              {getLanguage(e.targetLang)[resolveLocale(byok.locale) === 'zh' ? 'zh' : 'en']}
                             </span>
                             <span className="text-[10px] text-ink-faint">
                               {new Date(e.createdAt).toLocaleString()}
@@ -1547,7 +1650,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                           <button
                             onClick={() => navigator.clipboard.writeText(e.target).catch(() => {})}
                             aria-label={tr('aria.copyTranslation')}
-                            className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
+                            className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                           >
                             <ClipboardListIcon size={14} />
                           </button>
@@ -1646,14 +1749,30 @@ function CitationContent({ html }: { html: string }) {
   useEffect(() => {
     const root = ref.current
     if (!root) return
-    const onClick = async (e: MouseEvent) => {
+    const jump = (target: HTMLElement) => {
+      const blockId = target.getAttribute('data-cite') || ''
+      void jumpToBlock(blockId)
+    }
+    const onClick = (e: MouseEvent) => {
       const cite = (e.target as HTMLElement).closest<HTMLElement>('.lector-cite')
-      if (!cite) return
-      const blockId = cite.getAttribute('data-cite') || ''
-      await jumpToBlock(blockId)
+      if (cite) jump(cite)
+    }
+    // Chips carry tabindex="0" + role="button" (renderCitations); activate
+    // them with Enter/Space so "jump to source" is not mouse-only.
+    const onKeydown = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return
+      const cite = (e.target as HTMLElement).closest<HTMLElement>('.lector-cite')
+      if (cite) {
+        e.preventDefault()
+        jump(cite)
+      }
     }
     root.addEventListener('click', onClick)
-    return () => root.removeEventListener('click', onClick)
+    root.addEventListener('keydown', onKeydown)
+    return () => {
+      root.removeEventListener('click', onClick)
+      root.removeEventListener('keydown', onKeydown)
+    }
   }, [])
   return <div ref={ref} className="lector-prose" dangerouslySetInnerHTML={{ __html: html }} />
 }
@@ -1686,6 +1805,7 @@ function SlashMenu({
   templates,
   activeIdx,
   titleFor,
+  builtInLabel,
   emptyText,
   onPick,
   onHover,
@@ -1693,6 +1813,7 @@ function SlashMenu({
   templates: PromptTemplate[]
   activeIdx: number
   titleFor: (t: PromptTemplate) => string
+  builtInLabel: string
   emptyText: string
   onPick: (t: PromptTemplate) => void
   onHover: (idx: number) => void
@@ -1719,9 +1840,7 @@ function SlashMenu({
           >
             <span className="text-[12px] font-medium text-ink flex items-center gap-1.5">
               {titleFor(tpl)}
-              {tpl.builtIn && (
-                <span className="chip-builtIn">{t('side.templates.builtIn', useStore.getState().byok.locale)}</span>
-              )}
+              {tpl.builtIn && <span className="chip-builtIn">{builtInLabel}</span>}
             </span>
             <span className="text-[10px] text-ink-faint truncate">
               {tpl.content.replace(/\n/g, ' ').slice(0, 60)}

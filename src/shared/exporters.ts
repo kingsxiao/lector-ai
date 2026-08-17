@@ -30,6 +30,15 @@ function quoteAllLines(s: string): string {
     .join('\n')
 }
 
+/** Local (not UTC) YYYY-MM-DD — a user exporting at 23:00 local expects today's
+ *  date, not toISOString()'s UTC value which is a day off outside 00:00–24:00
+ *  UTC depending on timezone. */
+function localDateString(d: Date = new Date()): string {
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${mm}-${dd}`
+}
+
 /** Markdown export: one block per highlight with note + source. */
 export function toMarkdown(hs: Highlight[], _opts: ExportOptions = {}): string {
   return hs
@@ -65,7 +74,7 @@ export function toObsidian(hs: Highlight[], opts: ExportOptions = {}): string {
   const fm = [
     '---',
     `source: "${fmUrlSafe}"`,
-    `created: ${new Date().toISOString().slice(0, 10)}`,
+    `created: ${localDateString()}`,
     'tags: [lector, highlight]',
     '---',
     '',

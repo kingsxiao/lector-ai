@@ -12,7 +12,10 @@
   --line-strong: #D9CBB0;
   --ink: #2B2620;
   --ink-soft: #6B6155;
-  --ink-faint: #9A8E7A;
+  /* WCAG AA: used at 9–11px text sizes (StatsCell labels, row subtitles), so
+     it must clear 4.5:1 against --bg/--surface. #7A6E5C ≈ 4.6:1 on white;
+     the previous #9A8E7A was ~3.0:1. */
+  --ink-faint: #7A6E5C;
 
   --accent: #9C6B3C;
   --accent-hover: #875A2F;

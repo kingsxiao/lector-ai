@@ -64,6 +64,31 @@ export function withAnkiDefaults(partial?: Partial<AnkiConfig>): AnkiConfig {
   }
 }
 
+/** Anki renders note fields as HTML (and executes card-side JS), so every
+ *  page/AI-derived value must be HTML-escaped before landing in fields.Front/
+ *  Back. Defense-in-depth: a hostile page whose text flows through a captured
+ *  context or a prompt-injected model echo would otherwise land executable
+ *  markup in the user's Anki collection. */
+function escapeAnkiHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+/** Source line as a real (escaped) anchor; non-http(s) URLs degrade to plain
+ *  text so a smuggled scheme can't become an href. */
+function ankiSourceLine(title: string, url: string): string {
+  const t = title || 'Source'
+  if (!url) return `Source: ${escapeAnkiHtml(t)}`
+  if (/^https?:\/\//i.test(url)) {
+    return `Source: <a href="${escapeAnkiHtml(url)}">${escapeAnkiHtml(t)}</a>`
+  }
+  return `Source: ${escapeAnkiHtml(t)} (${escapeAnkiHtml(url)})`
+}
+
 /**
  * Map a VocabEntry to an AnkiConnect addNote payload. Word → Front; the back
  * side packs translation + example context + source link so the card is
@@ -78,7 +103,7 @@ export function vocabToAnkiNote(
   return {
     deckName: opts.deckName,
     modelName: opts.modelName,
-    fields: { Front: v.word, Back: back },
+    fields: { Front: escapeAnkiHtml(v.word), Back: back },
     tags: opts.tags ?? [],
   }
 }
@@ -86,16 +111,14 @@ export function vocabToAnkiNote(
 /** Render the back-of-card content. Kept inline to keep the test fixtures stable. */
 function renderBack(v: VocabEntry): string {
   const parts: string[] = []
-  parts.push(v.translation?.trim() || '(no translation yet)')
+  parts.push(escapeAnkiHtml(v.translation?.trim() || '(no translation yet)'))
   if (v.context?.trim()) {
     parts.push('')
-    parts.push(`> ${v.context.trim()}`)
+    parts.push(`&gt; ${escapeAnkiHtml(v.context.trim())}`)
   }
   if (v.url?.trim() || v.title?.trim()) {
     parts.push('')
-    const title = v.title?.trim() || 'Source'
-    const url = v.url?.trim()
-    parts.push(url ? `Source: [${title}](${url})` : `Source: ${title}`)
+    parts.push(ankiSourceLine(v.title?.trim() || '', v.url?.trim() || ''))
   }
   return parts.join('\n')
 }
@@ -236,7 +259,7 @@ export function sentenceToAnkiNote(
   return {
     deckName: opts.deckName,
     modelName: opts.modelName,
-    fields: { Front: c.sentence, Back: renderSentenceBack(c) },
+    fields: { Front: escapeAnkiHtml(c.sentence), Back: renderSentenceBack(c) },
     tags: opts.tags ?? [],
   }
 }
@@ -245,17 +268,15 @@ export function sentenceToAnkiNote(
 function renderSentenceBack(c: SentenceCard): string {
   const parts: string[] = []
   if (c.translation?.trim()) {
-    parts.push(c.translation.trim())
+    parts.push(escapeAnkiHtml(c.translation.trim()))
   }
   if (c.analysis?.trim()) {
     parts.push('')
-    parts.push(c.analysis.trim())
+    parts.push(escapeAnkiHtml(c.analysis.trim()))
   }
   if (c.url?.trim() || c.title?.trim()) {
     parts.push('')
-    const title = c.title?.trim() || 'Source'
-    const url = c.url?.trim()
-    parts.push(url ? `Source: [${title}](${url})` : `Source: ${title}`)
+    parts.push(ankiSourceLine(c.title?.trim() || '', c.url?.trim() || ''))
   }
   // 若译文和分析都空，给占位避免 Anki 拒收空 Back。
   if (parts.length === 0) parts.push('(no analysis yet)')

@@ -1,5 +1,4 @@
 import type { ReactNode, MouseEvent } from 'react'
-
 /**
  * A single stat cell for StatsBar. Hoisted to module scope (formerly an inner
  * component defined inside StatsBar's render) so it keeps a stable identity and
@@ -57,10 +56,12 @@ export interface RowAction {
 
 /**
  * A list row with hover-revealed action buttons. Captures the
- * "title/subtitle on the left, opacity-0 group-hover:opacity-100 actions on the
- * right" chrome repeated across VocabView / TemplatesView / GlossaryView /
+ * "title/subtitle on the left, opacity-0 group-hover actions on the right"
+ * chrome repeated across VocabView / TemplatesView / GlossaryView /
  * SentencesView / Highlights / Library. The row itself is clickable when
- * `onClick` is provided.
+ * `onClick` is provided (keyboard: Enter/Space, announced as role=button).
+ * Actions also reveal on keyboard focus (group-focus-within) so a focused
+ * action button is never an invisible opacity-0 target.
  */
 export function Row({
   title,
@@ -79,6 +80,23 @@ export function Row({
     <div
       className={`group row flex items-center gap-2 px-3 py-2 border-b border-line ${onClick ? 'cursor-pointer hover:bg-surface-muted/50' : ''}`}
       onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              // The row hosts real <button> children; only treat unmodified
+              // Enter/Space as row activation when the row itself (not a
+              // child action button) has focus.
+              if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+                e.preventDefault()
+                // Cast: consumers' handlers only use stopPropagation-style
+                // APIs common to both event kinds.
+                onClick(e as unknown as MouseEvent)
+              }
+            }
+          : undefined
+      }
     >
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm text-ink">{title}</div>
@@ -86,7 +104,7 @@ export function Row({
       </div>
       {children}
       {actions.length > 0 && (
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
           {actions.map((a, i) => (
             <IconButton
               key={i}

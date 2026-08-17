@@ -215,7 +215,7 @@ function VocabViewImpl({
                         onClick={() => onExplainVocab(v)}
                         title={tr('side.sentences.fromVocab')}
                         aria-label={tr('aria.makeCard')}
-                        className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-accent transition-opacity"
+                        className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                       >
                         <SparklesIcon size={14} />
                       </button>
@@ -223,7 +223,7 @@ function VocabViewImpl({
                     <button
                       onClick={() => onRemoveVocab(v.id)}
                       aria-label={tr('aria.deleteWord')}
-                      className="opacity-0 group-hover:opacity-100 text-ink-faint hover:text-danger transition-opacity"
+                      className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-danger transition-opacity"
                     >
                       <XIcon size={15} />
                     </button>

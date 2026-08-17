@@ -16,13 +16,13 @@ interface Props { children: ReactNode }
 interface State { error: Error | null; stack: string | null }
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null, stack: null }
+  override state: State = { error: null, stack: null }
 
   static getDerivedStateFromError(error: Error): State {
     return { error, stack: error.stack || null }
   }
 
-  componentDidCatch(error: Error, info: { componentStack?: string | null }) {
+  override componentDidCatch(error: Error, info: { componentStack?: string | null }) {
     // eslint-disable-next-line no-console
     console.error('[Lector] render crashed:', error, info.componentStack || '')
   }
@@ -47,7 +47,7 @@ export class ErrorBoundary extends Component<Props, State> {
     }
   }
 
-  render() {
+  override render() {
     if (!this.state.error) return this.props.children
     const msg = this.state.error.message || String(this.state.error)
     return (

@@ -18,6 +18,10 @@ export function parseCssRgb(str: string): Rgb | null {
   const m = str.match(/rgba?\(([^)]+)\)/)
   if (!m) return null
   const parts = m[1].split(',').map((s) => parseFloat(s.trim()))
+  // Length check first: a space/slash-separated color ("rgb(1 2 3)") yields a
+  // single element, and undefined components are NOT NaN, so the NaN test
+  // alone would let {r:1, g:undefined, b:undefined} through.
+  if (parts.length < 3) return null
   const [r, g, b] = parts
   if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return null
   const a = parts[3]

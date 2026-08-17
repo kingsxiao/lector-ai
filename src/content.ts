@@ -2139,7 +2139,7 @@ async function runBilingualTranslation() {
         snapshot = next
         if (scheduled) return
         scheduled = true
-        // Debounce persistence so a burst of chunk completements writes once.
+        // Debounce persistence so a burst of chunk completions writes once.
         pendingCacheTimer = setTimeout(() => {
           scheduled = false
           pendingCacheTimer = null
@@ -2394,8 +2394,11 @@ document.addEventListener('mousemove', (e) => {
   }, hoverCfg.debounceMs)
 })
 
-document.addEventListener('keyup', () => {
+document.addEventListener('keyup', (e) => {
   // Cancel a pending hover-translation if the user releases the hold key early.
+  // Only the hold key itself: releasing an unrelated key while the hold key is
+  // still down (e.g. typing) must not abort an in-flight translation.
+  if (e.key !== hoverCfg.holdKey) return
   if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null }
   hoverAbort?.abort()
   hoverAbort = null

@@ -111,6 +111,29 @@ describe('vocabToAnkiNote', () => {
     expect(note.modelName).toBe(DEFAULT_MODEL_NAME)
     expect(note.tags).toEqual([])
   })
+
+  it('HTML-escapes page/AI-derived text (Anki renders fields as HTML)', () => {
+    const note = vocabToAnkiNote(
+      v({
+        word: '<b>x</b>',
+        translation: '<img src=x onerror=alert(1)>',
+        context: 'a & b < c',
+      }),
+      { deckName: 'D', modelName: 'Basic' }
+    )
+    expect(note.fields.Front).toBe('&lt;b&gt;x&lt;/b&gt;')
+    expect(note.fields.Back).not.toContain('<img')
+    expect(note.fields.Back).toContain('&lt;img')
+    expect(note.fields.Back).toContain('a &amp; b &lt; c')
+  })
+
+  it('renders the source link as an escaped anchor and rejects non-http schemes', () => {
+    const ok = vocabToAnkiNote(v({ url: 'https://example.com/p?a=1&b=2' }), { deckName: 'D', modelName: 'Basic' })
+    expect(ok.fields.Back).toContain('<a href="https://example.com/p?a=1&amp;b=2">')
+    const bad = vocabToAnkiNote(v({ url: 'javascript:alert(1)' }), { deckName: 'D', modelName: 'Basic' })
+    expect(bad.fields.Back).not.toContain('href')
+    expect(bad.fields.Back).toContain('javascript:alert(1)')
+  })
 })
 
 describe('buildAnkiConnectBody', () => {
