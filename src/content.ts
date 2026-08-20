@@ -1251,13 +1251,17 @@ let bilingualAbort: AbortController | null = null
 let pendingCacheTimer: ReturnType<typeof setTimeout> | null = null
 
 const EXCLUDED_SELECTOR = Array.from(EXCLUDED_ANCESTOR_TAGS).map((t) => t.toLowerCase()).join(',')
+// `summary` matches TRANSLATABLE_TAGS; it was missing here so FAQ/collapsible
+// headings were never even queried (regression: FAQ pages left questions in
+// English while their answers were translated).
 const BASE_TRANSLATABLE_SELECTOR =
-  'p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, dt, dd, figcaption'
+  'p, li, blockquote, h1, h2, h3, h4, h5, h6, td, th, dt, dd, figcaption, summary'
+// Unconditional noise: interactive/menu regions where translation is never
+// wanted regardless of text length.
 const TRANSLATION_NOISE_SELECTOR =
   [
-    'nav', 'header', 'footer', 'aside', 'menu', 'form',
-    '[role="navigation"]', '[role="banner"]', '[role="contentinfo"]',
-    '[role="menu"]', '[role="menubar"]', '[role="menuitem"]',
+    'nav', 'menu', 'form',
+    '[role="navigation"]', '[role="menu"]', '[role="menubar"]', '[role="menuitem"]',
     '[role="menuitemradio"]', '[role="menuitemcheckbox"]',
     '[role="listbox"]', '[role="option"]', '[role="tablist"]', '[role="tab"]',
     '[role="toolbar"]', '[role="textbox"]', '[role="combobox"]',
@@ -1266,6 +1270,21 @@ const TRANSLATION_NOISE_SELECTOR =
     '.sr-only', '.visually-hidden', '[translate="no"]', '.notranslate',
     '[contenteditable]:not([contenteditable="false"])',
   ].join(',')
+// "Page chrome" containers that OFTEN hold nav junk but also real prose:
+// marketing heroes live inside <header>, license text inside <footer>, and
+// related-article blurbs inside <aside>. They are excluded CONDITIONALLY —
+// see isChromeWorthyBlock — instead of wholesale, which used to leave the
+// most visible English on a page (the hero) untranslated.
+const TRANSLATION_CHROME_SELECTOR =
+  'header, footer, aside, [role="banner"], [role="contentinfo"]'
+// Real content inside page chrome: semantic headings, or a text run long
+// enough to be a sentence. Short nav/CTA links ("Home", "Start free trial")
+// stay verbatim.
+const CHROME_WORTHY_MIN_TEXT = 40
+function isChromeWorthyBlock(el: HTMLElement): boolean {
+  if (/^H[1-6]$/.test(el.tagName)) return true
+  return (el.textContent || '').trim().length >= CHROME_WORTHY_MIN_TEXT
+}
 const TRANSLATION_SELF_SELECTOR =
   [
     '#lector-ai-result', '#lector-ai-toolbar', '#lector-ai-loading', '#lector-ai-fab',
@@ -1373,11 +1392,13 @@ function createVisibilityChecker(scopeRoot: Element): (el: HTMLElement) => boole
 }
 
 function isStructurallyExcluded(el: HTMLElement): boolean {
-  return Boolean(
+  if (
     closestSafe(el, EXCLUDED_SELECTOR) ||
     closestSafe(el, TRANSLATION_NOISE_SELECTOR) ||
     closestSafe(el, TRANSLATION_SELF_SELECTOR)
-  )
+  ) return true
+  const chrome = closestSafe(el, TRANSLATION_CHROME_SELECTOR)
+  return !!chrome && !isChromeWorthyBlock(el)
 }
 
 /** DOM semantics that text alone cannot classify. Keep programming-language
@@ -1468,7 +1489,10 @@ export function collectTranslationCandidates(
     }
   }
 
-  const textLeaves = queryAllSafe(scopeRoot, 'div, span, strong, em, b, i, small').filter((el) => {
+  // `a` is included so link-card layouts (`<div><a>long prose…</a></div>`)
+  // get their prose translated; links inside p/li are still skipped by
+  // hasStandardAncestor below, and button-wrapped links by EXCLUDED_SELECTOR.
+  const textLeaves = queryAllSafe(scopeRoot, 'div, span, strong, em, b, i, small, a').filter((el) => {
     if (isStructurallyExcluded(el)) return false
     if (!standardRoots.has(el) && hasStandardAncestor(el)) return false
     if (hasStandardDescendant.has(el)) return false
@@ -1988,6 +2012,66 @@ async function translateBlockChunks(
  * no-candidates ×2, toggleBilingual catch) that each hand-wrote both
  * sendMessage calls. Fire-and-forget side-channels to the side panel.
  */
+/** Shared candidate language filter. Same-script pairs (e.g. Spanish page →
+ *  English target) cannot be judged by script coverage, so they also consult
+ *  the browser language detector; cross-script pairs use the sync check only.
+ *  Used by both the whole-page run and the incremental (MutationObserver)
+ *  pass so the two paths never drift apart. */
+async function filterCandidatesByTargetLanguage(
+  candidates: HTMLElement[],
+  target: TargetLangCode,
+  signal?: AbortSignal
+): Promise<HTMLElement[]> {
+  const sample = candidates
+    .map((el) => (el.textContent || '').trim())
+    .filter(Boolean)
+    .join('\n')
+  if (scriptOfLang(target) === detectScript(sample)) {
+    const kept: HTMLElement[] = []
+    for (const el of candidates) {
+      const text = (el.textContent || '').trim()
+      if (!text) continue
+      const syncSkip = isTextAlreadyInTargetLanguage(text, target)
+      const detectorSkip = syncSkip ? true : await textLooksLikeTargetLanguage(text, target)
+      if (!detectorSkip) kept.push(el)
+      if (signal?.aborted) return kept
+    }
+    return kept
+  }
+  return candidates.filter((el) => {
+    const text = (el.textContent || '').trim()
+    return text.length > 0 && !isTextAlreadyInTargetLanguage(text, target)
+  })
+}
+
+/**
+ * Collect translatable blocks from subtrees that appeared AFTER a finished
+ * translation run (infinite scroll, lazy-loaded comments, SPA route changes).
+ * Pure collection + language filter — no observer, no provider calls — so it
+ * is unit-testable. Already-translated hosts self-exclude via
+ * TRANSLATION_SELF_SELECTOR inside collectTranslationCandidates.
+ */
+export async function collectIncrementalCandidates(
+  roots: Element[],
+  target: TargetLangCode,
+  signal?: AbortSignal
+): Promise<HTMLElement[]> {
+  const seen = new Set<HTMLElement>()
+  const all: HTMLElement[] = []
+  for (const root of roots) {
+    if (!(root instanceof Element)) continue
+    // Never react to Lector's own injected UI.
+    if (root.closest(TRANSLATION_SELF_SELECTOR) || isLectorUiTarget(root as HTMLElement)) continue
+    for (const el of collectTranslationCandidates(root)) {
+      if (seen.has(el)) continue
+      seen.add(el)
+      all.push(el)
+    }
+    if (signal?.aborted) return []
+  }
+  return filterCandidatesByTargetLanguage(all, target, signal)
+}
+
 function reportBilingualTerminal(message: string): void {
   chrome.runtime.sendMessage({
     action: 'lector-bilingual-progress',
@@ -2016,6 +2100,10 @@ async function runBilingualTranslation() {
     bilingualAbort.abort()
     bilingualAbort = null
   }
+  // The previous run's incremental observer must not keep translating with a
+  // superseded direction/prompt while this run re-resolves them; a successful
+  // run installs a fresh observer at its end.
+  stopIncrementalTranslation()
   // Cancel the prior run's pending debounced cache write so a stale snapshot
   // can't land after this new run starts (the prior run's persistCache closure
   // captured its own `snapshot`; letting it fire would overwrite newer writes).
@@ -2100,26 +2188,10 @@ async function runBilingualTranslation() {
     // get a lang tag — candidateText is already built and is the visible prose).
     const pageLang = detectSourceLang(candidateText)
     const target = resolveTargetLang(tSettings.targetLanguage, candidateText || 'Hello world')
-    if (scriptOfLang(target) === detectScript(candidateText)) {
-      // Same-script pair (e.g. Spanish page → English target): character
-      // coverage can't tell "already translated" from "needs translation", so
-      // consult the browser language detector per candidate.
-      const kept: HTMLElement[] = []
-      for (const el of candidates) {
-        const text = (el.textContent || '').trim()
-        if (!text) continue
-        const syncSkip = isTextAlreadyInTargetLanguage(text, target)
-        const detectorSkip = syncSkip ? true : await textLooksLikeTargetLanguage(text, target)
-        if (!detectorSkip) kept.push(el)
-        if (controller.signal.aborted) return
-      }
-      candidates = kept
-    } else {
-      candidates = candidates.filter((el) => {
-        const text = (el.textContent || '').trim()
-        return text.length > 0 && !isTextAlreadyInTargetLanguage(text, target)
-      })
-    }
+    // Same-script pairs (e.g. Spanish page → English target) additionally
+    // consult the browser language detector inside the shared helper.
+    candidates = await filterCandidatesByTargetLanguage(candidates, target, controller.signal)
+    if (controller.signal.aborted) return
     if (candidates.length === 0) {
       reportBilingualTerminal(tr('bilingual.noContent'))
       return
@@ -2271,6 +2343,19 @@ async function runBilingualTranslation() {
       const msg = firstErr.error instanceof Error ? firstErr.error.message : tr('err.requestFailed')
       chrome.runtime.sendMessage({ action: 'lector-bilingual-error', message: msg }).catch(() => {})
     }
+    // The run completed (possibly with some per-block errors): watch for
+    // dynamically added content so infinite scroll / lazy loads / SPA route
+    // changes are translated with the SAME direction, prompt and cache as
+    // this run. Aborted runs never get here (finally restores the DOM).
+    installIncrementalTranslation({
+      settings,
+      systemPrompt,
+      glossaryBlock,
+      persona,
+      target,
+      concurrency: tSettings.concurrency,
+      cacheTtlDays: tSettings.cacheTtlDays,
+    })
     report(true)
   } catch (e) {
     // Aborts were user-initiated (cancel / replacement run) — cancelBilingual
@@ -2294,7 +2379,156 @@ async function runBilingualTranslation() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Incremental translation of dynamically added content (infinite scroll,
+// lazy-loaded comments, SPA route changes). The whole-page run collects
+// candidates ONCE; anything the page renders afterwards used to stay in the
+// source language forever — the classic "some English is still untranslated"
+// report on feed/lazy pages. A finished run installs a MutationObserver that
+// debounces added subtrees into the same chunk pipeline. Stopped by cancel,
+// a re-run, or a translation-settings change (stale prompt/target must not
+// keep serving).
+// ---------------------------------------------------------------------------
+interface IncrementalCtx {
+  settings: ByokSettings
+  systemPrompt: string
+  glossaryBlock: string
+  persona: string
+  target: TargetLangCode
+  concurrency: number
+  controller: AbortController
+  observer: MutationObserver
+  pendingRoots: Set<Element>
+  timer: ReturnType<typeof setTimeout> | null
+  cache: CacheCtx | null
+}
+let incrementalCtx: IncrementalCtx | null = null
+const INCREMENTAL_DEBOUNCE_MS = 500
+/** Per-batch cap: a malicious/destroyed DOM must not be able to queue an
+ *  unbounded number of paid requests between user-visible cancellations. */
+const INCREMENTAL_BATCH_MAX = 60
+
+function stopIncrementalTranslation(): void {
+  const ctx = incrementalCtx
+  incrementalCtx = null
+  if (!ctx) return
+  ctx.controller.abort()
+  ctx.observer.disconnect()
+  if (ctx.timer) clearTimeout(ctx.timer)
+  ctx.timer = null
+}
+
+async function flushIncremental(ctx: IncrementalCtx): Promise<void> {
+  // A newer context (re-run / cancel + new run) superseded this one.
+  if (ctx !== incrementalCtx) return
+  const roots = Array.from(ctx.pendingRoots)
+  ctx.pendingRoots.clear()
+  ctx.timer = null
+  if (roots.length === 0) return
+  let batch: HTMLElement[]
+  try {
+    batch = await collectIncrementalCandidates(roots, ctx.target, ctx.controller.signal)
+  } catch {
+    return
+  }
+  if (ctx !== incrementalCtx || ctx.controller.signal.aborted) return
+  if (batch.length === 0) return
+  batch = batch.slice(0, INCREMENTAL_BATCH_MAX)
+  // Per-worker view sharing ctx.cache's store via getter/setter so concurrent
+  // workers read each other's writes (same pattern as the whole-page run).
+  const cacheView: CacheCtx | undefined = ctx.cache
+    ? {
+        enabled: true,
+        ttlDays: ctx.cache.ttlDays,
+        get store() { return ctx.cache!.store },
+        set store(v) { ctx.cache!.store = v },
+        keyInputs: ctx.cache.keyInputs,
+        persist: ctx.cache.persist,
+      }
+    : undefined
+  await runConcurrent(
+    batch,
+    (block) => translateBlockChunks(
+      ctx.settings, ctx.systemPrompt, block, ctx.target, ctx.controller.signal, cacheView
+    ),
+    { concurrency: ctx.concurrency, signal: ctx.controller.signal }
+  )
+}
+
+function installIncrementalTranslation(init: {
+  settings: ByokSettings
+  systemPrompt: string
+  glossaryBlock: string
+  persona: string
+  target: TargetLangCode
+  concurrency: number
+  cacheTtlDays: number
+}): void {
+  stopIncrementalTranslation()
+  const controller = new AbortController()
+  const ctx: IncrementalCtx = {
+    ...init,
+    controller,
+    observer: null as unknown as MutationObserver,
+    pendingRoots: new Set(),
+    timer: null,
+    cache: null,
+  }
+  if (init.cacheTtlDays > 0) {
+    // Same debounced-persist pattern as the whole-page run (shares the module
+    // pendingCacheTimer slot; a re-run clears it via its own entry guard).
+    let scheduled = false
+    let snapshot: CacheStore = {}
+    const persist = (next: CacheStore) => {
+      snapshot = next
+      if (scheduled) return
+      scheduled = true
+      pendingCacheTimer = setTimeout(() => {
+        scheduled = false
+        pendingCacheTimer = null
+        void saveCache(snapshot)
+      }, 800)
+    }
+    ctx.cache = {
+      enabled: true,
+      ttlDays: init.cacheTtlDays,
+      store: {},
+      keyInputs: {
+        targetLang: init.target,
+        model: init.settings.model,
+        glossaryBlock: init.glossaryBlock,
+        personaPrompt: init.persona,
+      },
+      persist,
+    }
+  }
+  const observer = new MutationObserver((records) => {
+    if (ctx !== incrementalCtx) return
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (node.nodeType === Node.ELEMENT_NODE) ctx.pendingRoots.add(node as Element)
+      }
+    }
+    if (ctx.pendingRoots.size === 0) return
+    if (ctx.timer) clearTimeout(ctx.timer)
+    ctx.timer = setTimeout(() => { void flushIncremental(ctx) }, INCREMENTAL_DEBOUNCE_MS)
+  })
+  ctx.observer = observer
+  incrementalCtx = ctx
+  observer.observe(document.body, { childList: true, subtree: true })
+  // The incremental cache shares the run's storage; preload it now so the
+  // first flush can hit entries the run just wrote.
+  if (ctx.cache) {
+    void loadCache().then((store) => {
+      if (ctx === incrementalCtx && ctx.cache) ctx.cache.store = store
+    })
+  }
+}
+
 function cancelBilingual() {
+  // Cancel also halts the incremental observer: the user asked translation to
+  // STOP on this page, and later lazy-loaded content must not restart it.
+  stopIncrementalTranslation()
   if (bilingualAbort) {
     bilingualAbort.abort()
     bilingualAbort = null
@@ -2642,7 +2876,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.action === 'lector-translation-settings-changed') {
     // Re-apply the full translation styling live (theme/font/focus/mode)
-    // without re-translating.
+    // without re-translating. The incremental observer is stopped too: its
+    // captured prompt/target/persona are now stale, and the user can re-run
+    // translation to pick up the new settings.
+    stopIncrementalTranslation()
     void (async () => {
       const s = await getSettings()
       const ts = normalizeTranslationSettings(s.translation)

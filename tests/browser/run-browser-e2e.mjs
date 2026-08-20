@@ -884,6 +884,73 @@ async function main() {
       reentryState.completes === 1 && reentryState.oldRestored && reentryState.newTranslated,
       `state=${JSON.stringify(reentryState)}`)
 
+    // §9.13 Dynamically added content (infinite scroll / lazy load) must be
+    // translated by the incremental observer after a finished run, with the
+    // page-resolved target; a cancel stops the observer for good.
+    await evalIn(page, `(() => {
+      document.querySelectorAll('.lector-bilingual-host').forEach(host => {
+        host.querySelectorAll(':scope > .lector-bilingual').forEach(n => n.remove());
+        Array.from(host.querySelectorAll(':scope > .lector-bi-source-node')).forEach(node => {
+          node.classList.remove('lector-bi-source', 'lector-bi-source-node');
+          if (node.dataset.lectorSourceText === 'true') node.replaceWith(...Array.from(node.childNodes));
+        });
+        host.classList.remove('lector-bilingual-host', 'lector-translation-error');
+      });
+      const seed = document.createElement('p');
+      seed.id = 'incremental-seed';
+      seed.textContent = 'This seed paragraph establishes the page direction before new content is appended dynamically.';
+      document.body.appendChild(seed);
+      window.__translationResponseMode = 'translated';
+      window.__fetchCalls = [];
+      window.__fetchBodies = [];
+    })()`)
+    await fireContentMessage(page, { action: 'lector-toggle-bilingual' })
+    for (let i = 0; i < 40; i++) {
+      if (await evalIn(page, `!!document.querySelector('#incremental-seed > .lector-bilingual:not(.is-error)')`)) break
+      await sleep(50)
+    }
+    await evalIn(page, `window.__fetchCalls = []; window.__fetchBodies = []`)
+    // Simulate infinite scroll: new English prose appears AFTER the run.
+    await evalIn(page, `(() => {
+      const lazy = document.createElement('div');
+      lazy.innerHTML = '<p id="incremental-lazy">Lazy-loaded article content that appeared after the translation run finished.</p>';
+      document.body.appendChild(lazy);
+    })()`)
+    let lazyTranslated = false
+    for (let i = 0; i < 60; i++) {
+      if (await evalIn(page, `!!document.querySelector('#incremental-lazy > .lector-bilingual:not(.is-error)')`)) { lazyTranslated = true; break }
+      await sleep(50)
+    }
+    const incrementalState = JSON.parse(await evalIn(page, `JSON.stringify((() => {
+      const bodies = window.__fetchBodies || [];
+      const prompt = bodies.at(-1)?.input?.filter((message) => message.role === 'user').at(-1)?.content || '';
+      return {
+        fetches: (window.__fetchCalls || []).filter((url) => String(url).endsWith('/responses')).length,
+        targetIsChinese: /Chinese \\(Simplified\\)/.test(prompt),
+      };
+    })())`) || '{}')
+    check('§9.13 dynamically added content is translated by the incremental pass',
+      lazyTranslated && incrementalState.fetches === 1 && incrementalState.targetIsChinese,
+      `translated=${lazyTranslated} state=${JSON.stringify(incrementalState)}`)
+    // Cancel stops the observer: later additions stay untranslated.
+    await fireContentMessage(page, { action: 'lector-cancel-bilingual' })
+    await evalIn(page, `(() => {
+      window.__fetchCalls = [];
+      const after = document.createElement('p');
+      after.id = 'incremental-after-cancel';
+      after.textContent = 'No request may be sent for content added after the user canceled translation.';
+      document.body.appendChild(after);
+    })()`)
+    await sleep(1600)
+    const afterCancelState = JSON.parse(await evalIn(page, `JSON.stringify((() => ({
+      fetches: (window.__fetchCalls || []).filter((url) => String(url).endsWith('/responses')).length,
+      untranslated: !document.querySelector('#incremental-after-cancel.lector-bilingual-host, #incremental-after-cancel > .lector-bilingual'),
+    }))())`) || '{}')
+    check('§9.13 cancel stops the incremental observer (no post-cancel requests)',
+      afterCancelState.fetches === 0 && afterCancelState.untranslated,
+      `state=${JSON.stringify(afterCancelState)}`)
+    await evalIn(page, `['incremental-seed','incremental-lazy','incremental-after-cancel'].forEach((id) => document.getElementById(id)?.setAttribute('translate','no'))`)
+
     // ---- §2.3 Escape closes popups ----
     await evalIn(page, `document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`)
     await sleep(200)

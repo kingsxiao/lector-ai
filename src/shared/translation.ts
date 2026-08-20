@@ -863,6 +863,13 @@ export function isLikelyProseLeafText(text: string): boolean {
   if (letters < 4) return false
   if (detectScript(t) !== 'latin') return letters >= 4
   const words = t.match(/\p{L}+(?:['’'-]\p{L}+)*/gu) || []
+  // A single title-cased word of ≥8 letters reads as a section label
+  // ("Overview", "Documentation", "Changelog") — common on docs/landing
+  // pages and previously left untranslated. camelCase/acronym identifiers
+  // ("JavaScript", "API") were already rejected above; a stray product
+  // name that slips through is harmless: the prompt keeps proper names
+  // verbatim, so the output simply echoes it.
+  if (words.length === 1 && letters >= 8 && /^\p{Lu}/u.test(t)) return true
   return (letters >= 10 && words.length >= 2) ||
     (letters >= 8 && /[.!?;:]/u.test(t))
 }

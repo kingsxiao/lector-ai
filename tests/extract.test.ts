@@ -249,7 +249,7 @@ describe('collectTranslationCandidates', () => {
     ])
   })
 
-  it('skips page chrome, closed menus, hidden text, assistive text, and editable content', () => {
+  it('skips page chrome short links, closed menus, hidden text, assistive text, and editable content', () => {
     document.body.innerHTML = `
       <header>
         <p id="header-copy">Sign in to explore all of the available GitHub navigation features.</p>
@@ -282,7 +282,16 @@ describe('collectTranslationCandidates', () => {
       </main>
     `
 
-    expect(candidateIds(document.body)).toEqual(['visible-prose'])
+    // header/footer/aside are excluded CONDITIONALLY now (hero prose lives in
+    // <header> on marketing pages): a long sentence like header-copy is real
+    // content and translates, while short nav/CTA links stay out. A closed
+    // <details>'s summary heading is VISIBLE text and translates; its hidden
+    // option content (closed-menu-option) does not.
+    expect(candidateIds(document.body)).toEqual([
+      'closed-menu-trigger',
+      'header-copy',
+      'visible-prose',
+    ])
   })
 
   it('never re-collects Lector UI, source wrappers, or rendered translations', () => {
