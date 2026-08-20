@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "minimum_chrome_version": "114",
   "name": "Lector AI - Smart Reading Assistant",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "AI-powered reading companion: chat with any page, summarize, translate, and learn faster — right from your browser side panel.",
   "permissions": [
     "activeTab",

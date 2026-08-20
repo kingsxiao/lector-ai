@@ -23,7 +23,7 @@ Lector AI 是一个 **Chrome 扩展（Manifest V3）**——**纯客户端、BYO
 | 跑单个测试文件/名称 | `NODE_ENV=development node_modules/.bin/vitest run <pattern>` |
 | 真机浏览器 E2E | `NODE_ENV=development npm run build:extension && npm run test:browser` |
 
-构建产物是 `dist/`——通过 `chrome://extensions/ → 开发者模式 → 加载已解压的扩展程序` 加载。`build:extension` 先跑 `vite build`（sidepanel + background 两个 ES 入口），再用独立配置 `vite.content.config.ts` 把 content script 重新打成**单个自包含 IIFE 包**（MV3 content script 不能是 ES module），最后把 `manifest.json`/icons/`content.css` 拷进 `dist/` 根、把 sidepanel HTML 挪到根（见 `scripts/build-extension.mjs`）。
+构建产物是 `dist/`——通过 `chrome://extensions/ → 开发者模式 → 加载已解压的扩展程序` 加载。`build:extension` 先跑 `vite build`（sidepanel + background 两个 ES 入口），再用独立配置 `vite.content.config.ts` 把 content script 重新打成**单个自包含 IIFE 包**（MV3 content script 不能是 ES module），最后把 `manifest.json`/icons/`content.css` 拷进 `dist/` 根、把 sidepanel HTML 挪到根（见 `scripts/build-extension.mjs`）。构建末尾还会自动产出**根目录的 `dist.zip`**（Chrome 应用商店上传用）：zip 的是 `dist/` 的**内容**而非 `dist` 文件夹本身——商店要求 `manifest.json` 位于 zip 根目录，0.4.0 曾因嵌套 `dist/` 的 zip 被拒（"未提供所承诺的功能"）。脚本打包后会自检（manifest 在根、无 `dist/` 前缀、无 `.DS_Store`/`__MACOSX`、manifest 引用的文件都在包内），失败即 `exit 1`。
 
 ## 架构
 

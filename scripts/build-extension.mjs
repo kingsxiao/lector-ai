@@ -116,10 +116,55 @@ if (existsSync(distDir)) {
 }
 renameSync(stagingDir, distDir)
 
+// Package dist.zip for the Chrome Web Store. The zip must contain the CONTENTS
+// of dist/ — manifest.json at the archive root. Zipping the dist folder itself
+// (`zip -r dist.zip dist`) nests everything under dist/ and got 0.4.0 rejected
+// ("broken functionality": the store can't resolve manifest-relative paths).
+const zipPath = resolve(rootDir, 'dist.zip')
+if (existsSync(zipPath)) {
+  rmSync(zipPath)
+}
+console.log('Packaging dist.zip (manifest.json at zip root)...')
+execSync('zip -rX -q ../dist.zip . -x "*.DS_Store" -x "__MACOSX*"', { cwd: distDir })
+
+// Self-check the archive: manifest.json at root, no dist/ nesting, no macOS
+// junk, and every file the manifest references actually inside the zip.
+const zipEntries = new Set(
+  execSync('unzip -Z1 dist.zip', { cwd: rootDir })
+    .toString()
+    .split('\n')
+    .filter(Boolean),
+)
+const zipProblems = []
+if (!zipEntries.has('manifest.json')) zipProblems.push('manifest.json is not at the zip root')
+for (const entry of zipEntries) {
+  if (entry.startsWith('dist/') || entry.includes('__MACOSX') || entry.endsWith('.DS_Store')) {
+    zipProblems.push(`unexpected entry in zip: ${entry}`)
+  }
+}
+const manifestReferenced = [
+  ...(manifest.content_scripts ?? []).flatMap((cs) => [...(cs.js ?? []), ...(cs.css ?? [])]),
+  manifest.background?.service_worker,
+  manifest.side_panel?.default_path,
+  ...Object.values(manifest.action?.default_icon ?? {}),
+  ...Object.values(manifest.icons ?? {}),
+].filter(Boolean)
+for (const rel of manifestReferenced) {
+  if (!zipEntries.has(rel)) zipProblems.push(`manifest-referenced file missing from zip: ${rel}`)
+}
+if (zipProblems.length > 0) {
+  console.error('❌ Packaged dist.zip failed validation:')
+  for (const p of zipProblems) console.error(`   - ${p}`)
+  process.exit(1)
+}
+
 console.log('✅ Extension built successfully!')
 console.log(`📁 Output: ${distDir}`)
+console.log(`📦 Store upload: ${zipPath} (v${manifest.version}, manifest.json at root, ${zipEntries.size} entries)`)
 console.log('')
-console.log('To load the extension:')
+console.log('To load the extension locally:')
 console.log('1. Open Chrome and go to chrome://extensions/')
 console.log('2. Enable "Developer mode"')
 console.log('3. Click "Load unpacked" and select the dist folder')
+console.log('')
+console.log('To publish: upload dist.zip in the Chrome Web Store developer dashboard.')
