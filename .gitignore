@@ -9,6 +9,7 @@ dist.zip
 .DS_Store
 .superpowers/
 .zcode
+.mimosa
 # Playwright MCP tool artifacts
 .playwright-mcp/
 
