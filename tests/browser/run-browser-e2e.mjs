@@ -381,7 +381,7 @@ async function main() {
     const fetchHits = JSON.parse(await evalIn(page, `JSON.stringify(window.__fetchCalls||[])`) || '[]')
     check('§2.2 translate hit provider /responses (BYOK)', fetchHits.some((u) => u.endsWith('/responses')), `calls=${fetchHits.length}`)
     // §2.2b the streaming popup also exposes a target-language selector + TTS buttons.
-    check('§2.2b streaming popup has target-language selector', await evalIn(page, `!!document.querySelector('#lector-ai-result select')`))
+    check('§2.2b streaming popup has target-language selector', await evalIn(page, `!!document.querySelector('#lector-ai-result .lector-lang-dd')`))
     check('§2.2b streaming popup has read-aloud buttons', (await evalIn(page, `document.querySelectorAll('#lector-ai-result button.copy-btn').length`)) >= 1, `btns=${await evalIn(page, `document.querySelectorAll('#lector-ai-result button.copy-btn').length`)}`)
 
     // close the result popup so it doesn't block later selections

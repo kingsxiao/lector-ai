@@ -39,12 +39,12 @@ function injectStyles() {
     .lector-fab-item:hover { background: #8F5E30; color: #FFF6EA; transform: var(--lector-rest) scale(1.1); }
     .lector-fab-label { position: absolute; right: 54px; top: 50%; transform: translateY(-50%); background: rgba(38,33,27,.92); color: #FFF6EA; font-size: 11px; font-weight: 500; padding: 3px 8px; border-radius: 6px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s ease; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
     .lector-fab-item:hover .lector-fab-label { opacity: 1; }
-    #lector-ai-toolbar { display: flex; align-items: center; gap: 2px; padding: 5px 8px; border-radius: 999px; }
-    #lector-ai-toolbar .t-btn { width: 28px; height: 28px; padding: 0; border: none; border-radius: 999px; background: transparent; color: #5C5347; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: background-color .15s ease, color .15s ease, transform .1s ease; }
-    #lector-ai-toolbar .t-btn svg { width: 16px; height: 16px; display: block; }
+    #lector-ai-toolbar { display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 2px; padding: 4px 6px; border-radius: 14px; max-width: calc(100vw - 16px); }
+    #lector-ai-toolbar .t-btn { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 9px; border: none; border-radius: 8px; background: transparent; color: #5C5347; cursor: pointer; font-size: 12px; font-weight: 500; line-height: 1; white-space: nowrap; transition: background-color .15s ease, color .15s ease, transform .1s ease; }
+    #lector-ai-toolbar .t-btn svg { width: 15px; height: 15px; display: block; flex: none; }
     #lector-ai-toolbar .t-btn:hover { background: rgba(143,94,48,.12); color: #8F5E30; }
     #lector-ai-toolbar .t-btn:active { transform: translateY(1px); }
-    #lector-ai-toolbar .t-divider { width: 1px; height: 18px; margin: 0 3px; background: currentColor; opacity: .15; flex: none; }
+    #lector-ai-toolbar .t-divider { width: 1px; height: 18px; margin: 0 4px; background: currentColor; opacity: .15; flex: none; }
     #lector-ai-toolbar.is-dark .t-btn { color: rgba(255,255,255,.8); }
     #lector-ai-toolbar.is-dark .t-btn:hover { background: rgba(255,255,255,.12); color: #FFF6EA; }
     #lector-ai-result .result-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #E2D5BB; }
@@ -58,6 +58,51 @@ function injectStyles() {
     #lector-ai-result .copy-btn { flex:1; padding:8px 12px; border:none; border-radius:10px; font-size:12px; font-weight:600; background:#F1E9D8; color:#5C5347; cursor:pointer; transition:background-color .15s ease, transform .1s ease; }
     #lector-ai-result .copy-btn:active { transform: translateY(1px); }
     #lector-ai-result .copy-btn:hover { background:#E2D5BB; }
+    /* Self-drawn language dropdown for the streaming translate popup. The
+       native <select> popup is OS-rendered and can't follow the popup's warm
+       paper styling, so we render a button + listbox ourselves. */
+    .lector-lang-dd { position: relative; display: inline-flex; }
+    .lector-lang-dd-trigger { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px 0 10px; border-radius: 7px; border: 1px solid #E2D5BB; background: #F1E9D8; color: #5C5347; font-size: 11px; font-weight: 600; cursor: pointer; line-height: 1; transition: background-color .15s ease, color .15s ease, border-color .15s ease; }
+    .lector-lang-dd-trigger:hover { background: #E2D5BB; color: #26211B; }
+    .lector-lang-dd-trigger.is-open { background: #8F5E30; border-color: #8F5E30; color: #FFF6EA; }
+    .lector-lang-dd-trigger svg { width: 10px; height: 10px; display: block; }
+    .lector-lang-dd-list { position: absolute; top: calc(100% + 6px); right: 0; min-width: 168px; max-height: 236px; overflow-y: auto; background: #FFFFFF; border: 1px solid #E2D5BB; border-radius: 10px; box-shadow: 0 4px 10px rgba(66,45,16,.06), 0 16px 36px rgba(66,45,16,.14); padding: 4px; z-index: 2; animation: lectorFadeIn .15s ease-out; }
+    .lector-lang-dd-list.is-up { top: auto; bottom: calc(100% + 6px); }
+    .lector-lang-dd-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 6px 8px; border: none; border-radius: 6px; background: transparent; color: #5C5347; font-size: 11px; text-align: left; cursor: pointer; line-height: 1.3; }
+    .lector-lang-dd-item:hover { background: rgba(143,94,48,.1); color: #26211B; }
+    .lector-lang-dd-item.is-selected { color: #8F5E30; font-weight: 600; }
+    .lector-lang-dd-check { width: 12px; height: 12px; flex: none; opacity: 0; }
+    .lector-lang-dd-item.is-selected .lector-lang-dd-check { opacity: 1; }
+    /* Popup chrome: paper surface with visible border + warm shadow, shared by
+       the loading pill and the result cards. Dynamic geometry (left/top/
+       max-height) stays inline; the look lives here. */
+    .lector-pop { position: fixed; z-index: 2147483647; max-width: 420px; padding: 16px; background: #FFFFFF; border: 1px solid #E2D5BB; border-radius: 14px; box-shadow: 0 4px 10px rgba(66,45,16,.06), 0 16px 36px rgba(66,45,16,.12); font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; animation: lectorFadeIn .25s ease-out; }
+    .lector-pop-loading { padding: 12px 18px; display: flex; align-items: center; gap: 8px; font-size: 13px; color: #8F5E30; border-radius: 12px; }
+    #lector-ai-result .result-close { padding: 4px 8px; border: none; background: #F1E9D8; border-radius: 6px; cursor: pointer; font-size: 11px; color: #7A6E5C; transition: background-color .15s ease, color .15s ease; }
+    #lector-ai-result .result-close:hover { background: #E2D5BB; color: #26211B; }
+    #lector-ai-result .result-footer { margin-top: 12px; padding-top: 10px; border-top: 1px solid #E2D5BB; display: flex; gap: 8px; flex-wrap: wrap; }
+    /* Dark-page popup variant: same warm genes, deep values (mirrors the
+       sidepanel dark theme). Toggled via .lector-pop-dark on the popup root. */
+    .lector-pop-dark.lector-pop { background: #2A241C; border-color: #3B3226; box-shadow: 0 4px 10px rgba(0,0,0,.35), 0 16px 36px rgba(0,0,0,.45); }
+    .lector-pop-dark#lector-ai-loading { color: #C89866; }
+    .lector-pop-dark#lector-ai-loading .lector-pop-spinner { border-color: rgba(255,255,255,.22); border-top-color: #C89866; }
+    .lector-pop-dark#lector-ai-result .result-title { color: #C89866; }
+    .lector-pop-dark#lector-ai-result .result-header { border-bottom-color: #3B3226; }
+    .lector-pop-dark#lector-ai-result .result-content { color: #EAE0CC; }
+    .lector-pop-dark#lector-ai-result .copy-btn { background: rgba(255,255,255,.08); color: #EAE0CC; }
+    .lector-pop-dark#lector-ai-result .copy-btn:hover { background: rgba(255,255,255,.14); }
+    .lector-pop-dark#lector-ai-result .action-btn.primary { background: #C89866; color: #221709; }
+    .lector-pop-dark#lector-ai-result .action-btn.primary:hover { background: #DBAF7E; }
+    .lector-pop-dark#lector-ai-result .result-close { background: rgba(255,255,255,.08); color: #BFB299; }
+    .lector-pop-dark#lector-ai-result .result-close:hover { background: rgba(255,255,255,.14); }
+    .lector-pop-dark#lector-ai-result .result-footer { border-top-color: #3B3226; }
+    .lector-pop-dark .lector-lang-dd-trigger { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.16); color: rgba(255,255,255,.85); }
+    .lector-pop-dark .lector-lang-dd-trigger:hover { background: rgba(255,255,255,.14); color: #FFF6EA; }
+    .lector-pop-dark .lector-lang-dd-trigger.is-open { background: #C89866; border-color: #C89866; color: #221709; }
+    .lector-pop-dark .lector-lang-dd-list { background: #2A241C; border-color: #3B3226; }
+    .lector-pop-dark .lector-lang-dd-item { color: #BFB299; }
+    .lector-pop-dark .lector-lang-dd-item:hover { background: rgba(200,152,102,.14); color: #EAE0CC; }
+    .lector-pop-dark .lector-lang-dd-item.is-selected { color: #C89866; }
     .lector-bilingual { display:block; font-size:.92em; line-height:1.6; color:#5C5347; border-left:3px solid #8F5E30; padding:4px 0 4px 12px; margin:8px 0 8px 4px; border-radius:0 3px 3px 0; position:relative; transition:opacity .2s ease; }
     .lector-bilingual.is-loading { opacity:.6; }
     .lector-bilingual.is-error { border-left-color:#c0392b; color:#c0392b; }
@@ -527,8 +572,8 @@ function createToolbar(x: number, y: number, text: string) {
   selectionToolbar.id = 'lector-ai-toolbar'
   if (dark) selectionToolbar.classList.add('is-dark')
   selectionToolbar.style.cssText = dark
-    ? `position: fixed; left: ${x}px; top: ${y}px; display: flex; align-items: center; gap: 2px; padding: 5px 8px; background: rgba(28,28,30,.82); backdrop-filter: blur(14px) saturate(1.6); -webkit-backdrop-filter: blur(14px) saturate(1.6); border: 1px solid rgba(255,255,255,.12); border-radius: 999px; box-shadow: 0 4px 16px rgba(0,0,0,.28), 0 1px 2px rgba(0,0,0,.18); color: #fff; z-index: 2147483647; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; animation: lectorFadeIn .2s ease-out;`
-    : `position: fixed; left: ${x}px; top: ${y}px; display: flex; align-items: center; gap: 2px; padding: 5px 8px; background: rgba(255,255,255,.82); backdrop-filter: blur(14px) saturate(1.6); -webkit-backdrop-filter: blur(14px) saturate(1.6); border: 1px solid rgba(255,255,255,.6); border-radius: 999px; box-shadow: 0 4px 16px rgba(38,33,27,.14), 0 1px 2px rgba(38,33,27,.06); color: #26211B; z-index: 2147483647; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; animation: lectorFadeIn .2s ease-out;`
+    ? `position: fixed; left: ${x}px; top: ${y}px; display: flex; align-items: center; gap: 2px; padding: 4px 6px; background: rgba(28,28,30,.82); backdrop-filter: blur(14px) saturate(1.6); -webkit-backdrop-filter: blur(14px) saturate(1.6); border: 1px solid rgba(255,255,255,.12); box-shadow: 0 4px 16px rgba(0,0,0,.28), 0 1px 2px rgba(0,0,0,.18); color: #fff; z-index: 2147483647; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; animation: lectorFadeIn .2s ease-out;`
+    : `position: fixed; left: ${x}px; top: ${y}px; display: flex; align-items: center; gap: 2px; padding: 4px 6px; background: rgba(255,255,255,.82); backdrop-filter: blur(14px) saturate(1.6); -webkit-backdrop-filter: blur(14px) saturate(1.6); border: 1px solid rgba(255,255,255,.6); box-shadow: 0 4px 16px rgba(38,33,27,.14), 0 1px 2px rgba(38,33,27,.06); color: #26211B; z-index: 2147483647; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; animation: lectorFadeIn .2s ease-out;`
 
   const mk = (actionId: string, label: string, fn: () => void) => {
     const b = document.createElement('button')
@@ -536,7 +581,12 @@ function createToolbar(x: number, y: number, text: string) {
     b.type = 'button'
     b.title = label
     b.setAttribute('aria-label', label)
+    // Icon + visible text label: an icon-only pill requires hovering every
+    // button to learn what it does; the 7 dense actions benefit from words.
     b.innerHTML = TOOLBAR_ICONS[actionId]
+    const text = document.createElement('span')
+    text.textContent = label
+    b.appendChild(text)
     b.onclick = (e) => {
       e.stopPropagation()
       if (typeof chrome === 'undefined' || !chrome.runtime) {
@@ -576,35 +626,127 @@ function removeToolbar() {
   }
 }
 
+/**
+ * Self-drawn language dropdown for the streaming translate popup. The native
+ * <select>'s option popup is OS-rendered, so it can't follow the popup's warm
+ * paper styling or its dark-page variant — hence a button + listbox pair.
+ * `onPick` receives the raw value ('auto' or a TargetLangCode).
+ */
+function createLangDropdown(
+  opts: { value: string; autoLabel: string; onPick: (raw: string) => void }
+): HTMLElement {
+  const root = document.createElement('div')
+  root.className = 'lector-lang-dd'
+
+  const entries: Array<{ value: string; label: string }> = [
+    { value: 'auto', label: opts.autoLabel },
+    ...LANGUAGES.map((l) => ({ value: l.code, label: cachedPref === 'zh' ? l.zh : l.en })),
+  ]
+  let cur = entries.some((e) => e.value === opts.value) ? opts.value : 'auto'
+
+  const trigger = document.createElement('button')
+  trigger.type = 'button'
+  trigger.className = 'lector-lang-dd-trigger'
+  trigger.setAttribute('aria-haspopup', 'listbox')
+  trigger.setAttribute('aria-expanded', 'false')
+  const tLabel = document.createElement('span')
+  const tChevron = document.createElement('span')
+  tChevron.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>'
+  trigger.appendChild(tLabel)
+  trigger.appendChild(tChevron)
+
+  let list: HTMLElement | null = null
+  const onDocMouseDown = (e: Event) => {
+    if (list && !root.contains(e.target as Node)) closeList()
+  }
+  const closeList = () => {
+    list?.remove()
+    list = null
+    trigger.classList.remove('is-open')
+    trigger.setAttribute('aria-expanded', 'false')
+    document.removeEventListener('mousedown', onDocMouseDown, true)
+  }
+  const labelFor = (v: string) => entries.find((e) => e.value === v)?.label ?? v
+  const setCur = (v: string) => {
+    cur = v
+    tLabel.textContent = labelFor(v)
+    if (list) {
+      list.querySelectorAll<HTMLElement>('.lector-lang-dd-item').forEach((it) => {
+        it.classList.toggle('is-selected', it.dataset.value === v)
+      })
+    }
+  }
+  setCur(cur)
+
+  const openList = () => {
+    if (list) return
+    list = document.createElement('div')
+    list.className = 'lector-lang-dd-list'
+    list.setAttribute('role', 'listbox')
+    trigger.setAttribute('aria-expanded', 'true')
+    for (const e of entries) {
+      const item = document.createElement('button')
+      item.type = 'button'
+      item.className = 'lector-lang-dd-item'
+      item.dataset.value = e.value
+      item.setAttribute('role', 'option')
+      if (e.value === cur) item.classList.add('is-selected')
+      const name = document.createElement('span')
+      name.textContent = e.label
+      const check = document.createElement('span')
+      check.className = 'lector-lang-dd-check'
+      check.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'
+      item.appendChild(name)
+      item.appendChild(check)
+      item.onclick = (ev) => {
+        ev.stopPropagation()
+        setCur(e.value)
+        closeList()
+        opts.onPick(e.value)
+      }
+      list.appendChild(item)
+    }
+    root.appendChild(list)
+    trigger.classList.add('is-open')
+    // Flip above the trigger when the viewport has no room below.
+    const r = trigger.getBoundingClientRect()
+    if (window.innerHeight - r.bottom < 260 && r.top > 260) list.classList.add('is-up')
+    document.addEventListener('mousedown', onDocMouseDown, true)
+    list.querySelector('.is-selected')?.scrollIntoView({ block: 'center' })
+  }
+  trigger.onclick = (e) => {
+    e.stopPropagation()
+    if (list) closeList()
+    else openList()
+  }
+  root.appendChild(trigger)
+  return root
+}
+
 // ---------------------------------------------------------------------------
 // Loading + result popups
 // ---------------------------------------------------------------------------
+/** Popup dark variant follows the toolbar's page-luminance detection so a
+ *  popup over a dark page doesn't flash a bright card. */
+function popupDark(): boolean {
+  return selectionToolbar?.classList.contains('is-dark') ?? false
+}
+
 function showLoading(x: number, y: number) {
   clearPopups()
 
   loadingPopup = document.createElement('div')
   loadingPopup.id = 'lector-ai-loading'
-  loadingPopup.style.cssText = `
-    position: fixed;
-    left: ${x}px;
-    top: ${y + 20}px;
-    padding: 12px 20px;
-    background: #fff;
-    border-radius: 10px;
-    box-shadow: 0 4px 20px rgba(0,0,0,.15);
-    z-index: 2147483647;
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: #8F5E30;
-  `
+  loadingPopup.className = 'lector-pop lector-pop-loading'
+  if (popupDark()) loadingPopup.classList.add('lector-pop-dark')
+  // Only geometry stays inline; the look lives in .lector-pop(-loading).
+  loadingPopup.style.cssText = `left: ${x}px; top: ${y + 20}px;`
 
   const spinner = document.createElement('div')
-  spinner.style.cssText = `
-    width:16px;height:16px;border:2px solid #E2D5BB;border-top-color:#8F5E30;border-radius:50%;animation:lectorSpin .8s linear infinite;
-  `
+  spinner.className = 'lector-pop-spinner'
+  spinner.style.cssText = 'width:16px;height:16px;border:2px solid #E2D5BB;border-top-color:#8F5E30;border-radius:50%;animation:lectorSpin .8s linear infinite;flex:none;'
   const label = document.createElement('span')
   label.textContent = tr('popup.loading')
   loadingPopup.appendChild(spinner)
@@ -624,22 +766,16 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
 
   resultPopup = document.createElement('div')
   resultPopup.id = 'lector-ai-result'
+  resultPopup.className = 'lector-pop'
+  if (popupDark()) resultPopup.classList.add('lector-pop-dark')
 
   const maxHeight = window.innerHeight - y - 100
+  // Only geometry stays inline; the look lives in .lector-pop.
   resultPopup.style.cssText = `
-    position: fixed;
     left: ${x}px;
     top: ${y + 20}px;
-    max-width: 420px;
     max-height: ${Math.min(maxHeight, 500)}px;
     overflow-y: auto;
-    padding: 16px;
-    background: #fff;
-    border-radius: 14px;
-    box-shadow: 0 8px 30px rgba(0,0,0,.2);
-    z-index: 2147483647;
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-    animation: lectorFadeIn .25s ease-out;
   `
 
   const header = document.createElement('div')
@@ -655,7 +791,7 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
   title.innerHTML = titleMap[type]
 
   const closeBtn = document.createElement('button')
-  closeBtn.style.cssText = 'padding:4px 8px;border:none;background:#F1E9D8;border-radius:4px;cursor:pointer;font-size:11px;color:#7A6E5C;'
+  closeBtn.className = 'result-close'
   closeBtn.textContent = tr('popup.close')
   closeBtn.onclick = () => removeResult()
 
@@ -667,7 +803,7 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
   content.textContent = result
 
   const footer = document.createElement('div')
-  footer.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid #E2D5BB;display:flex;gap:8px;'
+  footer.className = 'result-footer'
 
   const copyBtn = document.createElement('button')
   copyBtn.className = 'action-btn copy-btn'
@@ -707,6 +843,24 @@ function speak(text: string, langSpeechCode: string) {
   window.speechSynthesis.speak(u)
 }
 
+/** Map a language-dropdown pick ('auto' | language code) to a concrete target. */
+function resolvePickedTarget(raw: string, sourceText: string): TargetLangCode {
+  if (raw === 'auto') return resolveTargetLang('auto', sourceText)
+  return raw as TargetLangCode
+}
+
+/** Persist the user's popup language choice so it sticks for next time.
+ *  try/catch (not just .catch): a synchronous "Extension context invalidated"
+ *  throw must not kill the language switch itself. */
+function persistPickedTarget(raw: string) {
+  const action = 'lector-set-translation-target'
+  try {
+    chrome.runtime.sendMessage({ action, target: raw }).catch(() => {})
+  } catch {
+    // Orphaned content script — still switch the language locally.
+  }
+}
+
 /**
  * Streaming translate popup (DeepL-style). Shows immediately with a skeleton +
  * target-language selector; tokens stream into the content area. The caller's
@@ -729,12 +883,12 @@ function showStreamingTranslateResult(
 
   resultPopup = document.createElement('div')
   resultPopup.id = 'lector-ai-result'
+  resultPopup.className = 'lector-pop'
+  if (popupDark()) resultPopup.classList.add('lector-pop-dark')
   const maxHeight = window.innerHeight - y - 100
+  // Only geometry stays inline; the look lives in .lector-pop.
   resultPopup.style.cssText = `
-    position: fixed; left: ${x}px; top: ${y + 20}px; max-width: 420px; max-height: ${Math.min(maxHeight, 500)}px;
-    overflow-y: auto; padding: 16px; background: #fff; border-radius: 14px;
-    box-shadow: 0 8px 30px rgba(0,0,0,.2); z-index: 2147483647;
-    font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; animation: lectorFadeIn .25s ease-out;
+    left: ${x}px; top: ${y + 20}px; max-height: ${Math.min(maxHeight, 500)}px; overflow-y: auto;
   `
 
   const header = document.createElement('div')
@@ -743,29 +897,25 @@ function showStreamingTranslateResult(
   title.className = 'result-title'
   title.innerHTML = tr('popup.result.translate')
 
-  // Target language selector.
-  const langWrap = document.createElement('label')
-  langWrap.style.cssText = 'font-size:11px;color:#5C5347;display:flex;align-items:center;gap:4px;'
+  // Target language selector (self-drawn dropdown — see createLangDropdown).
+  const langWrap = document.createElement('div')
+  langWrap.style.cssText =
+    'font-size:11px;color:#5C5347;display:flex;align-items:center;gap:5px;'
   const langLabel = document.createElement('span')
   langLabel.textContent = tr('popup.result.targetLang')
-  const sel = document.createElement('select')
-  sel.style.cssText = 'font-size:11px;border:1px solid #E2D5BB;border-radius:6px;padding:2px 4px;'
-  const autoOpt = document.createElement('option')
-  autoOpt.value = 'auto'
-  autoOpt.textContent = tr('settings.translation.targetLanguage.auto')
-  sel.appendChild(autoOpt)
-  for (const l of LANGUAGES) {
-    const o = document.createElement('option')
-    o.value = l.code
-    o.textContent = cachedPref === 'zh' ? l.zh : l.en
-    if (l.code === initialTarget) o.selected = true
-    sel.appendChild(o)
-  }
+  const langDd = createLangDropdown({
+    value: initialTarget,
+    autoLabel: tr('settings.translation.targetLanguage.auto'),
+    onPick: (raw) => {
+      void execute(resolvePickedTarget(raw, sourceText))
+      persistPickedTarget(raw)
+    },
+  })
   langWrap.appendChild(langLabel)
-  langWrap.appendChild(sel)
+  langWrap.appendChild(langDd)
 
   const closeBtn = document.createElement('button')
-  closeBtn.style.cssText = 'padding:4px 8px;border:none;background:#F1E9D8;border-radius:4px;cursor:pointer;font-size:11px;color:#7A6E5C;'
+  closeBtn.className = 'result-close'
   closeBtn.textContent = tr('popup.close')
   closeBtn.onclick = () => removeResult()
   header.appendChild(title)
@@ -779,7 +929,7 @@ function showStreamingTranslateResult(
   content.appendChild(caret)
 
   const footer = document.createElement('div')
-  footer.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid #E2D5BB;display:flex;gap:8px;flex-wrap:wrap;'
+  footer.className = 'result-footer'
   const speakSrc = document.createElement('button')
   speakSrc.className = 'copy-btn'
   speakSrc.type = 'button'
@@ -888,22 +1038,6 @@ function showStreamingTranslateResult(
       const msg = e instanceof Error ? e.message : tr('err.requestFailed')
       content.textContent = tr('err.failedPrefix').replace('{msg}', msg)
     }
-  }
-
-  sel.onchange = () => {
-    const code =
-      sel.value === 'auto'
-        ? resolveTargetLang('auto', sourceText)
-        : (sel.value as TargetLangCode)
-    // Persist the user's choice so it sticks for next time. try/catch (not
-    // just .catch) — a synchronous "Extension context invalidated" throw here
-    // would otherwise kill the language switch itself.
-    try {
-      chrome.runtime.sendMessage({ action: 'lector-set-translation-target', target: sel.value }).catch(() => {})
-    } catch {
-      // Orphaned content script — still switch the language locally.
-    }
-    void execute(code)
   }
 
   void execute(initialTarget)

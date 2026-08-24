@@ -14,6 +14,7 @@ import {
   SendIcon, XIcon, ClipboardListIcon, TrashIcon,
   BookMarkedIcon, DownloadIcon, CardsIcon, SparklesIcon,
   SettingsIcon, GridIcon, StopIcon, RotateIcon, ExpandIcon,
+  FileTextIcon, ListIcon, PencilIcon,
 } from '../shared/icons'
 import {
   getProvider,
@@ -1373,13 +1374,17 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                   key={tpl.id}
                   onClick={() => sendTemplate(tpl)}
                   disabled={!page || !providerConfigured}
-                  className="group relative px-3 py-2.5 pl-3.5 text-left text-[12px] font-medium text-ink-soft bg-surface border border-line rounded-xl shadow-sm hover:border-accent/60 hover:bg-accent-softer hover:text-accent transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-soft disabled:text-ink-faint/80 disabled:shadow-none disabled:hover:border-line disabled:hover:bg-surface disabled:hover:text-ink-faint/80"
+                  className="group flex items-center gap-2.5 px-3 py-2.5 text-left text-[12px] font-medium text-ink-soft bg-surface border border-line rounded-lg shadow-sm hover:border-accent/60 hover:bg-accent-softer hover:text-accent transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-soft disabled:text-ink-faint/80 disabled:shadow-none disabled:hover:border-line disabled:hover:bg-surface disabled:hover:text-ink-faint/80"
                 >
+                  {/* Leading icon tile replaces the old left accent bar: keeps
+                      each suggestion scannable without the stripe decoration. */}
                   <span
                     aria-hidden="true"
-                    className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-accent/45 group-hover:bg-accent group-disabled:bg-line-strong transition-colors duration-150"
-                  />
-                  {tplTitle(tpl)}
+                    className="flex-shrink-0 w-7 h-7 rounded-md bg-accent-softer border border-accent-soft/70 text-accent flex items-center justify-center group-hover:bg-accent group-hover:border-accent group-hover:text-accent-on group-disabled:bg-surface-sunken group-disabled:border-line group-disabled:text-ink-faint transition-colors duration-150"
+                  >
+                    {templateIcon(tpl.id, 14)}
+                  </span>
+                  <span className="truncate">{tplTitle(tpl)}</span>
                 </button>
               ))}
             </div>
@@ -1393,21 +1398,29 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         )}
 
         {messages.map((m) => {
+          const isUser = m.role === 'user'
           return (
-          <div key={m.id} className={`flex gap-2 ${m.role === 'user' ? 'justify-end items-end' : 'justify-start items-start'}`}>
-            {m.role === 'user' ? (
-              <div className="max-w-[80%] px-3.5 py-2 bg-accent text-accent-on text-body rounded-2xl rounded-br-md whitespace-pre-wrap break-words shadow-sm">
+          <div key={m.id} className={`flex gap-2.5 ${isUser ? 'justify-end' : 'justify-start items-start'}`}>
+            {isUser ? (
+              <div className="max-w-[85%] px-3.5 py-2 bg-accent text-accent-on text-body rounded-lg whitespace-pre-wrap break-words shadow-sm">
                 {m.content}
               </div>
             ) : (
               <>
+                {/* Avatar aligns with the first text line, not the bubble edge:
+                    the bubble's top padding (10px) pushes the first line down,
+                    so an edge-aligned avatar floats ~7px high. mt-2.5 matches
+                    the padding, centering the 22px avatar on the 22px line box. */}
                 <div
                   aria-hidden="true"
-                  className="flex-shrink-0 w-[22px] h-[22px] rounded-lg bg-accent-softer border border-accent-soft text-accent font-serif font-bold text-[13px] flex items-center justify-center select-none mt-1"
+                  className="flex-shrink-0 w-[22px] h-[22px] mt-2.5 rounded-lg bg-accent-softer border border-accent-soft text-accent font-serif font-bold text-[13px] flex items-center justify-center select-none"
                 >
                   L
                 </div>
-                <div className="max-w-[calc(100%-30px)] px-3.5 py-2.5 bg-surface border border-line rounded-2xl rounded-bl-md shadow-sm">
+                {/* flex-1: assistant replies are markdown documents — a fixed
+                    right edge reads as intentional, content-hugging bubbles
+                    leave a ragged staircase between short and long replies. */}
+                <div className="min-w-0 flex-1 px-3.5 py-2.5 bg-surface border border-line rounded-lg shadow-sm">
                   {m.content ? (
                     <AssistantBubble content={m.content} blockIdsKey={blockIdsKey} />
                   ) : (
@@ -1420,7 +1433,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                       re-send the last user turn. Hidden while a stream is in
                       flight and for the in-progress (empty) bubble. */}
                   {m.content && !streaming && FAILED_TURN_RE.test(m.content) && (
-                    <div className="mt-1.5">
+                    <div className="mt-1.5 pt-1.5 border-t border-line/60">
                       <button
                         onClick={retryLast}
                         className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent-hover transition-colors"
@@ -1851,6 +1864,24 @@ const AssistantBubble = memo(function AssistantBubble({
   }, [content, blockIdsKey])
   return <CitationContent html={html} />
 })
+
+/** Icon for a suggestion/template card — keyed by built-in template ids, with
+ *  a neutral sparkle for user-defined templates. */
+function templateIcon(id: string, size: number) {
+  switch (id) {
+    case 'tpl_builtin_summarize':
+      return <FileTextIcon size={size} />
+    case 'tpl_builtin_keypoints':
+      return <ListIcon size={size} />
+    case 'tpl_builtin_eli5':
+      return <SparklesIcon size={size} />
+    case 'tpl_builtin_rewrite':
+      return <PencilIcon size={size} />
+    default:
+      if (id.startsWith('tpl_builtin_translate')) return <LanguagesIcon size={size} />
+      return <SparklesIcon size={size} />
+  }
+}
 
 // ---------------------------------------------------------------------------
 // "/" template menu — floats above the composer

@@ -14,6 +14,7 @@ import { useStore } from '../../shared/store'
 import { renderMarkdown } from '../markdown'
 import { SparklesIcon, DownloadIcon, UploadIcon, XIcon } from '../../shared/icons'
 import { ViewShell, Empty, StatsBar, SrsGradeButtons } from '../components/leaf'
+import { Select } from '../components/Select'
 import { downloadBlob, readJsonFile } from '../lib/downloads'
 import { runSentenceAnalysis } from '../lib/sentences'
 
@@ -194,17 +195,20 @@ function SentencesViewImpl(props: SentencesViewProps) {
                 placeholder={tr('side.sentences.search')}
                 className="field-sm flex-1"
               />
-              <select
+              <Select
                 value={cefrFilter}
-                onChange={(e) => setCefrFilter(e.target.value)}
-                className="field-sm w-auto flex-shrink-0"
-                aria-label={tr('side.sentences.filterAll')}
-              >
-                <option value="">{tr('side.sentences.filterAll')}</option>
-                {(['A1', 'A2', 'B1', 'B2', 'C1', 'C2'] as const).map((lvl) => (
-                  <option key={lvl} value={lvl}>{lvl}</option>
-                ))}
-              </select>
+                onChange={setCefrFilter}
+                size="sm"
+                className="w-24 flex-shrink-0"
+                ariaLabel={tr('side.sentences.filterAll')}
+                options={[
+                  { value: '', label: tr('side.sentences.filterAll') },
+                  ...(['A1', 'A2', 'B1', 'B2', 'C1', 'C2'] as const).map((lvl) => ({
+                    value: lvl,
+                    label: lvl,
+                  })),
+                ]}
+              />
             </div>
             <PasteBox
               value={pasteText}

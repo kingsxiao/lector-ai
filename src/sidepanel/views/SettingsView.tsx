@@ -21,6 +21,7 @@ import {
   type SiteRule,
 } from '../../shared/siteRules'
 import { CheckIcon, XIcon } from '../../shared/icons'
+import { Select } from '../components/Select'
 
 // ---------------------------------------------------------------------------
 // LanguageSelect — searchable language picker. 100+ langs are unwieldy in a
@@ -51,7 +52,18 @@ function LanguageSelect({
         className="field w-full text-left flex items-center justify-between"
       >
         <span>{current ? (loc === 'zh' ? current.zh : current.en) : autoLabel}</span>
-        <span className="text-ink-faint text-[10px]">▾</span>
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          className={`flex-shrink-0 w-3.5 h-3.5 text-ink-faint transition-transform duration-150 ease-out ${open ? 'rotate-180' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
       </button>
       {open && (
         <div className="absolute z-10 mt-1 w-full bg-surface border border-line rounded-lg shadow-lg max-h-64 flex flex-col">
@@ -204,15 +216,17 @@ function SiteRulesControls({
           {cleanRules.map((r) => (
             <li key={r.id} className="flex items-center gap-1.5 text-[10.5px]">
               <span className="flex-1 truncate text-ink-soft" title={r.hostPattern}>{r.hostPattern}</span>
-              <select
+              <Select
                 value={r.mode}
-                onChange={(e) => setMode(r.id, e.target.value as SiteRule['mode'])}
-                className="field text-[10px] py-0.5"
-              >
-                <option value="always">{t('settings.translation.siteRules.always', locale)}</option>
-                <option value="never">{t('settings.translation.siteRules.never', locale)}</option>
-                <option value="customEngine">{t('settings.translation.siteRules.custom', locale)}</option>
-              </select>
+                onChange={(v) => setMode(r.id, v as SiteRule['mode'])}
+                size="sm"
+                className="w-28 flex-shrink-0"
+                options={[
+                  { value: 'always', label: t('settings.translation.siteRules.always', locale) },
+                  { value: 'never', label: t('settings.translation.siteRules.never', locale) },
+                  { value: 'customEngine', label: t('settings.translation.siteRules.custom', locale) },
+                ]}
+              />
               <button
                 type="button"
                 onClick={() => removeRule(r.id)}
@@ -470,11 +484,11 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                 const currentInList = list.some((m) => m.id === byok.model)
                 if (list.length > 0) {
                   return (
-                    <select
+                    <Select
                       id="lector-model"
                       value={currentInList && !customMode ? byok.model : '__custom__'}
-                      onChange={(e) => {
-                        if (e.target.value === '__custom__') {
+                      onChange={(v) => {
+                        if (v === '__custom__') {
                           // Reveal the free-text input WITHOUT discarding the
                           // current model. Previously this reset byok.model to
                           // the provider default (customModel was '' on first
@@ -482,18 +496,15 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                           setCustomMode(true)
                         } else {
                           setCustomMode(false)
-                          onChange({ model: e.target.value })
+                          onChange({ model: v })
                         }
                       }}
-                      className="field"
-                    >
-                      {list.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                      <option value="__custom__">{t('settings.model.custom', byok.locale)}</option>
-                    </select>
+                      ariaLabel={t('settings.model', byok.locale)}
+                      options={[
+                        ...list.map((m) => ({ value: m.id, label: m.label })),
+                        { value: '__custom__', label: t('settings.model.custom', byok.locale) },
+                      ]}
+                    />
                   )
                 }
                 return null
@@ -628,17 +639,16 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
 
                 {/* Translation theme (style) picker — Immersive-parity */}
                 <span className="eyebrow mb-1 mt-3 block">{t('settings.translation.theme', byok.locale)}</span>
-                <select
+                <Select
                   value={ts.theme}
-                  onChange={(e) => setTs({ theme: e.target.value })}
-                  className="field w-full mb-2"
-                >
-                  {TRANSLATION_THEMES.map((th) => (
-                    <option key={th.id} value={th.id}>
-                      {byok.locale === 'zh' ? th.zh : th.en}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => setTs({ theme: v })}
+                  className="mb-2"
+                  ariaLabel={t('settings.translation.theme', byok.locale)}
+                  options={TRANSLATION_THEMES.map((th) => ({
+                    value: th.id,
+                    label: byok.locale === 'zh' ? th.zh : th.en,
+                  }))}
+                />
 
                 {/* Font size slider */}
                 <label className="eyebrow mb-1 flex items-baseline justify-between">
@@ -668,17 +678,16 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
 
                 {/* AI Expert persona */}
                 <span className="eyebrow mb-1 block">{t('settings.translation.persona', byok.locale)}</span>
-                <select
+                <Select
                   value={ts.persona}
-                  onChange={(e) => setTs({ persona: e.target.value })}
-                  className="field w-full mb-2"
-                >
-                  {TRANSLATION_PERSONAS.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {byok.locale === 'zh' ? p.zh : p.en}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => setTs({ persona: v })}
+                  className="mb-2"
+                  ariaLabel={t('settings.translation.persona', byok.locale)}
+                  options={TRANSLATION_PERSONAS.map((p) => ({
+                    value: p.id,
+                    label: byok.locale === 'zh' ? p.zh : p.en,
+                  }))}
+                />
 
                 {/* Page scope (smart vs whole) */}
                 <span className="eyebrow mb-1 block">{t('settings.translation.pageScope', byok.locale)}</span>
