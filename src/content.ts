@@ -288,17 +288,29 @@ function ensureFab() {
   document.body.appendChild(fab)
 }
 
+/** Best-effort runtime message send for orphan-safe relays. Once the
+ *  extension is reloaded/updated, a still-running content script becomes
+ *  "orphaned": chrome.runtime.id reads as undefined and sendMessage throws
+ *  SYNCHRONOUSLY ("Extension context invalidated") — a returned-promise
+ *  .catch() can't catch that, and the throw escaping an async function shows
+ *  up as "Uncaught (in promise) Error: Extension context invalidated". All
+ *  fire-and-forget relays (progress/history/error) must go through here.
+ *  Returns the (already error-swallowed) response promise, or undefined when
+ *  the context is gone / the call threw. */
+export function safeRuntimeSend(message: object): Promise<unknown> | undefined {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.id) return undefined
+    return chrome.runtime.sendMessage(message).catch(() => undefined)
+  } catch {
+    return undefined
+  }
+}
+
 /** Best-effort: ask the background to open the side panel. Wrapped because a
  *  sendMessage call throws synchronously once the extension context is
  *  invalidated; a returned-promise .catch() can't catch that. */
 function tryOpenSidePanel() {
-  try {
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
-    }
-  } catch {
-    /* context invalidated — caller may fall back to window.open */
-  }
+  safeRuntimeSend({ action: 'open-side-panel' })
 }
 
 /** Best-effort: ask the background to open the side panel WITH a seed (e.g. a
@@ -306,13 +318,7 @@ function tryOpenSidePanel() {
  *  tryOpenSidePanel — the raw sendMessage().catch() the seed sites used could
  *  not catch the synchronous "Extension context invalidated" throw. */
 function tryOpenSidePanelWithSeed(seed: object): void {
-  try {
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({ action: 'open-side-panel', seed }).catch(() => {})
-    }
-  } catch {
-    /* context invalidated */
-  }
+  safeRuntimeSend({ action: 'open-side-panel', seed })
 }
 
 /** Shared summarizer system prompt (used by summarizePage + runByokAction). */
@@ -850,15 +856,10 @@ function resolvePickedTarget(raw: string, sourceText: string): TargetLangCode {
 }
 
 /** Persist the user's popup language choice so it sticks for next time.
- *  try/catch (not just .catch): a synchronous "Extension context invalidated"
- *  throw must not kill the language switch itself. */
+ *  Orphan-safe: a synchronous "Extension context invalidated" throw must not
+ *  kill the language switch itself. */
 function persistPickedTarget(raw: string) {
-  const action = 'lector-set-translation-target'
-  try {
-    chrome.runtime.sendMessage({ action, target: raw }).catch(() => {})
-  } catch {
-    // Orphaned content script — still switch the language locally.
-  }
+  safeRuntimeSend({ action: 'lector-set-translation-target', target: raw })
 }
 
 /**
@@ -1006,30 +1007,22 @@ function showStreamingTranslateResult(
       await run(target, mySink, runController.signal)
       if (myGen !== gen) return // superseded; don't touch DOM or history
       if (caret.parentNode === content) content.removeChild(caret)
-      // The history relay is best-effort. It lives OUTSIDE the stream's error
-      // path on purpose: when the extension context is invalidated,
-      // chrome.runtime.sendMessage throws synchronously ("Extension context
-      // invalidated") — a bare .catch() can't catch that, and if it propagated
-      // it would land in the catch below and overwrite the already-streamed,
-      // fully-completed translation with an error message.
-      try {
-        chrome.runtime
-          .sendMessage({
-            action: 'lector-translation-history',
-            entry: {
-              source: sourceText.slice(0, 200),
-              target: (acc || '').slice(0, 200),
-              sourceLang: 'auto',
-              targetLang: target,
-              kind: 'selection',
-              url: location.href,
-              createdAt: Date.now(),
-            },
-          })
-          .catch(() => {})
-      } catch {
-        // Orphaned content script — translation already rendered, just skip history.
-      }
+      // The history relay is best-effort and orphan-safe (safeRuntimeSend).
+      // It lives OUTSIDE the stream's error path on purpose: a failure here
+      // must not overwrite the already-streamed, fully-completed translation
+      // with an error message.
+      safeRuntimeSend({
+        action: 'lector-translation-history',
+        entry: {
+          source: sourceText.slice(0, 200),
+          target: (acc || '').slice(0, 200),
+          sourceLang: 'auto',
+          targetLang: target,
+          kind: 'selection',
+          url: location.href,
+          createdAt: Date.now(),
+        },
+      })
     } catch (e) {
       // A run superseded by a newer language switch was aborted — don't
       // surface its error or touch the DOM; the newer run owns the popup.
@@ -2206,17 +2199,22 @@ export async function collectIncrementalCandidates(
   return filterCandidatesByTargetLanguage(all, target, signal)
 }
 
-function reportBilingualTerminal(message: string): void {
-  chrome.runtime.sendMessage({
+/** Terminal report to the side panel (run failed / stopped). Orphan-safe: an
+ *  orphaned content script (extension reloaded mid-run) used to let the
+ *  synchronous "Extension context invalidated" throw escape here — through
+ *  toggleBilingual's catch, as an uncaught promise rejection.
+ *  Exported for tests. */
+export function reportBilingualTerminal(message: string): void {
+  safeRuntimeSend({
     action: 'lector-bilingual-progress',
     done: 0,
     total: 0,
     complete: true,
-  }).catch(() => {})
-  chrome.runtime.sendMessage({
+  })
+  safeRuntimeSend({
     action: 'lector-bilingual-error',
     message,
-  }).catch(() => {})
+  })
 }
 
 /** Monotonic run id: only the CURRENT run may remove the body run-active
@@ -2261,7 +2259,7 @@ async function runBilingualTranslation() {
     if (controller.signal.aborted) return
     cachedPref = settings.locale ?? 'auto'
     if (!settings.apiKey) {
-      chrome.runtime.sendMessage({ action: 'open-side-panel' }).catch(() => {})
+      tryOpenSidePanel()
       reportBilingualTerminal(tr('err.addKey'))
       return
     }
@@ -2364,9 +2362,7 @@ async function runBilingualTranslation() {
       const now = Date.now()
       if (!complete && now - lastReportAt < 250) return
       lastReportAt = now
-      chrome.runtime
-        .sendMessage({ action: 'lector-bilingual-progress', done, total, complete })
-        .catch(() => {})
+      safeRuntimeSend({ action: 'lector-bilingual-progress', done, total, complete })
     }
     report()
 
@@ -2423,9 +2419,7 @@ async function runBilingualTranslation() {
       await runBlock(candidates[0])
     } catch (e) {
       if (e instanceof TranslationQualityError) {
-        chrome.runtime
-          .sendMessage({ action: 'lector-bilingual-error', message: tr('bilingual.probeFailed') })
-          .catch(() => {})
+        safeRuntimeSend({ action: 'lector-bilingual-error', message: tr('bilingual.probeFailed') })
         report(true)
         return
       }
@@ -2450,20 +2444,18 @@ async function runBilingualTranslation() {
         .join('')
         .slice(0, 200)
       if (source && tgt) {
-        chrome.runtime
-          .sendMessage({
-            action: 'lector-translation-history',
-            entry: {
-              source: source.slice(0, 200),
-              target: tgt,
-              sourceLang: pageLang || 'auto',
-              targetLang: target,
-              kind: 'page',
-              url: location.href,
-              createdAt: Date.now(),
-            },
-          })
-          .catch(() => {})
+        safeRuntimeSend({
+          action: 'lector-translation-history',
+          entry: {
+            source: source.slice(0, 200),
+            target: tgt,
+            sourceLang: pageLang || 'auto',
+            targetLang: target,
+            kind: 'page',
+            url: location.href,
+            createdAt: Date.now(),
+          },
+        })
       }
     }
 
@@ -2475,7 +2467,7 @@ async function runBilingualTranslation() {
     )
     if (firstErr && !firstErr.ok && !controller.signal.aborted) {
       const msg = firstErr.error instanceof Error ? firstErr.error.message : tr('err.requestFailed')
-      chrome.runtime.sendMessage({ action: 'lector-bilingual-error', message: msg }).catch(() => {})
+      safeRuntimeSend({ action: 'lector-bilingual-error', message: msg })
     }
     // The run completed (possibly with some per-block errors): watch for
     // dynamically added content so infinite scroll / lazy loads / SPA route
@@ -2669,9 +2661,7 @@ function cancelBilingual() {
   }
   // `canceled: true` lets the panel distinguish an intentional stop from a
   // provider failure; the run suppresses any late ordinary error after it.
-  chrome.runtime
-    .sendMessage({ action: 'lector-bilingual-error', message: tr('bilingual.canceled'), canceled: true })
-    .catch(() => {})
+  safeRuntimeSend({ action: 'lector-bilingual-error', message: tr('bilingual.canceled'), canceled: true })
 }
 
 /** When set, overrides the configured pageScope for the next bilingual run.
