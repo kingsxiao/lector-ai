@@ -75,6 +75,26 @@ function relocateHtml(entryName) {
 
 relocateHtml('sidepanel')
 
+// Inline the app stylesheet into the panel HTML. Chrome does not paint the
+// side panel until every render-blocking resource finishes loading
+// (chromium issue 40915514): a stalled /assets/*.css fetch keeps the panel
+// pure WHITE for the entire stall — even though the HTML's inline boot shell
+// is ready to render. Inlining removes the last render-blocking external
+// resource, so first paint depends on the HTML document alone. (MV3's
+// extension-pages CSP restricts inline <script>, not inline <style>.)
+console.log('Inlining sidepanel CSS...')
+const panelHtmlPath = resolve(stagingDir, 'sidepanel', 'index.html')
+let panelHtml = readFileSync(panelHtmlPath, 'utf8')
+const linkMatch = panelHtml.match(/<link rel="stylesheet"[^>]*href="(\/assets\/[^"]+\.css)">/)
+if (!linkMatch) {
+  console.error('❌ sidepanel/index.html: expected a stylesheet link to inline — did the Vite HTML output change?')
+  process.exit(1)
+}
+const cssPath = resolve(stagingDir, linkMatch[1].replace(/^\//, ''))
+panelHtml = panelHtml.replace(linkMatch[0], `<style>\n${readFileSync(cssPath, 'utf8')}\n</style>`)
+writeFileSync(panelHtmlPath, panelHtml)
+rmSync(cssPath)
+
 // Remove the leftover src/ tree Vite produced.
 const leftoverSrc = resolve(stagingDir, 'src')
 if (existsSync(leftoverSrc)) {
