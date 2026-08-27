@@ -118,6 +118,7 @@ export const STRINGS = {
   'settings.theme.auto': { en: 'Auto', zh: '自动' },
   'settings.theme.light': { en: 'Light', zh: '浅色' },
   'settings.theme.dark': { en: 'Dark', zh: '深色' },
+  'settings.palette': { en: 'Theme color', zh: '主题色' },
 
   // --- content script: toolbar ---
   'toolbar.translate': { en: 'Translate', zh: '翻译' },

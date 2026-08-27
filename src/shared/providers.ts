@@ -11,6 +11,7 @@ import { isValidDisplayMode, isValidLangCode, type DisplayMode, type TargetLangC
 import { isValidThemeId, clampFontSize } from './translationThemes'
 import { isValidPersonaId } from './translationPersonas'
 import { normalizeSiteRules, type SiteRule } from './siteRules'
+import { DEFAULT_THEME_ID, normalizeThemeId } from './themes'
 
 export type ProviderId =
   // OpenAI-compatible hosts (overseas)
@@ -485,6 +486,9 @@ export interface ByokSettings {
   /** Panel color scheme. 'auto' (default when unset) follows
    * prefers-color-scheme; light/dark pin it explicitly. */
   theme?: 'auto' | 'light' | 'dark'
+  /** Panel color palette (paper tint + accent family, see shared/themes.ts).
+   * Absent/invalid falls back to 'paper'. Independent of light/dark scheme. */
+  palette?: string
   /** AnkiConnect config for the "send to Anki" feature. Optional — when unset
    * the UI uses defaults from src/shared/anki.ts via withAnkiDefaults(). */
   anki?: {
@@ -504,6 +508,7 @@ export const DEFAULT_BYOK_SETTINGS: ByokSettings = {
   baseUrl: '',
   locale: 'auto',
   theme: 'auto',
+  palette: DEFAULT_THEME_ID,
 }
 
 const RETIRED_MODEL_REPLACEMENTS: Partial<Record<ProviderId, Record<string, string>>> = {
@@ -559,6 +564,9 @@ export function normalizeByokSettings(raw: unknown): ByokSettings {
       r.theme === 'dark' || r.theme === 'light' || r.theme === 'auto'
         ? r.theme
         : undefined,
+    // Palette is always normalized to a valid theme id — every consumer
+    // (dataset attribute, CSS selector) assumes it exists.
+    palette: normalizeThemeId(r.palette),
   }
   if (r.translation !== undefined) {
     result.translation = normalizeTranslationSettings(r.translation)

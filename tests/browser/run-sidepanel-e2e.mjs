@@ -25,9 +25,23 @@ const SIDE_PANEL_INDEX_HTML = readFileSync(
 )
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 
-// Discover the hashed CSS filename so the test survives rebuilds.
-const cssFile = readdirSync(resolve(DIST, 'assets')).find((f) => /^sidepanel-.*\.css$/.test(f))
-const CSS_HREF = cssFile ? `/assets/${cssFile}` : ''
+// Production ships the panel CSS INLINED in dist/sidepanel/index.html (the
+// build deletes /assets/*.css — a stalled stylesheet fetch must not be able
+// to blank the panel; see scripts/build-extension.mjs). Mirror production:
+// lift the inlined <style> blocks into the shell. Legacy layouts that still
+// emitted /assets/sidepanel-*.css fall back to a link.
+const PANEL_HTML = readFileSync(resolve(DIST, 'sidepanel', 'index.html'), 'utf8')
+const INLINE_STYLE = [...PANEL_HTML.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)]
+  .map((m) => m[1])
+  .join('\n')
+let CSS_HREF = ''
+try {
+  const cssFile = readdirSync(resolve(DIST, 'assets')).find((f) => /^sidepanel-.*\.css$/.test(f))
+  CSS_HREF = cssFile ? `/assets/${cssFile}` : ''
+} catch { CSS_HREF = '' }
+const SHELL_CSS = INLINE_STYLE
+  ? `<style>${INLINE_STYLE}</style>`
+  : `<link rel="stylesheet" href="${CSS_HREF}">`
 
 const results = []
 const check = (name, ok, detail = '') => {
@@ -54,7 +68,7 @@ function startServer() {
     // Shell page: stubs chrome.* + fetch, then loads the real sidepanel bundle.
     if (u === '/' || u === '/shell.html') {
       const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>SP</title>
-<link rel="stylesheet" href="${CSS_HREF}"></head>
+${SHELL_CSS}</head>
 <body><div id="root"></div>
 <script>
 window.__tabsSent = [];
@@ -384,9 +398,84 @@ async function main() {
     await sleep(200)
     const sentencesActive = await evalIn(page, `!!document.querySelector('.tab-bar button[aria-label="Sentences"].tab-item-active')`)
     check('§tab: clicking Sentences activates its tab (flat, no overlay)', sentencesActive)
-    // No z-40/z-50 overlay should exist when a tab is active.
+    // ---- §tab: no absolute inset-0 overlay present (stacking eliminated) ----
     const overlayGone = await evalIn(page, `document.querySelectorAll('.absolute.inset-0').length === 0`)
     check('§tab: no absolute inset-0 overlay present (stacking eliminated)', overlayGone)
+
+    // ---- §theme: palette switching (paper tint + accent family) ----
+    // Settings lives behind the header gear (aria-label = settings.title).
+    await evalIn(page, `(()=>{const b=[...document.querySelectorAll('header button')].find(x=>(x.getAttribute('aria-label')||'')==='Bring Your Own Key'); if(b){b.click(); return 'opened'} return 'no-btn'})()`)
+    await sleep(500)
+
+    // Default palette is paper and its injected stylesheet is live before React.
+    const paperBg = await evalIn(page, `getComputedStyle(document.body).backgroundColor`)
+    check(
+      '§theme: default palette is paper (body bg = #F5EFE3)',
+      (await evalIn(page, `document.documentElement.dataset.palette || ''`)) === 'paper' && paperBg === 'rgb(245, 239, 227)',
+      `palette=${await evalIn(page, `document.documentElement.dataset.palette || ''`)} bg=${paperBg}`,
+    )
+    // textContent (not cssRules): Chrome re-serializes selectorText and drops
+    // the quotes from [data-palette='ink'], so match the raw sheet text.
+    const paletteSheet = await evalIn(
+      page,
+      `[...document.querySelectorAll('style')].some(s => (s.textContent||'').includes("data-palette='ink'"))`,
+    )
+    check('§theme: palette override stylesheet injected', paletteSheet)
+
+    // Theme picker renders one card per catalog theme.
+    const themeCards = await evalIn(page, `document.querySelectorAll('[role="radiogroup"][aria-label="Theme color"] [role="radio"]').length`)
+    check('§theme: picker renders a card per theme (5)', themeCards === 5, `cards=${themeCards}`)
+
+    // Cards lay out as readable 2-column tiles (no zero-size/clipped renders)
+    // and each mini preview shows its OWN theme's paper color, not the
+    // current palette's CSS vars.
+    const cardGeometry = JSON.parse(await evalIn(page, `JSON.stringify(
+      [...document.querySelectorAll('[role="radiogroup"][aria-label="Theme color"] [role="radio"]')].map(b => {
+        const r = b.getBoundingClientRect()
+        const preview = b.querySelector('div')
+        return { w: Math.round(r.width), h: Math.round(r.height), preview: preview ? getComputedStyle(preview).backgroundColor : '' }
+      })
+    )`) || '[]')
+    const geometryOk =
+      cardGeometry.length === 5 &&
+      cardGeometry.every((c) => c.w >= 100 && c.h >= 70) &&
+      cardGeometry[0].preview === 'rgb(245, 239, 227)' &&
+      cardGeometry[1].preview === 'rgb(238, 241, 246)'
+    check(
+      '§theme: preview cards are sized tiles showing their own theme colors',
+      geometryOk,
+      `cards=${JSON.stringify(cardGeometry.map((c) => `${c.w}x${c.h} ${c.preview}`))}`,
+    )
+
+    // Click Indigo Ink → data-palette flips and real token colors change.
+    await evalIn(page, `(()=>{const b=[...document.querySelectorAll('[role="radiogroup"][aria-label="Theme color"] [role="radio"]')].find(x=>/Indigo Ink/.test(x.textContent||'')); if(b){b.click(); return 'clicked'} return 'no-card'})()`)
+    await sleep(300)
+    const inkBg = await evalIn(page, `getComputedStyle(document.body).backgroundColor`)
+    const inkAccent = await evalIn(page, `getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()`)
+    const inkSaved = await evalIn(page, `(JSON.parse(localStorage.getItem('lector-ai-storage')||'{}').state?.byok?.palette) || ''`)
+    check(
+      '§theme: selecting 靛墨 flips tokens + persists (bg #EEF1F6, accent #3D5488)',
+      (await evalIn(page, `document.documentElement.dataset.palette || ''`)) === 'ink' &&
+        inkBg === 'rgb(238, 241, 246)' &&
+        inkAccent.toLowerCase() === '#3d5488' &&
+        inkSaved === 'ink',
+      `bg=${inkBg} accent=${inkAccent} saved=${inkSaved}`,
+    )
+
+    // Pin Dark → the same palette swaps to its dark variant without a reload.
+    await evalIn(page, `(()=>{const b=[...document.querySelectorAll('button')].find(x=>(x.textContent||'').trim()==='Dark'); if(b){b.click(); return 'clicked'} return 'no-btn'})()`)
+    await sleep(300)
+    const inkDarkBg = await evalIn(page, `getComputedStyle(document.body).backgroundColor`)
+    check(
+      '§theme: dark scheme swaps palette variant live (bg #141822)',
+      (await evalIn(page, `document.documentElement.classList.contains('dark')`)) && inkDarkBg === 'rgb(20, 24, 34)',
+      `bg=${inkDarkBg}`,
+    )
+
+    // Restore paper + light so later manual inspection starts from the default.
+    await evalIn(page, `(()=>{const b=[...document.querySelectorAll('[role="radiogroup"][aria-label="Theme color"] [role="radio"]')].find(x=>/Warm Paper/.test(x.textContent||'')); if(b) b.click(); return 'ok'})()`)
+    await evalIn(page, `(()=>{const b=[...document.querySelectorAll('button')].find(x=>(x.textContent||'').trim()==='Light'); if(b) b.click(); return 'ok'})()`)
+    await sleep(300)
 
     await cleanup()
   } catch (e) {

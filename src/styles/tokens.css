@@ -3,6 +3,10 @@
    content.css 不 import：content script 注入到任意网页，禁用全局 :root，
    其样式就地引用下列色值常量，避免污染宿主页面。
 
+   本文件是「暖纸」基线（首帧与文档默认）；其余主题（靛墨/苔径/暮紫/海雾）
+   由 main.tsx 在首帧前注入 shared/themes.ts 生成的
+   :root[data-palette='…'] 覆盖层。「暖纸」改色时需同步 themes.ts 的 PAPER。
+
    每个颜色有两份：`--x`（hex，供原始 CSS/color-mix 引用）与 `--x-rgb`
    （RGB 通道三元组，供 tailwind.config 的 `<alpha-value>` 用——Tailwind
    无法对 var() hex 施加 /N 透明度修饰符，缺三元组时 border-line/60 会
@@ -18,8 +22,10 @@
   --ink: #26211B;           --ink-rgb: 38 33 27;
   --ink-soft: #5C5347;      --ink-soft-rgb: 92 83 71;
   /* WCAG AA: used at 9–11px text sizes (StatsCell labels, row subtitles), so
-     it must clear 4.5:1 against --bg/--surface. #7A6E5C ≈ 4.6:1 on white. */
-  --ink-faint: #7A6E5C;     --ink-faint-rgb: 122 110 92;
+     it must clear 4.5:1 against --bg AND --surface. #766A56 ≈ 4.6:1 on the
+     paper bg (its predecessor #7A6E5C measured 4.35 on bg — only cleared
+     white). Keep any change re-measured against BOTH. */
+  --ink-faint: #766A56;     --ink-faint-rgb: 118 106 86;
 
   --accent: #8F5E30;        --accent-rgb: 143 94 48;
   --accent-hover: #7A4E27;  --accent-hover-rgb: 122 78 39;

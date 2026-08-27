@@ -145,4 +145,13 @@ describe('normalizeByokSettings', () => {
     expect(out.translation?.targetLanguage).toBe('auto')
     expect(out.translation?.concurrency).toBe(10)
   })
+  it('normalizes the panel palette: valid passes through, anything else falls back to paper', () => {
+    expect(normalizeByokSettings({ palette: 'ink' }).palette).toBe('ink')
+    expect(normalizeByokSettings({ palette: 'sea' }).palette).toBe('sea')
+    // Absent (v0.4.3-era stored settings) → default, never undefined.
+    expect(normalizeByokSettings({}).palette).toBe('paper')
+    // Garbage from a hand-edited store can never reach a CSS selector.
+    expect(normalizeByokSettings({ palette: 'drop table' }).palette).toBe('paper')
+    expect(normalizeByokSettings({ palette: 7 }).palette).toBe('paper')
+  })
 })

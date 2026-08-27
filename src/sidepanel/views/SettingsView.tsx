@@ -22,6 +22,7 @@ import {
 } from '../../shared/siteRules'
 import { CheckIcon, XIcon } from '../../shared/icons'
 import { Select } from '../components/Select'
+import { THEMES, getTheme, type ThemePalette } from '../../shared/themes'
 
 // ---------------------------------------------------------------------------
 // LanguageSelect — searchable language picker. 100+ langs are unwieldy in a
@@ -102,6 +103,87 @@ function LanguageSelect({
         </div>
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// useSystemDark — live prefers-color-scheme. Theme previews render in the
+// variant the panel is currently showing, so a dark-mode user picks a theme
+// by its dark palette (App.tsx mirrors the same decision for the .dark class).
+function useSystemDark(): boolean {
+  const [dark, setDark] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = () => setDark(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return dark
+}
+
+// ---------------------------------------------------------------------------
+// ThemePreviewCard — 迷你面板预览。内联样式引用「该主题自己」的色值（而非
+// 当前 CSS 变量），这样每张卡片如实展示对应主题的纸色/卡面/标色；预览跟随
+// 当前面板明暗显示对应变体。选中态的描边/对勾用当前主题的 accent。
+function ThemePreviewCard({
+  name,
+  palette,
+  selected,
+  onClick,
+}: {
+  name: string
+  palette: ThemePalette
+  selected: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onClick}
+      className={`text-left rounded-lg border overflow-hidden transition-all duration-150 ease-out
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-soft
+                  active:scale-[0.98] ${
+                    selected
+                      ? 'border-accent shadow-sm ring-1 ring-accent-soft'
+                      : 'border-line hover:border-line-strong hover:shadow-sm'
+                  }`}
+    >
+      <div className="h-[54px] px-2 pt-2 pb-2 flex flex-col gap-[5px]" style={{ background: palette.bg }}>
+        <div className="flex items-center justify-between">
+          <span className="block h-[5px] w-7 rounded-full" style={{ background: palette.accent }} />
+          <span
+            className="block h-[9px] w-[9px] rounded-[3px] border"
+            style={{ background: palette.surface, borderColor: palette.line }}
+          />
+        </div>
+        <div>
+          <span className="block h-[3px] w-full rounded-full" style={{ background: palette.lineStrong }} />
+          <span
+            className="block h-[3px] w-3/5 mt-[3px] rounded-full"
+            style={{ background: palette.lineStrong, opacity: 0.5 }}
+          />
+        </div>
+        <div className="flex gap-1">
+          <span className="block h-[10px] w-8 rounded-[3px]" style={{ background: palette.accent }} />
+          <span
+            className="block h-[10px] w-6 rounded-[3px] border"
+            style={{ background: palette.surfaceMuted, borderColor: palette.line }}
+          />
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-1 px-2 py-1.5 bg-surface">
+        <span className={`text-[11px] font-medium truncate ${selected ? 'text-accent' : 'text-ink-soft'}`}>
+          {name}
+        </span>
+        {selected && <CheckIcon size={12} className="flex-shrink-0 text-accent" />}
+      </div>
+    </button>
   )
 }
 
@@ -259,6 +341,7 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
   const [fetchedModels, setFetchedModels] = useState<FetchedModel[] | null>(null)
   const [fetching, setFetching] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const sysDark = useSystemDark()
   // Debounce handle for the translation-settings tab broadcast. Range sliders
   // fire onChange continuously during a drag; without a trailing debounce each
   // tick fans a message out to EVERY tab (chrome.tabs.query({}) + sendMessage).
@@ -374,6 +457,38 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
                   {t(`settings.theme.${opt}` as StringKey, byok.locale)}
                 </button>
               ))}
+            </div>
+
+            {/* 主题色（palette）——纸色 + 标色成套切换；预览跟随当前明暗外观 */}
+            <div>
+              <label className="label mb-1.5">{t('settings.palette', byok.locale)}</label>
+              {(() => {
+                const scheme = byok.theme ?? 'auto'
+                const previewDark = scheme === 'dark' || (scheme === 'auto' && sysDark)
+                const current = getTheme(byok.palette)
+                return (
+                  <>
+                    <div
+                      role="radiogroup"
+                      aria-label={t('settings.palette', byok.locale)}
+                      className="grid grid-cols-2 gap-1.5"
+                    >
+                      {THEMES.map((th) => (
+                        <ThemePreviewCard
+                          key={th.id}
+                          name={byok.locale === 'zh' ? th.zh : th.en}
+                          palette={previewDark ? th.dark : th.light}
+                          selected={current.id === th.id}
+                          onClick={() => onChange({ palette: th.id })}
+                        />
+                      ))}
+                    </div>
+                    <p className="mt-1.5 text-[10px] text-ink-faint leading-relaxed">
+                      {byok.locale === 'zh' ? current.descZh : current.descEn}
+                    </p>
+                  </>
+                )
+              })()}
             </div>
           </section>
 

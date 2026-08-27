@@ -21,6 +21,7 @@ import {
   type ByokSettings,
   normalizeTranslationSettings,
 } from '../shared/providers'
+import { normalizeThemeId } from '../shared/themes'
 import { streamChat, getSettings, saveSettings, type ChatMessage as WireMessage } from '../shared/byok'
 import { t, resolveLocale, type StringKey } from '../shared/i18n'
 import { getLanguage, type TranslationHistoryEntry } from '../shared/translation'
@@ -616,6 +617,13 @@ export default function App() {
     mq.addEventListener('change', apply)
     return () => mq.removeEventListener('change', apply)
   }, [byok.theme])
+
+  // Palette (paper tint + accent family): main.tsx injects the per-theme token
+  // overrides and sets the attribute synchronously before first paint; this
+  // effect keeps it in sync when the user switches themes live in settings.
+  useEffect(() => {
+    document.documentElement.dataset.palette = normalizeThemeId(byok.palette)
+  }, [byok.palette])
 
   const downloadMarkdown = (hs: Highlight[]) => {
     downloadBlob('lector-highlights.md', toMarkdown(hs), 'text/markdown')
