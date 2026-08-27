@@ -296,7 +296,7 @@ function SentencesViewImpl(props: SentencesViewProps) {
                           )}
                           {c.srs && (
                             <span className="text-[10px] text-ink-faint">
-                              {c.srs.reps} {tr('side.sentences.reviews')}
+                              {c.srs.reps} {tr(c.srs.reps === 1 ? 'side.sentences.review' : 'side.sentences.reviews')}
                             </span>
                           )}
                           <button

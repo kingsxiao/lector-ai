@@ -6,6 +6,9 @@
 html, body, #root {
   height: 100%;
   margin: 0;
+  /* 面板是纵向工具 UI，任何子元素的横向溢出都不应把 document 撑宽
+     （会带着横向 scrollOffset 错位 + 出现横向滚动条）。clip 不产生滚动容器。 */
+  overflow-x: clip;
 }
 
 body {
@@ -41,6 +44,14 @@ body {
   /* 小圆点角标（有数据提示） */
   .dot-badge {
     @apply w-1.5 h-1.5 rounded-full bg-accent;
+  }
+  /* Tab 角标：绝对定位在 tab 右上角，不占内联宽度——内联 badge 会把窄面板
+     （Chrome side panel 常见 320–400px）的 tab 栏挤到需要滚动。 */
+  .tab-corner-badge {
+    position: absolute;
+    top: -4px;
+    right: -1px;
+    margin: 0;
   }
 
   /* —— 主要按钮 —— */
@@ -120,12 +131,19 @@ body {
     @apply text-[15px] font-bold text-ink tracking-tight;
   }
 
-  /* —— 顶部 Tab 栏（平铺视图切换） —— */
+  /* —— 顶部 Tab 栏（平铺视图切换） ——
+     5 个图标+文字 tab 在窄面板（Chrome side panel 常见 320–400px）放不下：
+     内容宽可达 ~470px。溢出必须发生在本容器内部滚动，而不是把 document 撑宽
+     （撑宽后打开抽屉时页面会带着横向 scrollOffset 错位，底部还会出现横向
+     滚动条）。滚动条隐藏，边缘自然半露暗示可滑。 */
   .tab-bar {
     @apply flex items-center gap-0.5 px-2 py-1.5 bg-surface border-b border-line;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
+  .tab-bar::-webkit-scrollbar { display: none; }
   .tab-item {
-    @apply flex items-center justify-center gap-1 px-2.5 h-7 rounded-lg text-[12px] font-medium
+    @apply flex items-center justify-center gap-1 px-[7px] h-7 rounded-lg text-[12px] font-medium flex-shrink-0 whitespace-nowrap
            text-ink-faint transition-colors duration-150 ease-out
            hover:bg-surface-muted hover:text-ink-soft
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-soft;
@@ -238,6 +256,41 @@ body {
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--line-strong); }
+
+/* Range slider — 纸感自绘：细线轨道 + 实心 accent 圆 thumb（原生 accent-color
+   的轨道高度和 thumb 内缘在暖纸底上像系统控件，和自绘 Select 不统一）。 */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line-strong) 45%, transparent);
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition: transform 120ms var(--ease), background-color 120ms ease-out;
+}
+input[type='range']:hover::-webkit-slider-thumb { background: var(--accent-hover); transform: scale(1.12); }
+input[type='range']:active::-webkit-slider-thumb { transform: scale(1.05); }
+input[type='range']:focus-visible {
+  outline: none;
+}
+input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
 
 /* Citation chips (Feature ①) */
 .lector-cite {

@@ -5,6 +5,7 @@
       <excludeFolder url="file://$MODULE_DIR$/.claude" />
       <excludeFolder url="file://$MODULE_DIR$/.superpowers" />
       <excludeFolder url="file://$MODULE_DIR$/.zcode" />
+      <excludeFolder url="file://$MODULE_DIR$/.mimosa" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

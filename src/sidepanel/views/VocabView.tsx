@@ -209,7 +209,7 @@ function VocabViewImpl({
                       </span>
                     )}
                     <span className="text-[10px] text-ink-faint ml-auto">
-                      {v.srs.reps} {tr('side.vocab.reviews')}
+                      {v.srs.reps} {tr(v.srs.reps === 1 ? 'side.vocab.review' : 'side.vocab.reviews')}
                     </span>
                     {v.context?.trim() && (
                       <button

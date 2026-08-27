@@ -41,6 +41,7 @@ import { downloadBlob } from './lib/downloads'
 import { runSentenceAnalysis } from './lib/sentences'
 import { jumpToBlock } from './lib/chromeUtils'
 import { formatAnkiResult } from './lib/ankiFormat'
+import { formatListTimestamp } from './lib/format'
 import { ViewShell, Empty } from './components/leaf'
 import { CurrentSiteChip } from './views/CurrentSiteChip'
 // Secondary views are lazy-loaded: the panel opens on the chat view, so the
@@ -1176,7 +1177,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           <CardsIcon size={14} />
           <span>{tr('side.tab.sentences')}</span>
           {sentences.some((c) => c.srs && isDue(c.srs)) && (
-            <span className="lector-due-badge">!</span>
+            <span className="lector-due-badge tab-corner-badge">!</span>
           )}
         </button>
         <button
@@ -1187,7 +1188,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         >
           <BookmarkIcon size={14} />
           <span>{tr('side.tab.highlights')}</span>
-          {highlights.length > 0 && <span className="dot-badge" />}
+          {highlights.length > 0 && <span className="dot-badge tab-corner-badge" />}
         </button>
         <button
           onClick={() => setActiveView('vocab')}
@@ -1197,7 +1198,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         >
           <BookOpenIcon size={14} />
           <span>{tr('side.tab.vocab')}</span>
-          {vocab.some((v) => isDue(v.srs)) && <span className="lector-due-badge">!</span>}
+          {vocab.some((v) => isDue(v.srs)) && <span className="lector-due-badge tab-corner-badge">!</span>}
         </button>
         {/* ⋯ MoreMenu: low-frequency views (Templates / Glossary / Library) */}
         <div className="relative" ref={toolsRef}>
@@ -1588,7 +1589,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <div className="text-[12px] font-medium text-ink truncate">{s.title}</div>
-                      <div className="text-[10px] text-ink-faint mt-0.5">{new Date(s.createdAt).toLocaleString()}</div>
+                      <div className="text-[10px] text-ink-faint mt-0.5">{formatListTimestamp(s.createdAt)}</div>
                     </div>
                     <button
                       onClick={(e) => {
@@ -1707,7 +1708,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                               {getLanguage(e.targetLang)[resolveLocale(byok.locale) === 'zh' ? 'zh' : 'en']}
                             </span>
                             <span className="text-[10px] text-ink-faint">
-                              {new Date(e.createdAt).toLocaleString()}
+                              {formatListTimestamp(e.createdAt)}
                             </span>
                           </div>
                           <div className="text-[12px] text-ink leading-relaxed border-l-2 border-accent/40 pl-2.5">{e.source}</div>

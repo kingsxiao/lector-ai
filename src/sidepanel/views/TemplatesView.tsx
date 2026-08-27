@@ -166,7 +166,7 @@ function TemplatesViewImpl({
                         )}
                       </div>
                       <div className="text-[10px] text-ink-faint truncate mt-0.5">
-                        {tpl.content.replace(/\n/g, ' ').slice(0, 60)}
+                        {tpl.content.replace(/\s+/g, ' ').trim()}
                       </div>
                     </div>
                     <button
