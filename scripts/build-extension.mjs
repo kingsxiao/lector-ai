@@ -1,7 +1,8 @@
 import { execSync } from 'child_process'
-import { copyFileSync, mkdirSync, existsSync, rmSync, cpSync, readFileSync, writeFileSync, renameSync } from 'fs'
+import { copyFileSync, mkdirSync, existsSync, rmSync, cpSync, readFileSync, readdirSync, writeFileSync, renameSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
+import { build } from 'vite'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const rootDir = resolve(__dirname, '..')
@@ -17,10 +18,16 @@ if (existsSync(stagingDir)) {
 }
 mkdirSync(stagingDir, { recursive: true })
 
-// Build with Vite. --outDir redirects the config's `dist` to the staging dir;
-// the CLI flag takes precedence over vite.config.ts's build.outDir.
+// Build with Vite. Both builds run in THIS process via the JS API — two
+// execSync('npx vite build') child processes paid double process boot +
+// dependency resolution for every build.
+// --outDir is redirected to the staging dir; the inline option takes
+// precedence over vite.config.ts's build.outDir.
 console.log('Building with Vite...')
-execSync('npx vite build --outDir dist.tmp', { cwd: rootDir, stdio: 'inherit' })
+await build({
+  configFile: resolve(rootDir, 'vite.config.ts'),
+  build: { outDir: 'dist.tmp' },
+})
 
 // Rebuild the content script as a single self-contained IIFE bundle.
 // MV3 content scripts cannot be ES modules (content_scripts has no `type:
@@ -29,9 +36,9 @@ execSync('npx vite build --outDir dist.tmp', { cwd: rootDir, stdio: 'inherit' })
 // shared deps (byok, i18n) into one content.js with no chunk imports. Its
 // emptyOutDir:false keeps the sidepanel/background output already in staging.
 console.log('Rebuilding content script as IIFE bundle...')
-execSync('npx vite build --config vite.content.config.ts --outDir dist.tmp', {
-  cwd: rootDir,
-  stdio: 'inherit',
+await build({
+  configFile: resolve(rootDir, 'vite.content.config.ts'),
+  build: { outDir: 'dist.tmp' },
 })
 
 // Copy manifest.json to staging, stripping the `key` field. The key is kept in
@@ -94,6 +101,12 @@ const cssPath = resolve(stagingDir, linkMatch[1].replace(/^\//, ''))
 panelHtml = panelHtml.replace(linkMatch[0], `<style>\n${readFileSync(cssPath, 'utf8')}\n</style>`)
 writeFileSync(panelHtmlPath, panelHtml)
 rmSync(cssPath)
+// With its only file gone, assets/ would otherwise be zipped as an empty
+// directory entry (it showed up in every dist.zip so far).
+const assetsDir = resolve(stagingDir, 'assets')
+if (existsSync(assetsDir) && readdirSync(assetsDir).length === 0) {
+  rmSync(assetsDir, { recursive: true })
+}
 
 // Remove the leftover src/ tree Vite produced.
 const leftoverSrc = resolve(stagingDir, 'src')

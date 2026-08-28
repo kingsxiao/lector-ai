@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, createJSONStorage } from 'zustand/middleware'
 import { DEFAULT_BYOK_SETTINGS, normalizeByokSettings, type ByokSettings } from './providers'
 import type { Highlight } from './highlights'
 import type { VocabEntry } from './vocabulary'
@@ -8,6 +8,51 @@ import { BUILTIN_TEMPLATES, newTemplateId, type PromptTemplate } from './promptT
 import { newEntryId, type GlossaryEntry } from './glossary'
 import { newCardId, normalizeSentence, makeSentenceCard, mergeSentenceCard, dedupeCards, type SentenceCard } from './sentences'
 import { appendHistory, newHistoryId, type TranslationHistoryEntry } from './translation'
+
+// --- debounced persistence ---------------------------------------------------
+// zustand/persist writes the ENTIRE partialized state (sessions + highlights +
+// vocab + sentences + glossary, potentially megabytes) synchronously to
+// localStorage on EVERY set(). Draining a 20-item relay queue therefore used to
+// stringify+write the whole library 20 times, and every SRS grade / settings
+// keystroke paid the same full-state tax. This adapter coalesces writes: only
+// the LAST serialized value per key lands, after a short trailing debounce.
+const PERSIST_DEBOUNCE_MS = 400
+const pendingPersistWrites = new Map<string, string>()
+let persistFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+export function flushPendingPersistWrites(): void {
+  if (persistFlushTimer !== null) {
+    clearTimeout(persistFlushTimer)
+    persistFlushTimer = null
+  }
+  for (const [name, value] of pendingPersistWrites) {
+    try {
+      localStorage.setItem(name, value)
+    } catch {
+      // Quota exceeded — same best-effort behavior as the default adapter.
+    }
+  }
+  pendingPersistWrites.clear()
+}
+
+const debouncedJsonStorage = createJSONStorage(() => ({
+  getItem: (name: string) => localStorage.getItem(name),
+  setItem: (name: string, value: string) => {
+    pendingPersistWrites.set(name, value)
+    if (persistFlushTimer === null) {
+      persistFlushTimer = setTimeout(flushPendingPersistWrites, PERSIST_DEBOUNCE_MS)
+    }
+  },
+  removeItem: (name: string) => {
+    pendingPersistWrites.delete(name)
+    localStorage.removeItem(name)
+  },
+}))
+
+// A panel closed inside the debounce window must not lose its tail writes.
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('pagehide', flushPendingPersistWrites)
+}
 
 export interface ChatMessage {
   id: string
@@ -62,10 +107,14 @@ interface AppState {
   clearSessions: () => void
 
   addHighlight: (h: Highlight) => { duplicate: boolean }
+  /** Batch merge for relay-queue drains: one set()/persist instead of N. */
+  addHighlights: (items: Highlight[]) => { duplicates: number }
   removeHighlight: (id: string) => void
   updateHighlight: (id: string, patch: Partial<Highlight>) => void
 
   addVocab: (v: VocabEntry) => void
+  /** Batch merge with the same per-item semantics as addVocab. */
+  addVocabs: (items: VocabEntry[]) => void
   removeVocab: (id: string) => void
   updateVocabSrs: (id: string, srs: SrsState) => void
 
@@ -81,6 +130,8 @@ interface AppState {
   replaceGlossary: (entries: GlossaryEntry[]) => void
 
   addSentence: (s: Omit<SentenceCard, 'id' | 'createdAt'> & { createdAt?: number }) => void
+  /** Batch merge with the same per-item semantics as addSentence. */
+  addSentences: (items: Array<Omit<SentenceCard, 'id' | 'createdAt'> & { createdAt?: number }>) => void
   updateSentence: (id: string, patch: Partial<SentenceCard>) => void
   removeSentence: (id: string) => void
   replaceSentences: (cards: SentenceCard[]) => void
@@ -91,6 +142,8 @@ interface AppState {
 
   // Translation history (LRU, max 200).
   addTranslationHistory: (entry: Omit<TranslationHistoryEntry, 'id'>) => void
+  /** Batch append for relay-queue drains. */
+  addTranslationHistoryBatch: (entries: Array<Omit<TranslationHistoryEntry, 'id'>>) => void
   clearTranslationHistory: () => void
 
   // Mark the panel as opened (first-run onboarding gate).
@@ -134,6 +187,23 @@ export const useStore = create<AppState>()(
         })
         return { duplicate }
       },
+      addHighlights: (items) => {
+        let duplicates = 0
+        set((s) => {
+          let highlights = s.highlights
+          for (const h of items) {
+            if (highlights.some((x) => x.text === h.text && x.url === h.url)) {
+              duplicates++
+              continue
+            }
+            highlights = [h, ...highlights].slice(0, 500)
+          }
+          // Same reference when nothing changed → no re-render, no persist.
+          if (highlights === s.highlights) return s
+          return { highlights }
+        })
+        return { duplicates }
+      },
       removeHighlight: (id) =>
         set((s) => ({ highlights: s.highlights.filter((x) => x.id !== id) })),
       updateHighlight: (id, patch) =>
@@ -143,9 +213,8 @@ export const useStore = create<AppState>()(
 
       addVocab: (v) =>
         set((s) => {
-          const idx = s.vocab.findIndex(
-            (x) => x.word.toLowerCase() === v.word.toLowerCase()
-          )
+          const w = v.word.toLowerCase()
+          const idx = s.vocab.findIndex((x) => x.word.toLowerCase() === w)
           if (idx === -1) return { vocab: [v, ...s.vocab].slice(0, 2000) }
           // merge: keep earliest createdAt, latest context, preserve srs
           const existing = s.vocab[idx]
@@ -161,6 +230,34 @@ export const useStore = create<AppState>()(
           const next = [...s.vocab]
           next[idx] = merged
           return { vocab: next }
+        }),
+      addVocabs: (items) =>
+        set((s) => {
+          if (items.length === 0) return s
+          let vocab = s.vocab
+          for (const v of items) {
+            const w = v.word.toLowerCase()
+            const idx = vocab.findIndex((x) => x.word.toLowerCase() === w)
+            if (idx === -1) {
+              vocab = [v, ...vocab].slice(0, 2000)
+              continue
+            }
+            const existing = vocab[idx]
+            const merged: VocabEntry = {
+              ...existing,
+              context: v.context || existing.context,
+              translation: v.translation || existing.translation,
+              url: v.url || existing.url,
+              title: v.title || existing.title,
+              createdAt: Math.min(existing.createdAt, v.createdAt),
+              srs: existing.srs,
+            }
+            const next = [...vocab]
+            next[idx] = merged
+            vocab = next
+          }
+          if (vocab === s.vocab) return s
+          return { vocab }
         }),
       removeVocab: (id) => set((s) => ({ vocab: s.vocab.filter((x) => x.id !== id) })),
       updateVocabSrs: (id, srs) =>
@@ -278,6 +375,27 @@ export const useStore = create<AppState>()(
           next[idx] = merged
           return { sentences: next }
         }),
+      addSentences: (items) =>
+        set((state) => {
+          if (items.length === 0) return state
+          let sentences = state.sentences
+          for (const s of items) {
+            const key = normalizeSentence(s.sentence)
+            const idx = sentences.findIndex((x) => normalizeSentence(x.sentence) === key)
+            if (idx === -1) {
+              const card: SentenceCard = makeSentenceCard({ ...s, id: newCardId() })
+              sentences = [card, ...sentences].slice(0, 1000)
+              continue
+            }
+            const existing = sentences[idx]
+            const incoming = makeSentenceCard({ ...s, id: existing.id, createdAt: Date.now() })
+            const next = [...sentences]
+            next[idx] = mergeSentenceCard(existing, incoming)
+            sentences = next
+          }
+          if (sentences === state.sentences) return state
+          return { sentences }
+        }),
       updateSentence: (id, patch) =>
         set((s) => ({
           sentences: s.sentences.map((x) => (x.id === id ? { ...x, ...patch } : x)),
@@ -304,6 +422,15 @@ export const useStore = create<AppState>()(
         set((s) => ({
           translationHistory: appendHistory(s.translationHistory, { ...entry, id: newHistoryId() }),
         })),
+      addTranslationHistoryBatch: (entries) =>
+        set((s) => {
+          if (entries.length === 0) return s
+          let history = s.translationHistory
+          for (const entry of entries) {
+            history = appendHistory(history, { ...entry, id: newHistoryId() })
+          }
+          return { translationHistory: history }
+        }),
       clearTranslationHistory: () => set({ translationHistory: [] }),
 
       markOpened: () => set({ hasOpened: true }),
@@ -311,6 +438,11 @@ export const useStore = create<AppState>()(
     {
       name: 'lector-ai-storage',
       version: 1,
+      // Debounced coalescing adapter (see top of file): the default adapter
+      // synchronously stringified+wrote the ENTIRE partialized state on every
+      // set(); with a multi-MB library that made each of N queued relay items
+      // a full-state write.
+      storage: debouncedJsonStorage,
       // NOTE on persistence & the API key: zustand/persist (with no custom
       // storage adapter) writes to window.localStorage, NOT chrome.storage.
       // The API key lives in `byok` and is therefore in localStorage here —

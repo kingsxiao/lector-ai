@@ -1,4 +1,4 @@
-import { useState, memo } from 'react'
+import { useState, useCallback, useEffect, useMemo, memo } from 'react'
 import type { VocabEntry } from '../../shared/vocabulary'
 import { isDue, type Grade } from '../../shared/srs'
 import { computeReviewStats } from '../../shared/stats'
@@ -28,6 +28,81 @@ interface VocabViewProps {
   onExplainVocab: (v: VocabEntry) => void
 }
 
+/** One vocab row, memoized: reveal toggles and unrelated re-renders only touch
+ *  the rows whose inputs actually changed (reveal is a boolean prop, not a
+ *  parent-held Set re-created per toggle). */
+const VocabRow = memo(function VocabRow({
+  v,
+  revealed,
+  tr,
+  onRemoveVocab,
+  onGrade,
+  onExplainVocab,
+  onToggleReveal,
+}: {
+  v: VocabEntry
+  revealed: boolean
+  tr: (key: StringKey) => string
+  onRemoveVocab: (id: string) => void
+  onGrade: (v: VocabEntry, g: Grade) => void
+  onExplainVocab: (v: VocabEntry) => void
+  onToggleReveal: (id: string) => void
+}) {
+  const due = isDue(v.srs)
+  return (
+    <div className="group row">
+      <div className="flex items-center gap-2">
+        <span className={`text-[15px] leading-snug font-serif font-bold ${due ? 'text-accent' : 'text-ink'}`}>
+          {v.word}
+        </span>
+        {due && (
+          <span className="chip-accent">
+            {tr('side.vocab.due')}
+          </span>
+        )}
+        <span className="text-[10px] text-ink-faint ml-auto">
+          {v.srs.reps} {tr(v.srs.reps === 1 ? 'srs.review' : 'srs.reviews')}
+        </span>
+        {v.context?.trim() && (
+          <button
+            onClick={() => onExplainVocab(v)}
+            title={tr('side.sentences.fromVocab')}
+            aria-label={tr('aria.makeCard')}
+            className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-accent transition-opacity"
+          >
+            <SparklesIcon size={14} />
+          </button>
+        )}
+        <button
+          onClick={() => onRemoveVocab(v.id)}
+          aria-label={tr('aria.deleteWord')}
+          className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-danger transition-opacity"
+        >
+          <XIcon size={15} />
+        </button>
+      </div>
+      {v.context && (
+        <div className="text-[11px] text-ink-soft mt-1.5 leading-relaxed">{v.context}</div>
+      )}
+      {v.translation && (
+        <button
+          onClick={() => onToggleReveal(v.id)}
+          className="text-[10px] text-accent hover:text-accent-hover hover:underline mt-1.5 transition-colors"
+        >
+          {revealed ? v.translation : tr('side.vocab.showTranslation')}
+        </button>
+      )}
+      {due && (
+        <SrsGradeButtons
+          grades={['again', 'hard', 'good', 'easy']}
+          tr={tr}
+          onGrade={(g) => onGrade(v, g)}
+        />
+      )}
+    </div>
+  )
+})
+
 function VocabViewImpl({
   vocab,
   ankiConfig,
@@ -43,22 +118,27 @@ function VocabViewImpl({
   // would freeze the panel, but a hard 200 cap hides due cards with no way to
   // reach them — same Load-more pattern as the Highlights/Sentences lists.
   const [vocabLimit, setVocabLimit] = useState(200)
-  const toggleReveal = (id: string) =>
+  const toggleReveal = useCallback((id: string) => {
     setRevealedVocab((cur) => {
       const next = new Set(cur)
       if (next.has(id)) next.delete(id)
       else next.add(id)
       return next
     })
+  }, [])
   // Clear the reveal when a card is graded (it leaves the due queue).
-  const gradeAndClear = (v: VocabEntry, g: Grade) => {
+  const gradeAndClear = useCallback((v: VocabEntry, g: Grade) => {
     onGradeVocab(v, g)
     setRevealedVocab((cur) => {
+      if (!cur.has(v.id)) return cur
       const next = new Set(cur)
       next.delete(v.id)
       return next
     })
-  }
+  }, [onGradeVocab])
+  // Review stats: O(vocab) — memoized so it runs on list changes, not on
+  // every reveal toggle / form keystroke.
+  const stats = useMemo(() => computeReviewStats(vocab), [vocab])
   // Anki export sub-panel state. `showPanel` toggles the form; `sending` and
   // `result` drive the UX during/after the POST.
   const [showPanel, setShowPanel] = useState(false)
@@ -69,6 +149,15 @@ function VocabViewImpl({
   const [cfgDeck, setCfgDeck] = useState(defaults.deckName)
   const [cfgModel, setCfgModel] = useState(defaults.modelName)
   const [cfgTags, setCfgTags] = useState(defaults.tags.join(', '))
+  // Keep the form in sync with settings changes made outside this view
+  // (useState only snapshots the first render's props).
+  useEffect(() => {
+    setCfgUrl(defaults.url)
+    setCfgDeck(defaults.deckName)
+    setCfgModel(defaults.modelName)
+    setCfgTags(defaults.tags.join(', '))
+    // defaults is derived from ankiConfig; re-run when the config object changes.
+  }, [ankiConfig]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSend = async () => {
     setSending(true)
@@ -95,7 +184,7 @@ function VocabViewImpl({
 
   return (
     <ViewShell title={tr('side.vocab.title')}>
-      {vocab.length > 0 && <StatsBar stats={computeReviewStats(vocab)} tr={tr} />}
+      {vocab.length > 0 && <StatsBar stats={stats} tr={tr} />}
       {vocab.length === 0 ? (
         <Empty text={tr('side.vocab.empty')} />
       ) : (
@@ -194,62 +283,18 @@ function VocabViewImpl({
           </div>
 
           <div className="flex-1 overflow-y-auto">
-            {vocab.slice(0, vocabLimit).map((v) => {
-              const due = isDue(v.srs)
-              const revealed = revealedVocab.has(v.id)
-              return (
-                <div key={v.id} className="group row">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[15px] leading-snug font-serif font-bold ${due ? 'text-accent' : 'text-ink'}`}>
-                      {v.word}
-                    </span>
-                    {due && (
-                      <span className="chip-accent">
-                        {tr('side.vocab.due')}
-                      </span>
-                    )}
-                    <span className="text-[10px] text-ink-faint ml-auto">
-                      {v.srs.reps} {tr(v.srs.reps === 1 ? 'side.vocab.review' : 'side.vocab.reviews')}
-                    </span>
-                    {v.context?.trim() && (
-                      <button
-                        onClick={() => onExplainVocab(v)}
-                        title={tr('side.sentences.fromVocab')}
-                        aria-label={tr('aria.makeCard')}
-                        className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-accent transition-opacity"
-                      >
-                        <SparklesIcon size={14} />
-                      </button>
-                    )}
-                    <button
-                      onClick={() => onRemoveVocab(v.id)}
-                      aria-label={tr('aria.deleteWord')}
-                      className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-danger transition-opacity"
-                    >
-                      <XIcon size={15} />
-                    </button>
-                  </div>
-                  {v.context && (
-                    <div className="text-[11px] text-ink-soft mt-1.5 leading-relaxed">{v.context}</div>
-                  )}
-                  {v.translation && (
-                    <button
-                      onClick={() => toggleReveal(v.id)}
-                      className="text-[10px] text-accent hover:text-accent-hover hover:underline mt-1.5 transition-colors"
-                    >
-                      {revealed ? v.translation : tr('side.vocab.showTranslation')}
-                    </button>
-                  )}
-                  {due && (
-                    <SrsGradeButtons
-                      grades={['again', 'hard', 'good', 'easy']}
-                      tr={tr}
-                      onGrade={(g) => gradeAndClear(v, g)}
-                    />
-                  )}
-                </div>
-              )
-            })}
+            {vocab.slice(0, vocabLimit).map((v) => (
+              <VocabRow
+                key={v.id}
+                v={v}
+                revealed={revealedVocab.has(v.id)}
+                tr={tr}
+                onRemoveVocab={onRemoveVocab}
+                onGrade={gradeAndClear}
+                onExplainVocab={onExplainVocab}
+                onToggleReveal={toggleReveal}
+              />
+            ))}
             {vocab.length > vocabLimit && (
               <button
                 onClick={() => setVocabLimit((n) => n + 200)}

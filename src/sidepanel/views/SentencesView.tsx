@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, memo, type ChangeEvent } from 'react'
+import { useState, useCallback, useMemo, useEffect, memo, type ChangeEvent } from 'react'
 import {
   searchSentences,
   groupSentences,
@@ -76,6 +76,154 @@ function ImportMsg({ msg }: { msg: { ok: boolean; text: string } }) {
   )
 }
 
+/** One sentence card, memoized. Search-box keystrokes and reveal toggles used
+ *  to re-run regex example extraction + full Markdown parsing for EVERY
+ *  visible card; with a memoized row they only touch the rows whose inputs
+ *  (card object / reveal / busyExample) actually changed. */
+const SentenceCardRow = memo(function SentenceCardRow({
+  c,
+  isRevealed,
+  busyExample,
+  tr,
+  onRemove,
+  onPromote,
+  onGrade,
+  onViewSource,
+  onAnkiExport,
+  onMakeCard,
+  onToggleReveal,
+}: {
+  c: SentenceCard
+  isRevealed: boolean
+  busyExample: string | null
+  tr: (key: StringKey) => string
+  onRemove: (id: string) => void
+  onPromote: (id: string) => void
+  onGrade: (c: SentenceCard, grade: Grade) => void
+  onViewSource: (blockId: string | undefined, url: string) => void
+  onAnkiExport: (cards: SentenceCard[]) => void
+  onMakeCard: (sentence: string, title: string) => void
+  onToggleReveal: (id: string) => void
+}) {
+  const due = c.srs ? isDue(c.srs) : false
+  const examples = useMemo(
+    () => (isRevealed ? extractExamples(c.analysis) : []),
+    [isRevealed, c.analysis]
+  )
+  const analysisHtml = useMemo(
+    () => (isRevealed ? renderMarkdown(c.analysis || c.translation) : ''),
+    [isRevealed, c.analysis, c.translation]
+  )
+  return (
+    <div className="group row">
+      <div className="flex items-start gap-2">
+        <span className={`text-[12px] font-semibold leading-relaxed flex-1 ${due ? 'text-accent' : 'text-ink'}`}>
+          {c.sentence}
+        </span>
+        <div className="flex items-center gap-0.5 flex-shrink-0 -mr-1">
+          {c.blockId || c.url ? (
+            <button
+              onClick={() => onViewSource(c.blockId, c.url)}
+              title={tr('side.sentences.viewSource')}
+              aria-label={tr('aria.viewSource')}
+              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-accent transition-opacity"
+            >
+              <SparklesIcon size={13} />
+            </button>
+          ) : null}
+          <button
+            onClick={() => onAnkiExport([c])}
+            title={tr('side.sentences.toAnkiOne')}
+            aria-label={tr('aria.sendToAnki')}
+            className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-accent transition-opacity"
+          >
+            <DownloadIcon size={13} />
+          </button>
+          <button
+            onClick={() => onRemove(c.id)}
+            aria-label={tr('side.sentences.remove')}
+            className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-danger transition-opacity"
+          >
+            <XIcon size={15} />
+          </button>
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+        {due && (
+          <span className="chip-accent">
+            {tr('side.sentences.due')}
+          </span>
+        )}
+        {c.cefr && (
+          <span className="chip-muted">
+            {c.cefr}
+          </span>
+        )}
+        {c.srs && (
+          <span className="text-[10px] text-ink-faint">
+            {c.srs.reps} {tr(c.srs.reps === 1 ? 'srs.review' : 'srs.reviews')}
+          </span>
+        )}
+        <button
+          onClick={() => (c.srs ? undefined : onPromote(c.id))}
+          className={`text-[10px] ml-auto ${c.srs ? 'text-accent' : 'text-ink-faint hover:text-accent'} transition-colors`}
+        >
+          {c.srs ? tr('side.sentences.inReview') : tr('side.sentences.addToReview')}
+        </button>
+      </div>
+      {(c.translation || c.analysis) && (
+        <button
+          onClick={() => onToggleReveal(c.id)}
+          className="text-[10px] text-accent hover:text-accent-hover hover:underline mt-1.5 transition-colors"
+        >
+          {isRevealed ? tr('side.sentences.hideAnalysis') : tr('side.sentences.showAnalysis')}
+        </button>
+      )}
+      {isRevealed && (c.translation || c.analysis) && (
+        <div
+          className="lector-prose mt-2 text-[11px] leading-relaxed bg-surface-muted/40 rounded-lg p-2.5"
+          dangerouslySetInnerHTML={{ __html: analysisHtml }}
+        />
+      )}
+      {examples.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {examples.map((ex, i) => {
+            const busy = busyExample === ex
+            return (
+              <div key={i} className="flex items-center gap-2 text-[11px] bg-surface-muted/40 rounded-md px-2 py-1">
+                <span className="text-ink-soft flex-1">{ex}</span>
+                <button
+                  onClick={() => onMakeCard(ex, c.title)}
+                  disabled={busy}
+                  title={tr('side.sentences.makeCard')}
+                  aria-label={tr('aria.makeCard')}
+                  className="text-accent hover:text-accent-hover text-[10px] flex-shrink-0 font-medium flex items-center gap-1 disabled:opacity-60"
+                >
+                  {busy ? (
+                    <>
+                      <span className="w-2.5 h-2.5 border-[1.5px] border-line border-t-accent rounded-full animate-spin" />
+                      {tr('side.sentences.makingCard')}
+                    </>
+                  ) : (
+                    tr('side.sentences.makeCard')
+                  )}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+      {due && c.srs && (
+        <SrsGradeButtons
+          grades={['again', 'hard', 'good', 'easy']}
+          tr={tr}
+          onGrade={(g) => onGrade(c, g)}
+        />
+      )}
+    </div>
+  )
+})
+
 function SentencesViewImpl(props: SentencesViewProps) {
   const { sentences, tr } = props
   const [query, setQuery] = useState('')
@@ -85,13 +233,35 @@ function SentencesViewImpl(props: SentencesViewProps) {
   const [importMsg, setImportMsg] = useState<{ ok: boolean; text: string } | null>(null)
   // Reveal-set is single-consumer (this view only) so it lives here, not in App.
   const [revealed, setRevealed] = useState<Set<string>>(new Set())
-  const toggleReveal = (id: string) =>
+  const toggleReveal = useCallback((id: string) => {
     setRevealed((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
       return next
     })
+  }, [])
+  // Stable wrappers over the props so the memoized rows aren't invalidated on
+  // every view render.
+  const handleRemove = props.onRemove
+  const handlePromote = props.onPromote
+  const handleViewSource = props.onViewSource
+  const handleAnkiExport = props.onAnkiExport
+  const handleMakeCard = props.onMakeCard
+  const gradeAndHide = useCallback((c: SentenceCard, g: Grade) => {
+    props.onGrade(c, g)
+    setRevealed((prev) => {
+      if (!prev.has(c.id)) return prev
+      const next = new Set(prev)
+      next.delete(c.id)
+      return next
+    })
+    // props.onGrade identity is stable from App (useCallback).
+  }, [props.onGrade]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Review stats: O(sentences) — memoized so search keystrokes don't rescan
+  // the whole library.
+  const hasSrs = useMemo(() => sentences.some((c) => c.srs), [sentences])
+  const stats = useMemo(() => computeReviewStats(sentences), [sentences])
 
   // Memoize the derived search/filter/group pipeline — it builds a new Map and
   // re-runs on every render otherwise (e.g. when busyExample flips during
@@ -156,7 +326,7 @@ function SentencesViewImpl(props: SentencesViewProps) {
     try {
       const result = await readJsonFile(file, importSentences)
       if (!result.ok) {
-        setImportMsg({ ok: false, text: tr('side.sentences.importFail').replace('{msg}', result.reason || '') })
+        setImportMsg({ ok: false, text: tr('side.importFail').replace('{msg}', result.reason || '') })
         return
       }
       useStore.getState().replaceSentences(result.cards || [])
@@ -168,9 +338,7 @@ function SentencesViewImpl(props: SentencesViewProps) {
 
   return (
     <ViewShell title={tr('side.sentences.title')}>
-      {sentences.some((c) => c.srs) && (
-        <StatsBar stats={computeReviewStats(sentences)} tr={tr} />
-      )}
+      {hasSrs && <StatsBar stats={stats} tr={tr} />}
       {sentences.length === 0 ? (
         <>
           <div className="px-4 py-3 border-b border-line">
@@ -244,127 +412,22 @@ function SentencesViewImpl(props: SentencesViewProps) {
                   <div className="px-4 py-1.5 bg-surface-muted/70 text-[10px] font-semibold text-ink-faint sticky top-0 uppercase tracking-wide backdrop-blur-sm">
                     {g.title || tr('side.sentences.pasteTitle')}
                   </div>
-                  {g.cards.map((c) => {
-                    const due = c.srs ? isDue(c.srs) : false
-                    const isRevealed = revealed.has(c.id)
-                    // Compute once per card per render (was called twice below).
-                    const examples = isRevealed ? extractExamples(c.analysis) : []
-                    return (
-                      <div key={c.id} className="group row">
-                        <div className="flex items-start gap-2">
-                          <span className={`text-[12px] font-semibold leading-relaxed flex-1 ${due ? 'text-accent' : 'text-ink'}`}>
-                            {c.sentence}
-                          </span>
-                          <div className="flex items-center gap-0.5 flex-shrink-0 -mr-1">
-                            {c.blockId || c.url ? (
-                              <button
-                                onClick={() => props.onViewSource(c.blockId, c.url)}
-                                title={tr('side.sentences.viewSource')}
-                                aria-label={tr('aria.viewSource')}
-                                className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-accent transition-opacity"
-                              >
-                                <SparklesIcon size={13} />
-                              </button>
-                            ) : null}
-                            <button
-                              onClick={() => props.onAnkiExport([c])}
-                              title={tr('side.sentences.toAnkiOne')}
-                              aria-label={tr('aria.sendToAnki')}
-                              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-accent transition-opacity"
-                            >
-                              <DownloadIcon size={13} />
-                            </button>
-                            <button
-                              onClick={() => props.onRemove(c.id)}
-                              aria-label={tr('side.sentences.remove')}
-                              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-danger transition-opacity"
-                            >
-                              <XIcon size={15} />
-                            </button>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
-                          {due && (
-                            <span className="chip-accent">
-                              {tr('side.sentences.due')}
-                            </span>
-                          )}
-                          {c.cefr && (
-                            <span className="chip-muted">
-                              {c.cefr}
-                            </span>
-                          )}
-                          {c.srs && (
-                            <span className="text-[10px] text-ink-faint">
-                              {c.srs.reps} {tr(c.srs.reps === 1 ? 'side.sentences.review' : 'side.sentences.reviews')}
-                            </span>
-                          )}
-                          <button
-                            onClick={() => (c.srs ? undefined : props.onPromote(c.id))}
-                            className={`text-[10px] ml-auto ${c.srs ? 'text-accent' : 'text-ink-faint hover:text-accent'} transition-colors`}
-                          >
-                            {c.srs ? tr('side.sentences.inReview') : tr('side.sentences.addToReview')}
-                          </button>
-                        </div>
-                        {(c.translation || c.analysis) && (
-                          <button
-                            onClick={() => toggleReveal(c.id)}
-                            className="text-[10px] text-accent hover:text-accent-hover hover:underline mt-1.5 transition-colors"
-                          >
-                            {isRevealed ? tr('side.sentences.hideAnalysis') : tr('side.sentences.showAnalysis')}
-                          </button>
-                        )}
-                        {isRevealed && (c.translation || c.analysis) && (
-                          <div
-                            className="lector-prose mt-2 text-[11px] leading-relaxed bg-surface-muted/40 rounded-lg p-2.5"
-                            dangerouslySetInnerHTML={{ __html: renderMarkdown(c.analysis || c.translation) }}
-                          />
-                        )}
-                        {examples.length > 0 && (
-                          <div className="mt-2 space-y-1">
-                            {examples.map((ex, i) => {
-                              const busy = props.busyExample === ex
-                              return (
-                                <div key={i} className="flex items-center gap-2 text-[11px] bg-surface-muted/40 rounded-md px-2 py-1">
-                                  <span className="text-ink-soft flex-1">{ex}</span>
-                                  <button
-                                    onClick={() => props.onMakeCard(ex, c.title)}
-                                    disabled={busy}
-                                    title={tr('side.sentences.makeCard')}
-                                    aria-label={tr('aria.makeCard')}
-                                    className="text-accent hover:text-accent-hover text-[10px] flex-shrink-0 font-medium flex items-center gap-1 disabled:opacity-60"
-                                  >
-                                    {busy ? (
-                                      <>
-                                        <span className="w-2.5 h-2.5 border-[1.5px] border-line border-t-accent rounded-full animate-spin" />
-                                        {tr('side.sentences.makingCard')}
-                                      </>
-                                    ) : (
-                                      tr('side.sentences.makeCard')
-                                    )}
-                                  </button>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        )}
-                        {due && c.srs && (
-                          <SrsGradeButtons
-                            grades={['again', 'hard', 'good', 'easy']}
-                            tr={tr}
-                            onGrade={(g) => {
-                              props.onGrade(c, g)
-                              setRevealed((prev) => {
-                                const next = new Set(prev)
-                                next.delete(c.id)
-                                return next
-                              })
-                            }}
-                          />
-                        )}
-                      </div>
-                    )
-                  })}
+                  {g.cards.map((c) => (
+                    <SentenceCardRow
+                      key={c.id}
+                      c={c}
+                      isRevealed={revealed.has(c.id)}
+                      busyExample={props.busyExample}
+                      tr={tr}
+                      onRemove={handleRemove}
+                      onPromote={handlePromote}
+                      onGrade={gradeAndHide}
+                      onViewSource={handleViewSource}
+                      onAnkiExport={handleAnkiExport}
+                      onMakeCard={handleMakeCard}
+                      onToggleReveal={toggleReveal}
+                    />
+                  ))}
                 </div>
               )
             })}

@@ -7,8 +7,13 @@
 export type Locale = 'en' | 'zh'
 export type LocalePref = 'auto' | Locale
 
-/** Read the browser locale and map it to one of our supported locales. */
+/** Read the browser locale and map it to one of our supported locales.
+ *  Memoized: navigator.languages cannot change within a page/panel lifetime,
+ *  and t() runs hundreds of times per render — re-probing per call rebuilt the
+ *  language array each time for nothing. */
+let detectedLocale: Locale | null = null
 export function detectLocale(): Locale {
+  if (detectedLocale !== null) return detectedLocale
   const langs =
     (typeof navigator !== 'undefined' &&
       (navigator.languages && navigator.languages.length > 0
@@ -19,9 +24,13 @@ export function detectLocale(): Locale {
     []
   for (const l of langs) {
     const primary = String(l || '').toLowerCase().split('-')[0]
-    if (primary === 'zh') return 'zh'
+    if (primary === 'zh') {
+      detectedLocale = 'zh'
+      return detectedLocale
+    }
   }
-  return 'en'
+  detectedLocale = 'en'
+  return detectedLocale
 }
 
 /** Resolve a pref to a concrete locale, running detection for 'auto'. */
@@ -145,8 +154,9 @@ export const STRINGS = {
     zh: '在任意页面选中单词，点击存词按钮即可加入复习。',
   },
   'side.vocab.due': { en: 'due', zh: '待复习' },
-  'side.vocab.reviews': { en: 'reviews', zh: '次' },
-  'side.vocab.review': { en: 'review', zh: '次' },
+  // Unit suffixes shared by the vocab + sentence review rows.
+  'srs.reviews': { en: 'reviews', zh: '次' },
+  'srs.review': { en: 'review', zh: '次' },
   'side.vocab.showTranslation': { en: 'Show translation', zh: '显示释义' },
   'side.vocab.again': { en: 'Again', zh: '忘记' },
   'side.vocab.hard': { en: 'Hard', zh: '困难' },
@@ -169,7 +179,7 @@ export const STRINGS = {
   'side.sentences.filterAll': { en: 'All levels', zh: '全部难度' },
   'side.sentences.export': { en: 'Export', zh: '导出' },
   'side.sentences.import': { en: 'Import', zh: '导入' },
-  'side.sentences.importFail': { en: 'Import failed: {msg}', zh: '导入失败：{msg}' },
+  'side.importFail': { en: 'Import failed: {msg}', zh: '导入失败：{msg}' },
   'side.sentences.importOk': { en: 'Imported {n} cards', zh: '已导入 {n} 张卡片' },
   'side.sentences.viewSource': { en: 'View source', zh: '查看原文' },
   'side.sentences.addToReview': { en: 'Add to review', zh: '加入复习' },
@@ -180,8 +190,6 @@ export const STRINGS = {
   'side.sentences.toAnkiOne': { en: 'Send this card to Anki', zh: '这张卡片发送到 Anki' },
   'anki.result': { en: 'Added {added}, duplicated {dup}, failed {fail}', zh: '新增 {added}，重复 {dup}，失败 {fail}' },
   'side.sentences.due': { en: 'due', zh: '待复习' },
-  'side.sentences.reviews': { en: 'reviews', zh: '次' },
-  'side.sentences.review': { en: 'review', zh: '次' },
   'side.sentences.showAnalysis': { en: 'Show analysis', zh: '显示讲解' },
   'side.sentences.hideAnalysis': { en: 'Hide', zh: '收起' },
   'side.sentences.pasteTitle': { en: 'Explain a sentence', zh: '讲解一个句子' },
@@ -206,13 +214,9 @@ export const STRINGS = {
   'popup.close': { en: 'Close', zh: '关闭' },
   // --- side panel: tab navigation (flat views replace overlay drawers) ---
   'side.tab.chat': { en: 'Chat', zh: '对话' },
-  'side.tab.sentences': { en: 'Sentences', zh: '句库' },
   'side.tab.highlights': { en: 'Highlights', zh: '高亮' },
   'side.tab.vocab': { en: 'Vocab', zh: '生词' },
   'side.tab.more': { en: 'More', zh: '更多' },
-  'side.tab.more.templates': { en: 'Templates', zh: '模板' },
-  'side.tab.more.glossary': { en: 'Glossary', zh: '术语表' },
-  'side.tab.more.library': { en: 'Library', zh: '历史记录' },
   // --- error banner (replaces auto-popping Settings on API errors) ---
   'side.error.banner': { en: 'Something went wrong', zh: '出现问题' },
   'side.error.goSettings': { en: 'Open settings', zh: '打开设置' },
@@ -289,7 +293,6 @@ export const STRINGS = {
   'aria.templates': { en: 'Templates', zh: '模板' },
   'aria.deleteConversation': { en: 'Delete conversation', zh: '删除会话' },
   'aria.deleteHighlight': { en: 'Delete highlight', zh: '删除高亮' },
-  'aria.copyTranslation': { en: 'Copy translation', zh: '复制译文' },
   'aria.deleteWord': { en: 'Delete word', zh: '删除词条' },
   'aria.makeCard': { en: 'Make sentence card', zh: '生成句卡' },
   'aria.viewSource': { en: 'View source on page', zh: '查看原文' },
@@ -383,10 +386,6 @@ export const STRINGS = {
   'side.glossary.cancel': { en: 'Cancel', zh: '取消' },
   'side.glossary.export': { en: 'Export', zh: '导出' },
   'side.glossary.import': { en: 'Import', zh: '导入' },
-  'side.glossary.importFail': {
-    en: 'Import failed: {msg}',
-    zh: '导入失败：{msg}',
-  },
   'side.glossary.importOk': {
     en: 'Imported {n} terms',
     zh: '已导入 {n} 条术语',
@@ -402,7 +401,6 @@ export const STRINGS = {
 
   // --- Anki export (Feature: Anki 一键制卡) ---
   'side.vocab.sendAnki': { en: 'Send to Anki', zh: '发送到 Anki' },
-  'side.vocab.ankiTitle': { en: 'Send to Anki', zh: '发送到 Anki' },
   'side.vocab.ankiUrl': { en: 'AnkiConnect URL', zh: 'AnkiConnect 地址' },
   'side.vocab.ankiDeck': { en: 'Deck name', zh: '牌组名称' },
   'side.vocab.ankiModel': { en: 'Note type', zh: '笔记类型' },

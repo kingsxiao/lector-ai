@@ -8,6 +8,9 @@ import type { Highlight } from '../shared/highlights'
 import type { VocabEntry } from '../shared/vocabulary'
 import {
   type SentenceCard,
+  extractTranslation,
+  extractKeywords,
+  extractCefr,
 } from '../shared/sentences'
 import {
   LibraryIcon, BookmarkIcon, BookOpenIcon, LanguagesIcon,
@@ -44,6 +47,7 @@ import { jumpToBlock } from './lib/chromeUtils'
 import { formatAnkiResult } from './lib/ankiFormat'
 import { formatListTimestamp } from './lib/format'
 import { ViewShell, Empty } from './components/leaf'
+import { usePagedList, LoadMore } from './components/paged'
 import { CurrentSiteChip } from './views/CurrentSiteChip'
 // Secondary views are lazy-loaded: the panel opens on the chat view, so the
 // settings / vocab / templates / glossary / sentences UIs (and their deps,
@@ -78,6 +82,12 @@ type RelayQueueKey = (typeof RELAY_QUEUE_KEYS)[number]
 // opening a large list doesn't mount hundreds of rows at once.
 const LIST_PAGE_SIZE = 100
 
+/** Minimum interval between streaming DOM flushes (~10Hz): the streaming
+ *  bubble re-parses its whole growing Markdown text per render, so 60fps
+ *  flushes dominated stream CPU on long replies. The final text lands once at
+ *  stream end. */
+const TOKEN_FLUSH_MIN_MS = 100
+
 /**
  * Merge one content→background relay queue into the persisted zustand store.
  * Store actions are idempotent, so replaying a snapshot after a producer race
@@ -86,14 +96,17 @@ const LIST_PAGE_SIZE = 100
 function consumeRelayQueue(key: RelayQueueKey, raw: unknown) {
   if (!Array.isArray(raw) || raw.length === 0) return
   const state = useStore.getState()
+  // Batch merges: one set()/persist per queue. The per-item loop used to fire
+  // N full-state persist writes (N MB-sized stringify+localStorage writes for
+  // a 20-item queue) and N App re-renders.
   if (key === 'lectorHighlights') {
-    for (const item of raw as Highlight[]) state.addHighlight(item)
+    state.addHighlights(raw as Highlight[])
   } else if (key === 'lectorVocab') {
-    for (const item of raw as VocabEntry[]) state.addVocab(item)
+    state.addVocabs(raw as VocabEntry[])
   } else if (key === 'lectorSentences') {
-    for (const item of raw as SentenceCard[]) state.addSentence(item)
+    state.addSentences(raw as SentenceCard[])
   } else {
-    for (const item of raw as TranslationHistoryEntry[]) state.addTranslationHistory(item)
+    state.addTranslationHistoryBatch(raw as TranslationHistoryEntry[])
   }
 
   chrome.storage.local.get([key], (latest) => {
@@ -113,6 +126,10 @@ function newId(): string {
 // filter (a ⚠️/stopped placeholder must never be sent back to the model as
 // conversation context, nor duplicated into a retried request).
 const FAILED_TURN_RE = /^(⚠️|\(stopped\)|（已停止）)/
+
+/** Key/quota/provider-account errors get the top banner treatment (shared by
+ *  the bilingual error listener and handleSend's catch). */
+const isKeyQuotaError = (msg: string) => /401|key|quota|429|credit/i.test(msg)
 
 
 /** Flat, mutually-exclusive side-panel views (replaces overlay drawers). */
@@ -176,11 +193,6 @@ export default function App() {
   // isn't persisted — the strip returns next session until a key is set).
   const [byokBannerDismissed, setByokBannerDismissed] = useState(false)
   const [histSearch, setHistSearch] = useState('')
-  // "Load more" limits for the highlights / translation-history list views.
-  // Reset to one page whenever the active view changes, so re-opening a list
-  // after expanding it once doesn't mount hundreds of rows up front.
-  const [highlightLimit, setHighlightLimit] = useState(LIST_PAGE_SIZE)
-  const [historyLimit, setHistoryLimit] = useState(LIST_PAGE_SIZE)
 
   // Stable across renders (they depend only on locale) so memoized child views
   // don't re-render on every unrelated App state change.
@@ -195,6 +207,22 @@ export default function App() {
   // Empty-state suggestion chips = the first 4 templates (same data source as
   // the "/" menu and the templates drawer).
   const suggestions = sortedTemplates.slice(0, 4)
+
+  // Normalized translation settings, once per settings change. The inline call
+  // rebuilt the whole site-rules array on every render — including every rAF
+  // token frame of a live stream.
+  const translationSettings = useMemo(
+    () => normalizeTranslationSettings(byok.translation),
+    [byok.translation]
+  )
+  // Tab badges as booleans: a bare `sentences`/`vocab` subscription re-ran
+  // these full-list scans (up to 1000 + 2000 items) on every render; memoizing
+  // on the list references keeps them to actual list changes.
+  const sentencesHasDue = useMemo(
+    () => sentences.some((c) => c.srs !== null && isDue(c.srs)),
+    [sentences]
+  )
+  const vocabHasDue = useMemo(() => vocab.some((v) => isDue(v.srs)), [vocab])
 
   const [page, setPage] = useState<PageContext | null>(null)
   // Stable joined key of the active page's citation block ids. Used by
@@ -226,11 +254,12 @@ export default function App() {
   const [activeView, setActiveView] = useState<View>('chat')
   // Reset the long-list "load more" limits whenever the user switches views,
   // so re-opening a list after expanding it once doesn't mount hundreds of
-  // rows up front.
-  useEffect(() => {
-    setHighlightLimit(LIST_PAGE_SIZE)
-    setHistoryLimit(LIST_PAGE_SIZE)
-  }, [activeView])
+  // rows up front. History also resets on search-query change.
+  const highlightPage = usePagedList(LIST_PAGE_SIZE, activeView)
+  const historyPage = usePagedList(
+    LIST_PAGE_SIZE,
+    activeView === 'translationHistory' ? histSearch : activeView
+  )
   const [showTools, setShowTools] = useState(false) // MoreMenu 下拉开关（局部）
   const [errorBanner, setErrorBanner] = useState<string | null>(null)
   // Screen-reader announcement for finalized chat turns. The transcript
@@ -254,6 +283,12 @@ export default function App() {
   const [slashMenu, setSlashMenu] = useState<{ open: boolean; query: string; activeIdx: number }>(
     { open: false, query: '', activeIdx: 0 }
   )
+  // Slash-menu matches, memoized so SlashMenu's memo isn't defeated by a fresh
+  // array identity on every render (it re-renders during token streaming).
+  const slashMatches = useMemo(
+    () => filterTemplates(sortedTemplates, slashMenu.query),
+    [sortedTemplates, slashMenu.query]
+  )
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const scrollFrameRef = useRef<number | null>(null)
@@ -264,6 +299,8 @@ export default function App() {
   const toolsTriggerRef = useRef<HTMLButtonElement>(null)
   const assistantBuf = useRef<string>('')
   const tokenFrameRef = useRef<number | null>(null)
+  /** Timestamp of the last streaming DOM flush; see the onToken batching note. */
+  const lastTokenFlushRef = useRef(0)
   // Tab hosting the in-flight bilingual run; consumed by the lifetime watchdog
   // effect (tabs.onRemoved / onUpdated) so a closed/navigated tab can't leave
   // the header button spinning forever.
@@ -278,10 +315,12 @@ export default function App() {
   const abortRef = useRef<AbortController | null>(null)
   // Abort the in-flight stream when the panel unmounts (close / Chrome
   // teardown / strict-mode remount) — otherwise streamChat keeps running and
-  // its onToken setMessages fires on a gone component.
+  // its onToken setMessages fires on a gone component. The progress-clear
+  // timer is cancelled for the same reason (setState after unmount).
   useEffect(() => () => {
     abortRef.current?.abort()
     if (tokenFrameRef.current !== null) cancelAnimationFrame(tokenFrameRef.current)
+    if (progressClearTimerRef.current !== null) clearTimeout(progressClearTimerRef.current)
   }, [])
 
   // Close the tools dropdown on outside click / Escape.
@@ -491,15 +530,70 @@ export default function App() {
   // happened. Progress messages ({done,total}) drive the header button's
   // "{done}/{total}" readout; when done===total the run is complete.
   useEffect(() => {
-    const onMessage = (message: {
-      action?: string
-      message?: string
-      done?: number
-      total?: number
-      complete?: boolean
-      /** Structural cancel flag from the content script's cancelBilingual. */
-      canceled?: boolean
-    }) => {
+    const onMessage = (
+      message: {
+        action?: string
+        message?: string
+        done?: number
+        total?: number
+        complete?: boolean
+        /** Structural cancel flag from the content script's cancelBilingual. */
+        canceled?: boolean
+        /** Enrich relay payloads from the background worker. */
+        kind?: string
+        id?: string
+        translation?: string
+        analysis?: string
+      },
+      _sender: unknown,
+      sendResponse: (response: unknown) => void
+    ) => {
+      // Background relay enrichments. The panel drains the storage queue into
+      // zustand almost immediately, so the multi-second provider result must
+      // be merged HERE (matched by id) — a storage-only enrich writes to a
+      // row that no longer exists and the paid result is dropped.
+      if (message?.action === 'lector-has-entry') {
+        const id = typeof message.id === 'string' ? message.id : ''
+        const st = useStore.getState()
+        const has =
+          message.kind === 'lectorVocab'
+            ? st.vocab.some((v) => v.id === id)
+            : message.kind === 'lectorSentences'
+              ? st.sentences.some((c) => c.id === id)
+              : false
+        sendResponse({ ok: has })
+        return
+      }
+      if (message?.action === 'lector-vocab-enrich') {
+        const { id, translation } = message
+        if (typeof id === 'string' && typeof translation === 'string' && translation) {
+          const st = useStore.getState()
+          const v = st.vocab.find((x) => x.id === id)
+          // addVocab merges by word with fill-empty semantics: keeps srs and
+          // never clobbers a translation that arrived concurrently.
+          if (v && !v.translation) st.addVocab({ ...v, translation })
+        }
+        sendResponse({ ok: true })
+        return
+      }
+      if (message?.action === 'lector-sentence-enrich') {
+        const { id, analysis } = message
+        if (typeof id === 'string' && typeof analysis === 'string' && analysis) {
+          const st = useStore.getState()
+          const card = st.sentences.find((c) => c.id === id)
+          if (card && !card.analysis) {
+            st.addSentence({
+              ...card,
+              translation: extractTranslation(analysis),
+              analysis,
+              keywords: extractKeywords(analysis),
+              cefr: extractCefr(analysis),
+            })
+          }
+        }
+        sendResponse({ ok: true })
+        return
+      }
       if (message?.action === 'lector-bilingual-progress') {
         const done = message.done ?? 0
         const total = message.total ?? 0
@@ -532,7 +626,7 @@ export default function App() {
           setError(message.message)
           // Key/quota errors surface in a top banner (no auto-opening Settings
           // on top of the current view — the user jumps to Settings themselves).
-          if (/401|key|quota|429|credit/i.test(message.message)) {
+          if (isKeyQuotaError(message.message)) {
             setErrorBanner(message.message)
           }
         }
@@ -652,26 +746,30 @@ export default function App() {
   // make-card from a 举一反三 example sentence (inside SentencesView).
   // Wraps generateSentenceCard with per-example busy state so the row shows
   // a spinner; the new card appears at the top of the list via the store.
-  const handleMakeCardFromExample = useCallback(async (sentence: string, title: string) => {
-    setBusyExample(sentence)
-    try {
-      await generateSentenceCard(sentence, '', title)
-    } finally {
-      setBusyExample(null)
-    }
-  }, [generateSentenceCard])
+  // Wrap generateSentenceCard with per-item busy state keyed on the trigger
+  // text so the firing row can show a spinner. The two callers below differ
+  // only in how they unpack their argument.
+  const withBusyExample = useCallback((key: string, run: () => Promise<void>) => {
+    setBusyExample(key)
+    run().finally(() => setBusyExample(null))
+  }, [])
+
+  // make-card from a 举一反三 example sentence (inside SentencesView); the new
+  // card appears at the top of the list via the store.
+  const handleMakeCardFromExample = useCallback(
+    (sentence: string, title: string) =>
+      withBusyExample(sentence, () => generateSentenceCard(sentence, '', title)),
+    [withBusyExample, generateSentenceCard]
+  )
 
   // make-card from a Highlight's "explain" (Sparkles) button. No per-row busy
   // state here (highlights list is short and the action is secondary); we just
   // surface a lightweight inline state by reusing busyExample keyed on text.
-  const handleMakeCardFromHighlight = useCallback(async (h: { text: string; url: string; title: string }) => {
-    setBusyExample(h.text)
-    try {
-      await generateSentenceCard(h.text, h.url, h.title)
-    } finally {
-      setBusyExample(null)
-    }
-  }, [generateSentenceCard])
+  const handleMakeCardFromHighlight = useCallback(
+    (h: { text: string; url: string; title: string }) =>
+      withBusyExample(h.text, () => generateSentenceCard(h.text, h.url, h.title)),
+    [withBusyExample, generateSentenceCard]
+  )
 
   // ---- Stable handlers for the memoized secondary views -------------------
   // Each wraps a stable store action (Zustand actions keep their identity), so
@@ -919,7 +1017,7 @@ PAGE CONTENT (numbered blocks):
 """
 ${citeContext.slice(0, 12000)}
 """
-${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}`
+${(() => { const gp = renderGlossaryPrompt(glossary); return gp ? `\n${gp}\n` : '' })()}`
 
         // Provider history: drop empty turns AND failed/stopped marker turns —
         // sending "⚠️ Provider error …" back as assistant context poisons the
@@ -946,15 +1044,22 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           (delta) => {
             assistantBuf.current += delta
             // Providers may emit dozens of tiny deltas in one frame. Batch
-            // React updates to the display refresh rate instead of rerendering
-            // the whole panel for every token.
-            if (tokenFrameRef.current === null) {
+            // React updates to at most ~10Hz instead of rerendering for every
+            // token: the streaming bubble re-parses its whole (growing)
+            // Markdown text on each render, and 60fps re-parsing of a long
+            // reply's tail dominated the stream's CPU cost. The final text is
+            // set once when the stream completes, so nothing is lost.
+            if (
+              tokenFrameRef.current === null &&
+              performance.now() - lastTokenFlushRef.current >= TOKEN_FLUSH_MIN_MS
+            ) {
               tokenFrameRef.current = requestAnimationFrame(() => {
+                tokenFrameRef.current = null
+                lastTokenFlushRef.current = performance.now()
                 const snapshot = assistantBuf.current
                 setMessages((cur) =>
                   cur.map((m) => (m.id === assistantMsg.id ? { ...m, content: snapshot } : m))
                 )
-                tokenFrameRef.current = null
               })
             }
           },
@@ -1003,7 +1108,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           setError(msg)
           // Key/quota/auth errors also surface in the banner (with the
           // Open-settings shortcut) so they're not buried in the inline line.
-          if (/401|key|quota|429|credit/i.test(msg)) setErrorBanner(msg)
+          if (isKeyQuotaError(msg)) setErrorBanner(msg)
           setMessages((cur) =>
             cur.map((m) =>
               m.id === assistantMsg.id ? { ...m, content: `⚠️ ${msg}` } : m
@@ -1020,31 +1125,31 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
     [input, streaming, messages, byok, page, activeSessionId, addSession, updateSession, glossary, tr]
   )
 
-  const startNewChat = () => {
-    // Abort any in-flight stream so it can't finish and write its answer into
-    // this fresh (empty) chat, and reset streaming state so the composer isn't
-    // left disabled. Without this, a stream started in session A could land in
-    // the new chat or vanish entirely.
+  /** Tear down the active stream's transport + pending frame + buffer. Shared
+   *  by startNewChat and openSession: a stream from another session must not
+   *  bleed into the chat being switched to. */
+  const abortActiveStream = () => {
     abortRef.current?.abort()
     abortRef.current = null
     if (tokenFrameRef.current !== null) cancelAnimationFrame(tokenFrameRef.current)
     tokenFrameRef.current = null
     assistantBuf.current = ''
     setStreaming(false)
+  }
+
+  const startNewChat = () => {
+    // Abort any in-flight stream so it can't finish and write its answer into
+    // this fresh (empty) chat, and reset streaming state so the composer isn't
+    // left disabled. Without this, a stream started in session A could land in
+    // the new chat or vanish entirely.
+    abortActiveStream()
     setMessages([])
     setActiveSessionId(null)
     setError(null)
   }
 
   const openSession = (s: ChatSession) => {
-    // Same rationale as startNewChat: don't let a stream from another session
-    // bleed into the one we're opening.
-    abortRef.current?.abort()
-    abortRef.current = null
-    if (tokenFrameRef.current !== null) cancelAnimationFrame(tokenFrameRef.current)
-    tokenFrameRef.current = null
-    assistantBuf.current = ''
-    setStreaming(false)
+    abortActiveStream()
     setMessages(s.messages)
     setActiveSessionId(s.id)
     setActiveView('chat')
@@ -1103,11 +1208,10 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           {currentHost && (
             <CurrentSiteChip
               host={currentHost}
-              rules={normalizeTranslationSettings(byok.translation).siteRules}
+              rules={translationSettings.siteRules}
               locale={byok.locale}
               onToggle={(next) => {
-                const ts = normalizeTranslationSettings(byok.translation)
-                void saveByok({ translation: { ...ts, siteRules: next } })
+                void saveByok({ translation: { ...translationSettings, siteRules: next } })
               }}
             />
           )}
@@ -1180,11 +1284,11 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           onClick={() => setActiveView('sentences')}
           aria-current={activeView === 'sentences' ? 'page' : undefined}
           className={`tab-item relative ${activeView === 'sentences' ? 'tab-item-active' : ''}`}
-          aria-label={tr('side.tab.sentences')}
+          aria-label={tr('side.sentences.title')}
         >
           <CardsIcon size={14} />
-          <span>{tr('side.tab.sentences')}</span>
-          {sentences.some((c) => c.srs && isDue(c.srs)) && (
+          <span>{tr('side.sentences.title')}</span>
+          {sentencesHasDue && (
             <span className="lector-due-badge tab-corner-badge">!</span>
           )}
         </button>
@@ -1206,7 +1310,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         >
           <BookOpenIcon size={14} />
           <span>{tr('side.tab.vocab')}</span>
-          {vocab.some((v) => isDue(v.srs)) && <span className="lector-due-badge tab-corner-badge">!</span>}
+          {vocabHasDue && <span className="lector-due-badge tab-corner-badge">!</span>}
         </button>
         {/* ⋯ MoreMenu: low-frequency views (Templates / Glossary / Library) */}
         <div className="relative" ref={toolsRef}>
@@ -1230,7 +1334,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 className="tools-item"
               >
                 <LibraryIcon size={16} />
-                <span className="flex-1 text-left">{tr('side.tab.more.library')}</span>
+                <span className="flex-1 text-left">{tr('side.library.title')}</span>
               </button>
               <button
                 onClick={() => { setActiveView('translationHistory'); setShowTools(false); toolsTriggerRef.current?.focus() }}
@@ -1249,7 +1353,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 className="tools-item relative"
               >
                 <BookMarkedIcon size={16} />
-                <span className="flex-1 text-left">{tr('side.tab.more.glossary')}</span>
+                <span className="flex-1 text-left">{tr('side.glossary.title')}</span>
                 {glossary.length > 0 && <span className="dot-badge" />}
               </button>
               <button
@@ -1259,7 +1363,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                 className="tools-item relative"
               >
                 <ClipboardListIcon size={16} />
-                <span className="flex-1 text-left">{tr('side.tab.more.templates')}</span>
+                <span className="flex-1 text-left">{tr('side.templates.title')}</span>
                 {templates.filter((tpl) => !tpl.builtIn).length > 0 && (
                   <span className="dot-badge" />
                 )}
@@ -1472,7 +1576,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
         {/* "/" template menu — floats above the textarea */}
         {slashMenu.open && (
           <SlashMenu
-            templates={filterTemplates(sortedTemplates, slashMenu.query)}
+            templates={slashMatches}
             activeIdx={slashMenu.activeIdx}
             titleFor={tplTitle}
             builtInLabel={tr('side.templates.builtIn')}
@@ -1637,7 +1741,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
           ) : (
             <>
               <div className="flex-1 overflow-y-auto">
-                {highlights.slice(0, highlightLimit).map((h) => (
+                {highlights.slice(0, highlightPage.limit).map((h) => (
                   <div key={h.id} className="group row">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
@@ -1665,13 +1769,12 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                     </div>
                   </div>
                 ))}
-                {highlights.length > highlightLimit && (
-                  <button
-                    onClick={() => setHighlightLimit((n) => n + LIST_PAGE_SIZE)}
-                    className="px-4 py-2.5 text-meta text-accent hover:bg-accent-softer border-t border-line transition-colors text-left w-full"
-                  >
-                    {tr('side.loadMore').replace('{n}', String(highlights.length - highlightLimit))}
-                  </button>
+                {highlights.length > highlightPage.limit && (
+                  <LoadMore
+                    remaining={highlights.length - highlightPage.limit}
+                    onMore={highlightPage.more}
+                    tr={tr}
+                  />
                 )}
               </div>
               <button
@@ -1703,7 +1806,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
               </div>
               <div className="flex-1 overflow-y-auto">
                 {filteredHistory
-                  .slice(0, historyLimit)
+                  .slice(0, historyPage.limit)
                   .map((e) => (
                     <div key={e.id} className="group row">
                       <div className="flex items-start justify-between gap-2">
@@ -1725,7 +1828,7 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <button
                             onClick={() => navigator.clipboard.writeText(e.target).catch(() => {})}
-                            aria-label={tr('aria.copyTranslation')}
+                            aria-label={tr('bilingual.copyTranslation')}
                             className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                           >
                             <ClipboardListIcon size={14} />
@@ -1734,13 +1837,12 @@ ${renderGlossaryPrompt(glossary) ? `\n${renderGlossaryPrompt(glossary)}\n` : ''}
                       </div>
                     </div>
                   ))}
-                {filteredHistory.length > historyLimit && (
-                  <button
-                    onClick={() => setHistoryLimit((n) => n + LIST_PAGE_SIZE)}
-                    className="px-4 py-2.5 text-meta text-accent hover:bg-accent-softer border-t border-line transition-colors text-left w-full"
-                  >
-                    {tr('side.loadMore').replace('{n}', String(filteredHistory.length - historyLimit))}
-                  </button>
+                {filteredHistory.length > historyPage.limit && (
+                  <LoadMore
+                    remaining={filteredHistory.length - historyPage.limit}
+                    onMore={historyPage.more}
+                    tr={tr}
+                  />
                 )}
               </div>
               <button
@@ -1895,7 +1997,9 @@ function templateIcon(id: string, size: number) {
 // ---------------------------------------------------------------------------
 // "/" template menu — floats above the composer
 // ---------------------------------------------------------------------------
-function SlashMenu({
+// memo: the menu re-renders on every App render (it sits in the chat tree that
+// streams at ~10Hz); with a memoized `templates` prop it now skips those.
+const SlashMenu = memo(function SlashMenu({
   templates,
   activeIdx,
   titleFor,
@@ -1944,7 +2048,7 @@ function SlashMenu({
       )}
     </div>
   )
-}
+})
 
 // ---------------------------------------------------------------------------
 // Vocabulary review drawer — list + SRS review + Anki export

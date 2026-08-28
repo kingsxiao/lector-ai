@@ -27,29 +27,44 @@ export interface ChatMessage {
 }
 
 const REQUEST_TIMEOUT_MS = 60_000
+/** Streaming deadline is IDLE-based: a long, healthy stream that keeps
+ *  emitting tokens is legitimate (sentence analyses with maxTokens 1200 can
+ *  run well past 60s on slower models), while a stalled connection is not.
+ *  Each emitted token re-arms the timer. */
+const STREAM_IDLE_TIMEOUT_MS = 90_000
 
 async function withRequestTimeout<T>(
   externalSignal: AbortSignal | undefined,
-  run: (signal: AbortSignal) => Promise<T>
+  run: (signal: AbortSignal, touch: () => void) => Promise<T>,
+  timeoutMs: number = STREAM_IDLE_TIMEOUT_MS
 ): Promise<T> {
   const controller = new AbortController()
   let timedOut = false
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const arm = () => {
+    if (timer !== null) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, timeoutMs)
+  }
   const forwardAbort = () => controller.abort()
   if (externalSignal?.aborted) controller.abort()
   else externalSignal?.addEventListener('abort', forwardAbort, { once: true })
-  const timer = setTimeout(() => {
-    timedOut = true
-    controller.abort()
-  }, REQUEST_TIMEOUT_MS)
+  arm()
+  const timeoutMessage =
+    timeoutMs === STREAM_IDLE_TIMEOUT_MS
+      ? `Provider stream stalled for ${timeoutMs / 1000} seconds without any output.`
+      : `Provider request timed out after ${timeoutMs / 1000} seconds.`
   try {
-    const value = await run(controller.signal)
-    if (timedOut) throw new Error('Provider request timed out after 60 seconds.')
+    const value = await run(controller.signal, arm)
+    if (timedOut) throw new Error(timeoutMessage)
     return value
   } catch (e) {
-    if (timedOut) throw new Error('Provider request timed out after 60 seconds.')
+    if (timedOut) throw new Error(timeoutMessage)
     throw e
   } finally {
-    clearTimeout(timer)
+    if (timer !== null) clearTimeout(timer)
     externalSignal?.removeEventListener('abort', forwardAbort)
   }
 }
@@ -146,7 +161,7 @@ export class ProviderResponseError extends Error {
   }
 }
 
-class ProviderHttpError extends Error {
+export class ProviderHttpError extends Error {
   constructor(
     readonly status: number,
     readonly detail: string,
@@ -322,7 +337,7 @@ async function streamOpenAIResponses(
   const maxOutputTokens = Math.max(16, Math.floor(opts.maxTokens))
   const temperature = Math.max(0, Math.min(2, opts.temperature))
 
-  return withRequestTimeout(signal, async (requestSignal) => {
+  return withRequestTimeout(signal, async (requestSignal, touch) => {
     const url = `${resolveBaseUrl(settings, def)}/responses`
     const capabilityKey = `${url}\u0000${model}`
     const request = (includeTemperature: boolean) => fetch(url, {
@@ -409,7 +424,7 @@ async function streamOpenAIResponses(
         return { terminal: true }
       }
       return ''
-    }, onToken, requestSignal)
+    }, (delta) => { touch(); onToken(delta) }, requestSignal)
     if (!terminal) {
       throw new ProviderResponseError('OpenAI Responses API stream ended before a terminal event.')
     }
@@ -428,7 +443,18 @@ async function streamChatCompletions(
   onToken: (delta: string) => void,
   signal?: AbortSignal
 ): Promise<string> {
-  return withRequestTimeout(signal, async (requestSignal) => {
+  // Same validation/clamping as the Responses transport so a malformed caller
+  // fails fast (or is clamped) identically on every provider.
+  if (!Number.isFinite(opts.maxTokens) || opts.maxTokens <= 0) {
+    throw new Error('maxTokens must be a positive finite number.')
+  }
+  if (!Number.isFinite(opts.temperature)) {
+    throw new Error('temperature must be a finite number.')
+  }
+  const maxOutputTokens = Math.max(16, Math.floor(opts.maxTokens))
+  const temperature = Math.max(0, Math.min(2, opts.temperature))
+
+  return withRequestTimeout(signal, async (requestSignal, touch) => {
     const url = `${resolveBaseUrl(settings, def)}/chat/completions`
     const res = await fetch(url, {
       method: 'POST',
@@ -436,8 +462,8 @@ async function streamChatCompletions(
       body: JSON.stringify({
         model: settings.model || def.defaultModel,
         messages,
-        max_tokens: opts.maxTokens,
-        temperature: opts.temperature,
+        max_tokens: maxOutputTokens,
+        temperature,
         stream: true,
       }),
       signal: requestSignal,
@@ -470,7 +496,7 @@ async function streamChatCompletions(
         return { delta, terminal: true }
       }
       return delta
-    }, onToken, requestSignal)
+    }, (delta) => { touch(); onToken(delta) }, requestSignal)
     if (!sawDone && !terminal) {
       throw new ProviderResponseError('Provider stream ended before a terminal finish event.')
     }
@@ -493,7 +519,7 @@ async function streamAnthropic(
     .filter((m) => m.role !== 'system')
     .map((m) => ({ role: m.role, content: m.content }))
 
-  return withRequestTimeout(signal, async (requestSignal) => {
+  return withRequestTimeout(signal, async (requestSignal, touch) => {
     const url = `${resolveBaseUrl(settings, def)}/v1/messages`
     const model = settings.model || def.defaultModel
     const capabilityKey = `${url}\u0000${model}`
@@ -568,7 +594,7 @@ async function streamAnthropic(
       }
       if (json.type === 'content_block_delta' && json.delta?.text) return json.delta.text
       return ''
-    }, onToken, requestSignal)
+    }, (delta) => { touch(); onToken(delta) }, requestSignal)
     if (!sawStopReason || !sawMessageStop) {
       throw new ProviderResponseError('Anthropic stream ended before message_delta/message_stop.')
     }
@@ -680,23 +706,43 @@ async function readSSE(
 
 // --- non-streaming helpers (translate / summarize / explain) ----------------
 
+/** Errors worth ONE retry: rate limits, server errors, and network-level
+ *  failures (fetch rejects with TypeError). Deterministic client errors
+ *  (401/403/404, bad requests) surface immediately — retrying them would only
+ *  duplicate the request on a guaranteed miss. */
+function isTransientProviderError(e: unknown): boolean {
+  if (e instanceof ProviderHttpError) return e.status === 429 || e.status >= 500
+  return e instanceof TypeError
+}
+
 export async function completeOnce(
   settings: ByokSettings,
   systemPrompt: string,
   userContent: string,
   opts: { maxTokens: number; temperature: number }
 ): Promise<string> {
-  let out = ''
-  await streamChat(
-    settings,
-    [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userContent },
-    ],
-    opts,
-    (d) => (out += d)
-  )
-  return out.trim()
+  // readSSE already accumulates the full text; a second `out += delta` buffer
+  // here used to double every completion's memory for no reason.
+  const request = () =>
+    streamChat(
+      settings,
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent },
+      ],
+      opts,
+      () => {}
+    )
+  try {
+    return (await request()).trim()
+  } catch (e) {
+    if (!isTransientProviderError(e)) throw e
+    // Single short backoff retry: callers of completeOnce include background
+    // relays (word translation, sentence analysis) that otherwise DROP the
+    // result silently, leaving paid-but-empty cards behind.
+    await new Promise((r) => setTimeout(r, 800))
+    return (await request()).trim()
+  }
 }
 
 // --- fetch live model list (one-click) --------------------------------------
@@ -746,8 +792,11 @@ export async function fetchModels(settings: ByokSettings): Promise<FetchedModel[
   // Same timeout guard as the chat transports: a hanging /models endpoint
   // (mis-typed custom baseUrl, half-open connection) would otherwise leave the
   // "fetch models" UI spinning until the browser's own (minutes-long) timeout.
-  const res = await withRequestTimeout(undefined, (requestSignal) =>
-    fetch(url, { method: 'GET', headers: buildHeaders(settings, def), signal: requestSignal })
+  const res = await withRequestTimeout(
+    undefined,
+    (requestSignal) =>
+      fetch(url, { method: 'GET', headers: buildHeaders(settings, def), signal: requestSignal }),
+    REQUEST_TIMEOUT_MS
   )
 
   if (!res.ok) {

@@ -7,8 +7,6 @@
 //   3. Floating "Open Lector" button to summon the side panel.
 //   4. Inline bilingual paragraph translation (Immersive-Translate style).
 
-console.log('Lector AI Content Script loaded on:', window.location.hostname)
-
 let selectionToolbar: HTMLElement | null = null
 let resultPopup: HTMLElement | null = null
 let loadingPopup: HTMLElement | null = null
@@ -336,6 +334,16 @@ function isLectorUiTarget(target: HTMLElement): boolean {
   return !!target.closest(LECTOR_UI_SELECTOR)
 }
 
+/** Open self-drawn language dropdowns (see createLangDropdown). Popup teardown
+ *  closes them so their capture-phase document listeners and detached DOM
+ *  don't leak when the host popup is removed without going through closeList
+ *  (e.g. Escape → removeResult). */
+const openDropdownClosers = new Set<() => void>()
+function closeAllDropdowns(): void {
+  for (const close of Array.from(openDropdownClosers)) close()
+  openDropdownClosers.clear()
+}
+
 /** Tear down any currently-open loading/result popup. Replaces the
  *  `removeLoading(); removeResult();` opener repeated at 3 show* sites. */
 function clearPopups(): void {
@@ -623,6 +631,10 @@ function createToolbar(x: number, y: number, text: string) {
   selectionToolbar.appendChild(mk('explainSentence', tr('toolbar.explainSentence'), () => handleExplainSentence(text)))
 
   document.body.appendChild(selectionToolbar)
+  // The toolbar is created inside the mouseup→setTimeout pipeline; the browser
+  // fires the trailing click right after. Start the outside-click grace window
+  // so the permanent handleClickOutside doesn't dismiss it immediately.
+  lectorUiOpenedAt = Date.now()
 }
 
 function removeToolbar() {
@@ -663,6 +675,10 @@ function createLangDropdown(
   trigger.appendChild(tChevron)
 
   let list: HTMLElement | null = null
+  // Track open dropdowns at module level so popup teardown (Escape, popup
+  // replacement) can close them and drop their capture-phase document
+  // listener. Without this, removing the popup while a list was open leaked
+  // the listener — and its detached DOM subtree — for the page's lifetime.
   const onDocMouseDown = (e: Event) => {
     if (list && !root.contains(e.target as Node)) closeList()
   }
@@ -672,6 +688,7 @@ function createLangDropdown(
     trigger.classList.remove('is-open')
     trigger.setAttribute('aria-expanded', 'false')
     document.removeEventListener('mousedown', onDocMouseDown, true)
+    openDropdownClosers.delete(closeList)
   }
   const labelFor = (v: string) => entries.find((e) => e.value === v)?.label ?? v
   const setCur = (v: string) => {
@@ -720,6 +737,7 @@ function createLangDropdown(
     const r = trigger.getBoundingClientRect()
     if (window.innerHeight - r.bottom < 260 && r.top > 260) list.classList.add('is-up')
     document.addEventListener('mousedown', onDocMouseDown, true)
+    openDropdownClosers.add(closeList)
     list.querySelector('.is-selected')?.scrollIntoView({ block: 'center' })
   }
   trigger.onclick = (e) => {
@@ -837,7 +855,7 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
   resultPopup.appendChild(footer)
 
   document.body.appendChild(resultPopup)
-  setTimeout(() => document.addEventListener('click', handleClickOutside), 100)
+  lectorUiOpenedAt = Date.now()
 }
 
 /** Read source text aloud via the browser's built-in SpeechSynthesis (zero-dep). */
@@ -925,8 +943,12 @@ function showStreamingTranslateResult(
 
   const content = document.createElement('div')
   content.className = 'result-content'
+  // Fixed children [textNode, caret]: streaming deltas append to textNode in
+  // place (appendData) instead of rewriting content.textContent per token.
+  const textNode = document.createTextNode('')
   const caret = document.createElement('span')
   caret.className = 'lector-bi-caret'
+  content.appendChild(textNode)
   content.appendChild(caret)
 
   const footer = document.createElement('div')
@@ -969,7 +991,7 @@ function showStreamingTranslateResult(
   resultPopup.appendChild(content)
   resultPopup.appendChild(footer)
   document.body.appendChild(resultPopup)
-  setTimeout(() => document.addEventListener('click', handleClickOutside), 100)
+  lectorUiOpenedAt = Date.now()
 
   let acc = ''
   let curTarget = initialTarget
@@ -981,13 +1003,11 @@ function showStreamingTranslateResult(
   const sink = {
     append(delta: string) {
       acc += delta
-      content.textContent = acc
-      content.appendChild(caret)
+      textNode.appendData(delta)
     },
     setText(s: string) {
       acc = s
-      content.textContent = s
-      content.appendChild(caret)
+      textNode.data = s
     },
   }
 
@@ -1037,14 +1057,25 @@ function showStreamingTranslateResult(
 }
 
 function removeResult() {
+  closeAllDropdowns()
   if (resultPopup) {
     resultPopup.remove()
     resultPopup = null
   }
-  document.removeEventListener('click', handleClickOutside)
 }
 
+/** When the toolbar/result popup was last opened. The outside-click listener
+ *  is registered permanently, so it needs a grace window to ignore the click
+ *  that is part of the OPENING interaction (mouseup → popup created → the
+ *  browser still fires the trailing click on the page) — that click must not
+ *  insta-close what it just opened. Replaces the old delayed
+ *  setTimeout(addEventListener, 100) pattern, whose timer could fire after the
+ *  popup was replaced and leave an unremovable orphan listener behind. */
+let lectorUiOpenedAt = 0
+const LECTOR_UI_OPEN_GRACE_MS = 200
+
 function handleClickOutside(e: MouseEvent) {
+  if (Date.now() - lectorUiOpenedAt < LECTOR_UI_OPEN_GRACE_MS) return
   const target = e.target as HTMLElement
   if (resultPopup && !resultPopup.contains(target)) removeResult()
   if (selectionToolbar && !selectionToolbar.contains(target)) {
@@ -1053,11 +1084,13 @@ function handleClickOutside(e: MouseEvent) {
   }
 }
 
+document.addEventListener('click', handleClickOutside)
+
 // ---------------------------------------------------------------------------
 // BYOK helpers (run in the content-script context)
 // ---------------------------------------------------------------------------
 // The content script can import shared modules; vite bundles them in.
-import { getSettings, completeOnce, streamChat } from './shared/byok'
+import { getSettings, completeOnce, streamChat, ProviderHttpError } from './shared/byok'
 import { t, type LocalePref, type StringKey } from './shared/i18n'
 import { renderGlossaryPrompt, type GlossaryEntry } from './shared/glossary'
 import {
@@ -1075,6 +1108,7 @@ import {
   isTranslationLikelyUnchanged,
   maxTokensForChunk,
   scriptOfLang,
+  ABSOLUTE_TEXT_LEN_FLOOR,
   EXCLUDED_ANCESTOR_TAGS,
   LANGUAGES,
   getLanguage,
@@ -1084,7 +1118,8 @@ import {
 import { buildThemeStylesheet, TRANSLATION_THEMES } from './shared/translationThemes'
 import { personaPrompt } from './shared/translationPersonas'
 import {
-  cacheKey,
+  cacheKeyPrefix,
+  cacheKeyWithPrefix,
   putEntry,
   getEntry,
   parseStore,
@@ -1097,12 +1132,45 @@ import { fanOutPositions } from './shared/radialMenu'
 import { parseCssRgb, relativeLuminance } from './shared/color'
 import { NOISE_SELECTORS, scoreNodeFromStats } from './shared/readability'
 
+// --- BYOK settings cache: getSettings() round-trips chrome.storage.local and
+// sits on hot paths (every selection mouseup via loadPref, every hover, every
+// run). Cache the last read; the panel's saveSettings and the background's
+// model preference both land via chrome.storage.onChanged, which invalidates
+// immediately. A TTL bounds staleness if the event is ever missed. ---
+let cachedByokSettings: { value: ByokSettings; at: number } | null = null
+const SETTINGS_CACHE_TTL_MS = 60_000
+
+function invalidateSettingsCache(): void {
+  cachedByokSettings = null
+}
+
+async function getSettingsCached(): Promise<ByokSettings> {
+  if (cachedByokSettings && Date.now() - cachedByokSettings.at < SETTINGS_CACHE_TTL_MS) {
+    return cachedByokSettings.value
+  }
+  const value = await getSettings()
+  cachedByokSettings = { value, at: Date.now() }
+  return value
+}
+
+try {
+  if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && (changes as Record<string, unknown>).lector_byok_settings) {
+        invalidateSettingsCache()
+      }
+    })
+  }
+} catch {
+  /* an orphaned content script cannot register listeners — the TTL still bounds staleness */
+}
+
 // --- i18n: content script reads the locale pref from storage once per action ---
 let cachedPref: LocalePref = 'auto'
 
 async function loadPref(): Promise<LocalePref> {
   try {
-    const settings = await getSettings()
+    const settings = await getSettingsCached()
     cachedPref = settings.locale ?? 'auto'
   } catch {
     cachedPref = 'auto'
@@ -1125,7 +1193,7 @@ async function requireApiKey(
 ): Promise<ByokSettings | null> {
   let settings: ByokSettings
   try {
-    settings = await getSettings()
+    settings = await getSettingsCached()
   } catch (e) {
     // getSettings() can throw synchronously when the extension context is
     // invalidated (orphaned content script). Surface the error instead of
@@ -1276,8 +1344,8 @@ async function handleExplainSentence(sentence: string) {
   // No API key: mirror the runByokAction no-key UX — surface an "add key"
   // result popup at the toolbar and open the side panel, instead of silently
   // relaying (which background.ts would drop on the floor). Checklist §14.12.
-  const r = () => selectionToolbar?.getBoundingClientRect()
-  const settings = await requireApiKey(r()?.left || 100, r()?.top || 100, 'explain')
+  const rect = selectionToolbar?.getBoundingClientRect()
+  const settings = await requireApiKey(rect?.left || 100, rect?.top || 100, 'explain')
   if (!settings) {
     removeToolbar()
     return
@@ -1313,8 +1381,8 @@ function handleAction(kind: 'translate' | 'summarize' | 'explain' | 'ask', text:
 }
 
 async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: string) {
-  const r = () => selectionToolbar?.getBoundingClientRect()
-  const settings = await requireApiKey(r()?.left || 100, r()?.top || 100, 'translate')
+  const rect = selectionToolbar?.getBoundingClientRect()
+  const settings = await requireApiKey(rect?.left || 100, rect?.top || 100, 'translate')
   if (!settings) return
 
   if (kind === 'translate') {
@@ -1322,8 +1390,11 @@ async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: 
     const initialTarget = resolveTargetLang(tSettings.targetLanguage, text)
     const glossary = await loadGlossary()
     const persona = personaPrompt(tSettings.persona)
+    // Re-read the anchor after the awaits: the page (or the toolbar teardown)
+    // may have moved since requireApiKey; show the popup where the user is now.
+    const rect2 = selectionToolbar?.getBoundingClientRect()
     // Show the streaming popup immediately with a target-language selector.
-    showStreamingTranslateResult(r()?.left || 100, r()?.top || 100, text, initialTarget, async (selTarget, sink, signal) => {
+    showStreamingTranslateResult(rect2?.left || rect?.left || 100, rect2?.top || rect?.top || 100, text, initialTarget, async (selTarget, sink, signal) => {
       const sp = buildTranslateSystemPrompt(
         selTarget,
         renderGlossaryPrompt(filterGlossaryForDirection(glossary, selTarget)),
@@ -1354,16 +1425,20 @@ async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: 
       temperature: 0.5,
     })
     removeLoading()
+    // Re-anchor after the await (the toolbar may be gone by now — fall back to
+    // the position captured when the action started).
+    const rectEnd = selectionToolbar?.getBoundingClientRect() || rect
     showResult(
-      r()?.left || 100,
-      r()?.top || 100,
+      rectEnd?.left || 100,
+      rectEnd?.top || 100,
       out || tr('err.emptyResponse'),
       kind === 'summarize' ? 'summary' : 'explain'
     )
   } catch (e) {
     removeLoading()
     const msg = e instanceof Error ? e.message : tr('err.requestFailed')
-    showResult(r()?.left || 100, r()?.top || 100, tr('err.failedPrefix').replace('{msg}', msg), 'explain')
+    const rectErr = selectionToolbar?.getBoundingClientRect() || rect
+    showResult(rectErr?.left || 100, rectErr?.top || 100, tr('err.failedPrefix').replace('{msg}', msg), 'explain')
   }
 }
 
@@ -1372,10 +1447,40 @@ async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: 
 // Concurrency + streaming + viewport-first ordering + progress + cancel.
 // ---------------------------------------------------------------------------
 let bilingualAbort: AbortController | null = null
-// Pending debounced cache-save timer. Hoisted to module scope so a re-entrant
-// runBilingualTranslation (abort guard) can cancel the prior run's pending
-// write — otherwise a stale snapshot could land in storage after the new run.
-let pendingCacheTimer: ReturnType<typeof setTimeout> | null = null
+// Debounced cache persisters. One per translation context (whole-page run,
+// incremental observer): they previously shared a single module-level timer
+// slot, so whichever scheduled last silently orphaned the other's handle — the
+// orphaned timer still fired and wrote its (older) snapshot. Hoisted refs let
+// a re-entrant run cancel the prior run's pending write, so a stale snapshot
+// can't land in storage after the new run started.
+interface CachePersister {
+  persist: (next: CacheStore) => void
+  cancel: () => void
+}
+let runCachePersister: CachePersister | null = null
+let incrementalCachePersister: CachePersister | null = null
+
+function createCachePersister(delayMs = 800): CachePersister {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let snapshot: CacheStore = {}
+  return {
+    persist(next: CacheStore) {
+      snapshot = next
+      // Debounce so a burst of chunk completions writes once.
+      if (timer !== null) return
+      timer = setTimeout(() => {
+        timer = null
+        void saveCache(snapshot)
+      }, delayMs)
+    },
+    cancel() {
+      if (timer !== null) {
+        clearTimeout(timer)
+        timer = null
+      }
+    },
+  }
+}
 
 const EXCLUDED_SELECTOR = Array.from(EXCLUDED_ANCESTOR_TAGS).map((t) => t.toLowerCase()).join(',')
 // `summary` matches TRANSLATABLE_TAGS; it was missing here so FAQ/collapsible
@@ -1424,14 +1529,18 @@ const TRANSLATION_SELF_SELECTOR =
 
 function buildBlockCandidate(el: HTMLElement) {
   const text = (el.textContent || '').trim()
-  const outerLen = (el.outerHTML || '').length || text.length || 1
+  // textRatio is only consulted for SHORT blocks — shouldTranslateBlock accepts
+  // anything at/above ABSOLUTE_TEXT_LEN_FLOOR before touching the ratio — so
+  // skip serializing the entire subtree's HTML (outerHTML) for every long
+  // paragraph; it was the single most expensive per-candidate call.
+  const needsRatio = text.length < ABSOLUTE_TEXT_LEN_FLOOR
   return {
     text,
     tag: el.tagName,
     isInsideExcluded: !!el.closest(EXCLUDED_SELECTOR),
     // An error chunk is NOT a translation — its host must stay retryable.
     isAlreadyTranslated: !!el.querySelector('.lector-bilingual:not(.is-error)'),
-    textRatio: text.length / outerLen,
+    textRatio: needsRatio ? text.length / ((el.outerHTML || '').length || text.length || 1) : 1,
   }
 }
 
@@ -1568,29 +1677,61 @@ export function collectTranslationCandidates(
   excludeSelectors: string[] = []
 ): HTMLElement[] {
   const isVisible = createVisibilityChecker(scopeRoot)
+  // Per-collection memoization: the leaf pass and the eligibility pass used to
+  // redo the same closest()-chain walks (4 ancestor traversals per element),
+  // computed-style walks and textContent subtree traversals for the same
+  // elements. The function is synchronous — the DOM cannot change mid-way —
+  // so results are safely reusable within one collection.
+  const excludedMemo = new Map<HTMLElement, boolean>()
+  const isExcludedOnce = (el: HTMLElement): boolean => {
+    let v = excludedMemo.get(el)
+    if (v === undefined) {
+      v = isStructurallyExcluded(el)
+      excludedMemo.set(el, v)
+    }
+    return v
+  }
+  const visibleMemo = new Map<HTMLElement, boolean>()
+  const isVisibleOnce = (el: HTMLElement): boolean => {
+    let v = visibleMemo.get(el)
+    if (v === undefined) {
+      v = isVisible(el)
+      visibleMemo.set(el, v)
+    }
+    return v
+  }
+  const textMemo = new Map<HTMLElement, string>()
+  const fullTextOnce = (el: HTMLElement): string => {
+    let v = textMemo.get(el)
+    if (v === undefined) {
+      v = (el.textContent || '').trim()
+      textMemo.set(el, v)
+    }
+    return v
+  }
   const validExtra = extraSelectors.map((s) => s.trim()).filter(Boolean)
   const extraRoots = new Set<HTMLElement>()
   for (const selector of validExtra) {
     for (const el of queryAllSafe(scopeRoot, selector)) {
-      if (!isStructurallyExcluded(el) && isVisible(el)) extraRoots.add(el)
+      if (!isExcludedOnce(el) && isVisibleOnce(el)) extraRoots.add(el)
     }
     if (
       closestSafe(scopeRoot, selector) === scopeRoot &&
-      !isStructurallyExcluded(scopeRoot as HTMLElement) &&
-      isVisible(scopeRoot as HTMLElement)
+      !isExcludedOnce(scopeRoot as HTMLElement) &&
+      isVisibleOnce(scopeRoot as HTMLElement)
     ) extraRoots.add(scopeRoot as HTMLElement)
   }
 
   const standardRoots = new Set<HTMLElement>()
   if (
     closestSafe(scopeRoot, BASE_TRANSLATABLE_SELECTOR) === scopeRoot &&
-    !isStructurallyExcluded(scopeRoot as HTMLElement) &&
-    isVisible(scopeRoot as HTMLElement)
+    !isExcludedOnce(scopeRoot as HTMLElement) &&
+    isVisibleOnce(scopeRoot as HTMLElement)
   ) {
     standardRoots.add(scopeRoot as HTMLElement)
   }
   for (const el of queryAllSafe(scopeRoot, BASE_TRANSLATABLE_SELECTOR)) {
-    if (!isStructurallyExcluded(el) && isVisible(el)) standardRoots.add(el)
+    if (!isExcludedOnce(el) && isVisibleOnce(el)) standardRoots.add(el)
   }
   for (const el of extraRoots) standardRoots.add(el)
 
@@ -1620,21 +1761,21 @@ export function collectTranslationCandidates(
   // get their prose translated; links inside p/li are still skipped by
   // hasStandardAncestor below, and button-wrapped links by EXCLUDED_SELECTOR.
   const textLeaves = queryAllSafe(scopeRoot, 'div, span, strong, em, b, i, small, a').filter((el) => {
-    if (isStructurallyExcluded(el)) return false
+    if (isExcludedOnce(el)) return false
     if (!standardRoots.has(el) && hasStandardAncestor(el)) return false
     if (hasStandardDescendant.has(el)) return false
     const directText = directTextOf(el)
     if (isNonProseMetadata(el, directText)) return false
     if (!isLikelyProseLeafText(directText)) return false
     // Defer synchronous style/layout reads until cheap semantic filters pass.
-    return isVisible(el)
+    return isVisibleOnce(el)
   })
 
   const unique = [...new Set<HTMLElement>([...standardRoots, ...textLeaves])]
   const textLeafSet = new Set(textLeaves)
   const eligible = unique.filter((el) => {
-    if (isStructurallyExcluded(el) || !isVisible(el)) return false
-    const text = (el.textContent || '').trim()
+    if (isExcludedOnce(el) || !isVisibleOnce(el)) return false
+    const text = fullTextOnce(el)
     if (isNonProseMetadata(el, text)) return false
     const allowAnyTag = textLeafSet.has(el) || extraRoots.has(el)
     if (!shouldTranslateBlock(buildBlockCandidate(el), allowAnyTag)) return false
@@ -1758,7 +1899,7 @@ function cacheDisabled(cache: CacheCtx): CacheCtx {
     enabled: false,
     ttlDays: cache.ttlDays,
     store: cache.store,
-    keyInputs: cache.keyInputs,
+    keyPrefix: cache.keyPrefix,
     persist: cache.persist,
   }
 }
@@ -1816,15 +1957,17 @@ async function saveCache(store: CacheStore): Promise<void> {
   }
 }
 
-/** Cache context threaded through the chunk workers. `keyInputs` are the
- *  values folded into the cache key (everything that affects output); the
- *  caller owns the store + persist so a run shares one store and writes once. */
+/** Cache context threaded through the chunk workers. `keyPrefix` is the
+ *  hash of everything that affects output except the chunk text (glossary +
+ *  persona blocks can be several KB — hashing them once per run instead of
+ *  twice per chunk keeps the per-chunk key O(source)); the caller owns the
+ *  store + persist so a run shares one store and writes once. */
 interface CacheCtx {
   enabled: boolean
   ttlDays: number
   store: CacheStore
-  /** (targetLang, model, glossaryBlock, personaPrompt) — source added per chunk. */
-  keyInputs: { targetLang: TargetLangCode; model: string; glossaryBlock: string; personaPrompt: string }
+  /** Hashed run-level key prefix; source is folded in per chunk. */
+  keyPrefix: string
   persist: (next: CacheStore) => void
 }
 
@@ -1907,7 +2050,7 @@ async function translateOneChunk(
 ): Promise<string> {
   // Cache hit fast-path: resolve instantly without touching the provider.
   if (attempt === 0 && cache?.enabled) {
-    const key = cacheKey(chunkText, cache.keyInputs.targetLang, cache.keyInputs.model, cache.keyInputs.glossaryBlock, cache.keyInputs.personaPrompt)
+    const key = cacheKeyWithPrefix(cache.keyPrefix, chunkText)
     const { value, store: touched } = getEntry(cache.store, key, cache.ttlDays)
     if (value !== null) {
       // Old versions could cache an English echo as a successful Chinese
@@ -1938,12 +2081,17 @@ async function translateOneChunk(
 
   // Insert placeholder container immediately so the user sees progress.
   // Always use a span styled as a block: a div is invalid inside p/h*/span/a
-  // hosts and used to break GitHub card/control layout.
+  // hosts and used to break GitHub card/control layout. Children are fixed
+  // for the whole stream — [textNode, caret] — so a delta only ever appends
+  // to textNode (appendData) instead of rebuilding the span's contents.
   const span = document.createElement('span')
   span.className = 'lector-bilingual is-loading'
+  const textNode = document.createTextNode('')
   const caret = document.createElement('span')
   caret.className = 'lector-bi-caret'
+  span.appendChild(textNode)
   span.appendChild(caret)
+  let loadingStyleCleared = false
   // Manual retry re-runs ONLY this chunk (used by both the normal actions row
   // and the error-state row rebuilt below).
   const onManualRetry = () => {
@@ -1977,9 +2125,16 @@ async function translateOneChunk(
       { maxTokens: maxTokensForChunk(chunkText.length), temperature: attempt > 0 ? 0 : 0.2 },
       (delta) => {
         acc += delta
-        span.classList.remove('is-loading')
-        span.textContent = acc
-        span.appendChild(actions)
+        // Append-only streaming: `span.textContent = acc` per delta rebuilt the
+        // whole text node (and destroyed caret/actions) on EVERY token —
+        // O(tokens × text) DOM churn × the number of concurrent chunks.
+        // appendData mutates the one text node in place; the caret stays alive
+        // next to it, and the loading style flips exactly once.
+        if (!loadingStyleCleared) {
+          span.classList.remove('is-loading')
+          loadingStyleCleared = true
+        }
+        textNode.appendData(delta)
       },
       signal
     )
@@ -2031,13 +2186,14 @@ async function translateOneChunk(
 
   const rendered = acc
   block.classList.remove('lector-translation-error')
-  span.textContent = rendered
+  // textNode already holds the full streamed text; just retire the caret.
+  caret.remove()
   span.appendChild(actions)
 
   // Cache the successful translation (only the genuine model output, not the
   // source-fallback, so we don't cache "nothing to translate").
   if (cache?.enabled && acc) {
-    const key = cacheKey(chunkText, cache.keyInputs.targetLang, cache.keyInputs.model, cache.keyInputs.glossaryBlock, cache.keyInputs.personaPrompt)
+    const key = cacheKeyWithPrefix(cache.keyPrefix, chunkText)
     cache.store = putEntry(cache.store, key, acc, chunkText.length)
     cache.persist(cache.store)
   }
@@ -2143,25 +2299,42 @@ async function translateBlockChunks(
  *  English target) cannot be judged by script coverage, so they also consult
  *  the browser language detector; cross-script pairs use the sync check only.
  *  Used by both the whole-page run and the incremental (MutationObserver)
- *  pass so the two paths never drift apart. */
+ *  pass so the two paths never drift apart.
+ *
+ *  `sampleText` lets a caller that already joined the candidate texts (the
+ *  whole-page run builds a truncated sample for direction detection) reuse it
+ *  instead of re-traversing/re-joining every candidate here. Same-script
+ *  detector calls run through a small worker pool: awaiting them serially put
+ *  300 candidates ≈ 300 back-to-back IPC round-trips between the user's first
+ *  toggle and the first translated block. */
 async function filterCandidatesByTargetLanguage(
   candidates: HTMLElement[],
   target: TargetLangCode,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  sampleText?: string
 ): Promise<HTMLElement[]> {
-  const sample = candidates
-    .map((el) => (el.textContent || '').trim())
-    .filter(Boolean)
-    .join('\n')
+  const sample = sampleText ??
+    candidates
+      .map((el) => (el.textContent || '').trim())
+      .filter(Boolean)
+      .join('\n')
+      .slice(0, 20000)
   if (scriptOfLang(target) === detectScript(sample)) {
-    const kept: HTMLElement[] = []
-    for (const el of candidates) {
+    const infos = candidates.map((el) => {
       const text = (el.textContent || '').trim()
-      if (!text) continue
-      const syncSkip = isTextAlreadyInTargetLanguage(text, target)
-      const detectorSkip = syncSkip ? true : await textLooksLikeTargetLanguage(text, target)
-      if (!detectorSkip) kept.push(el)
-      if (signal?.aborted) return kept
+      return { el, text, skip: !text || isTextAlreadyInTargetLanguage(text, target) }
+    })
+    const verdicts = await runConcurrent(
+      infos,
+      async (c) => c.skip || await textLooksLikeTargetLanguage(c.text, target),
+      { concurrency: 8, signal }
+    )
+    const kept: HTMLElement[] = []
+    for (let i = 0; i < infos.length; i++) {
+      const info = infos[i]
+      if (info.skip) continue
+      const v = verdicts[i]
+      if (v.ok && !v.value) kept.push(info.el)
     }
     return kept
   }
@@ -2237,12 +2410,10 @@ async function runBilingualTranslation() {
   // run installs a fresh observer at its end.
   stopIncrementalTranslation()
   // Cancel the prior run's pending debounced cache write so a stale snapshot
-  // can't land after this new run starts (the prior run's persistCache closure
-  // captured its own `snapshot`; letting it fire would overwrite newer writes).
-  if (pendingCacheTimer) {
-    clearTimeout(pendingCacheTimer)
-    pendingCacheTimer = null
-  }
+  // can't land after this new run starts (the prior run's persister captured
+  // its own `snapshot`; letting it fire would overwrite newer writes).
+  runCachePersister?.cancel()
+  runCachePersister = null
   // Own the cancellation controller SYNCHRONOUSLY, before the first await: a
   // cancel that arrives while settings are still loading must already reach
   // this run, or it would proceed to send provider requests after the UI
@@ -2255,7 +2426,7 @@ async function runBilingualTranslation() {
   const touched = new Set<HTMLElement>()
 
   try {
-    const settings = await getSettings()
+    const settings = await getSettingsCached()
     if (controller.signal.aborted) return
     cachedPref = settings.locale ?? 'auto'
     if (!settings.apiKey) {
@@ -2321,8 +2492,9 @@ async function runBilingualTranslation() {
     const pageLang = detectSourceLang(candidateText)
     const target = resolveTargetLang(tSettings.targetLanguage, candidateText || 'Hello world')
     // Same-script pairs (e.g. Spanish page → English target) additionally
-    // consult the browser language detector inside the shared helper.
-    candidates = await filterCandidatesByTargetLanguage(candidates, target, controller.signal)
+    // consult the browser language detector inside the shared helper. The
+    // already-joined candidateText doubles as its script sample (no re-join).
+    candidates = await filterCandidatesByTargetLanguage(candidates, target, controller.signal, candidateText)
     if (controller.signal.aborted) return
     if (candidates.length === 0) {
       reportBilingualTerminal(tr('bilingual.noContent'))
@@ -2336,21 +2508,14 @@ async function runBilingualTranslation() {
     const cacheOn = tSettings.cacheTtlDays > 0
     let cache: CacheStore = cacheOn ? await loadCache() : {}
     if (controller.signal.aborted) return
-    const persistCache = (() => {
-      let scheduled = false
-      let snapshot = cache
-      return (next: CacheStore) => {
-        snapshot = next
-        if (scheduled) return
-        scheduled = true
-        // Debounce persistence so a burst of chunk completions writes once.
-        pendingCacheTimer = setTimeout(() => {
-          scheduled = false
-          pendingCacheTimer = null
-          void saveCache(snapshot)
-        }, 800)
-      }
-    })()
+    // Hash the (possibly multi-KB) glossary/persona key inputs once per run;
+    // per-chunk keys then only hash the chunk's own source text.
+    const runKeyPrefix = cacheOn
+      ? cacheKeyPrefix(target, settings.model, glossaryBlock, persona)
+      : ''
+    const cachePersister = createCachePersister()
+    runCachePersister = cachePersister
+    const persistCache = cachePersister.persist
 
     const total = candidates.length
     let done = 0
@@ -2366,6 +2531,20 @@ async function runBilingualTranslation() {
     }
     report()
 
+    // Deterministic provider rejections (bad key / no permission) are the same
+    // for every remaining block: retrying just duplicates paid requests, and
+    // letting the run continue fails all N blocks one request at a time. Stop
+    // the whole page with the provider's own message instead. Reported once —
+    // concurrent workers can hit the same 401 within milliseconds.
+    let fatalProviderErrorReported = false
+    const stopForFatalProviderError = (message: string): void => {
+      if (!fatalProviderErrorReported) {
+        fatalProviderErrorReported = true
+        reportBilingualTerminal(message)
+      }
+      controller.abort()
+    }
+
     const runBlock = async (block: HTMLElement): Promise<void> => {
       // Build the cache context fresh per worker so it reads the latest shared
       // `cache` store (workers run concurrently and each may add entries). The
@@ -2376,7 +2555,7 @@ async function runBilingualTranslation() {
             ttlDays: tSettings.cacheTtlDays,
             get store() { return cache },
             set store(v) { cache = v },
-            keyInputs: { targetLang: target, model: settings.model, glossaryBlock, personaPrompt: persona },
+            keyPrefix: runKeyPrefix,
             persist: persistCache,
           }
         : undefined
@@ -2388,12 +2567,27 @@ async function runBilingualTranslation() {
         // Semantic retry already happened inside translateOneChunk. Retrying
         // the whole block would make two more identical paid requests.
         if (e instanceof TranslationQualityError) throw e
+        // Auth/permission failures are deterministic for every block — stop
+        // the page instead of doubling the paid requests on a guaranteed miss.
+        if (e instanceof ProviderHttpError && (e.status === 401 || e.status === 403)) {
+          stopForFatalProviderError(e.message)
+          return
+        }
         // Retry once with a short backoff (still abortable).
         await new Promise((r) => setTimeout(r, 500))
         if (controller.signal.aborted) throw e
         try {
           await translateBlockChunks(settings, systemPrompt, block, target, controller.signal, cacheCtx, touched)
         } catch (e2) {
+          // A rate limit that survived its one retry (or auth failing on the
+          // retry) is fatal for the rest of the page too.
+          if (
+            e2 instanceof ProviderHttpError &&
+            (e2.status === 401 || e2.status === 403 || e2.status === 429)
+          ) {
+            stopForFatalProviderError(e2.message)
+            return
+          }
           // The failed chunk's own span was already marked is-error inside
           // translateOneChunk's catch. Don't reach for the first .lector-bilingual
           // here — that may be a SUCCESSFUL chunk's translation, which we must
@@ -2527,6 +2721,14 @@ interface IncrementalCtx {
   pendingRoots: Set<Element>
   timer: ReturnType<typeof setTimeout> | null
   cache: CacheCtx | null
+  /** A flush is in flight: new mutations must not start an overlapping
+   *  runConcurrent — each carries its own `concurrency` paid-request budget,
+   *  and overlapping flushes multiply the in-flight request count beyond the
+   *  configured cap while racing to mutate the same DOM. */
+  flushing: boolean
+  /** A mutation arrived while a flush was in flight; the finally block
+   *  reschedules one follow-up flush for the roots left in pendingRoots. */
+  flushQueued: boolean
 }
 let incrementalCtx: IncrementalCtx | null = null
 const INCREMENTAL_DEBOUNCE_MS = 500
@@ -2542,43 +2744,66 @@ function stopIncrementalTranslation(): void {
   ctx.observer.disconnect()
   if (ctx.timer) clearTimeout(ctx.timer)
   ctx.timer = null
+  // Drop this context's pending debounced cache write with it (its snapshot
+  // belongs to a superseded prompt/target).
+  incrementalCachePersister?.cancel()
+  incrementalCachePersister = null
 }
 
 async function flushIncremental(ctx: IncrementalCtx): Promise<void> {
   // A newer context (re-run / cancel + new run) superseded this one.
   if (ctx !== incrementalCtx) return
-  const roots = Array.from(ctx.pendingRoots)
-  ctx.pendingRoots.clear()
-  ctx.timer = null
-  if (roots.length === 0) return
-  let batch: HTMLElement[]
-  try {
-    batch = await collectIncrementalCandidates(roots, ctx.target, ctx.controller.signal)
-  } catch {
+  // A flush is already running: remember to run once more afterwards instead
+  // of overlapping a second worker pool onto the first.
+  if (ctx.flushing) {
+    ctx.flushQueued = true
     return
   }
-  if (ctx !== incrementalCtx || ctx.controller.signal.aborted) return
-  if (batch.length === 0) return
-  batch = batch.slice(0, INCREMENTAL_BATCH_MAX)
-  // Per-worker view sharing ctx.cache's store via getter/setter so concurrent
-  // workers read each other's writes (same pattern as the whole-page run).
-  const cacheView: CacheCtx | undefined = ctx.cache
-    ? {
-        enabled: true,
-        ttlDays: ctx.cache.ttlDays,
-        get store() { return ctx.cache!.store },
-        set store(v) { ctx.cache!.store = v },
-        keyInputs: ctx.cache.keyInputs,
-        persist: ctx.cache.persist,
-      }
-    : undefined
-  await runConcurrent(
-    batch,
-    (block) => translateBlockChunks(
-      ctx.settings, ctx.systemPrompt, block, ctx.target, ctx.controller.signal, cacheView
-    ),
-    { concurrency: ctx.concurrency, signal: ctx.controller.signal }
-  )
+  ctx.flushing = true
+  try {
+    const roots = Array.from(ctx.pendingRoots)
+    ctx.pendingRoots.clear()
+    ctx.timer = null
+    if (roots.length === 0) return
+    let batch: HTMLElement[]
+    try {
+      batch = await collectIncrementalCandidates(roots, ctx.target, ctx.controller.signal)
+    } catch {
+      return
+    }
+    if (ctx !== incrementalCtx || ctx.controller.signal.aborted) return
+    if (batch.length === 0) return
+    batch = batch.slice(0, INCREMENTAL_BATCH_MAX)
+    // Per-worker view sharing ctx.cache's store via getter/setter so concurrent
+    // workers read each other's writes (same pattern as the whole-page run).
+    const cacheView: CacheCtx | undefined = ctx.cache
+      ? {
+          enabled: true,
+          ttlDays: ctx.cache.ttlDays,
+          get store() { return ctx.cache!.store },
+          set store(v) { ctx.cache!.store = v },
+          keyPrefix: ctx.cache.keyPrefix,
+          persist: ctx.cache.persist,
+        }
+      : undefined
+    await runConcurrent(
+      batch,
+      (block) => translateBlockChunks(
+        ctx.settings, ctx.systemPrompt, block, ctx.target, ctx.controller.signal, cacheView
+      ),
+      { concurrency: ctx.concurrency, signal: ctx.controller.signal }
+    )
+  } finally {
+    ctx.flushing = false
+    // Roots queued while we were busy get exactly one follow-up flush (the
+    // observer only schedules on NEW mutations, so without this the queued
+    // roots would sit untranslated until the next page change).
+    if (ctx.flushQueued && ctx === incrementalCtx && !ctx.controller.signal.aborted) {
+      ctx.flushQueued = false
+      if (ctx.timer) clearTimeout(ctx.timer)
+      ctx.timer = setTimeout(() => { void flushIncremental(ctx) }, INCREMENTAL_DEBOUNCE_MS)
+    }
+  }
 }
 
 function installIncrementalTranslation(init: {
@@ -2599,40 +2824,35 @@ function installIncrementalTranslation(init: {
     pendingRoots: new Set(),
     timer: null,
     cache: null,
+    flushing: false,
+    flushQueued: false,
   }
   if (init.cacheTtlDays > 0) {
-    // Same debounced-persist pattern as the whole-page run (shares the module
-    // pendingCacheTimer slot; a re-run clears it via its own entry guard).
-    let scheduled = false
-    let snapshot: CacheStore = {}
-    const persist = (next: CacheStore) => {
-      snapshot = next
-      if (scheduled) return
-      scheduled = true
-      pendingCacheTimer = setTimeout(() => {
-        scheduled = false
-        pendingCacheTimer = null
-        void saveCache(snapshot)
-      }, 800)
-    }
+    // Same debounced-persist pattern as the whole-page run, but on its own
+    // timer slot (they used to share one handle and orphan each other's
+    // timers — the orphan still fired and wrote its older snapshot).
+    const persister = createCachePersister()
+    incrementalCachePersister = persister
     ctx.cache = {
       enabled: true,
       ttlDays: init.cacheTtlDays,
       store: {},
-      keyInputs: {
-        targetLang: init.target,
-        model: init.settings.model,
-        glossaryBlock: init.glossaryBlock,
-        personaPrompt: init.persona,
-      },
-      persist,
+      keyPrefix: cacheKeyPrefix(init.target, init.settings.model, init.glossaryBlock, init.persona),
+      persist: persister.persist,
     }
   }
   const observer = new MutationObserver((records) => {
     if (ctx !== incrementalCtx) return
     for (const record of records) {
       for (const node of record.addedNodes) {
-        if (node.nodeType === Node.ELEMENT_NODE) ctx.pendingRoots.add(node as Element)
+        if (node.nodeType !== Node.ELEMENT_NODE) continue
+        const el = node as Element
+        // Skip our own injected nodes (bilingual spans, source wrappers) right
+        // here: a whole-page run injects hundreds of them, and queueing each
+        // meant one extra full candidate-collection pass over roots that all
+        // self-excluded — right when the page is hottest after a run.
+        if (el.closest(TRANSLATION_SELF_SELECTOR) || isLectorUiTarget(el as HTMLElement)) continue
+        ctx.pendingRoots.add(el)
       }
     }
     if (ctx.pendingRoots.size === 0) return
@@ -2699,7 +2919,7 @@ let hoverAbort: AbortController | null = null
 async function translateBlockOnHover(block: HTMLElement) {
   // Skip if already translated (avoid duplicate injection on repeated hovers).
   if (block.querySelector(':scope > .lector-bilingual')) return
-  const settings = await getSettings()
+  const settings = await getSettingsCached()
   if (!settings.apiKey) return
   const tSettings = normalizeTranslationSettings(settings.translation)
   const text = (block.textContent || '').trim()
@@ -2723,6 +2943,8 @@ async function translateBlockOnHover(block: HTMLElement) {
 }
 
 let hoverMouseMoveAt = 0
+// passive: the handler never calls preventDefault, and declaring it lets the
+// browser dispatch mousemove off the main input path where supported.
 document.addEventListener('mousemove', (e) => {
   if (!hoverCfg.enabled) return
   // Only trigger when the configured hold key is currently pressed.
@@ -2750,7 +2972,7 @@ document.addEventListener('mousemove', (e) => {
   hoverTimer = setTimeout(() => {
     void translateBlockOnHover(block)
   }, hoverCfg.debounceMs)
-})
+}, { passive: true })
 
 document.addEventListener('keyup', (e) => {
   // Cancel a pending hover-translation if the user releases the hold key early.
@@ -2819,7 +3041,7 @@ function writeEditableField(el: EditableField, value: string) {
 }
 
 async function translateInputField(el: EditableField, targetOverride?: string) {
-  const settings = await getSettings()
+  const settings = await getSettingsCached()
   if (!settings.apiKey) return
   const tSettings = normalizeTranslationSettings(settings.translation)
   const raw = readEditableField(el)
@@ -3005,7 +3227,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     // translation to pick up the new settings.
     stopIncrementalTranslation()
     void (async () => {
-      const s = await getSettings()
+      const s = await getSettingsCached()
       const ts = normalizeTranslationSettings(s.translation)
       applyTranslationStyle(ts)
     })()
@@ -3049,7 +3271,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 // so the controls appeared to work while doing nothing.
 void (async () => {
   try {
-    const settings = await getSettings()
+    const settings = await getSettingsCached()
     cachedPref = settings.locale ?? 'auto'
     const ts = normalizeTranslationSettings(settings.translation)
     applyTranslationStyle(ts)

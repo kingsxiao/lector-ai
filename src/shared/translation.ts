@@ -813,7 +813,7 @@ const MIN_TEXT_RATIO_LISTISH = 0.18
 // the GitHub repo-description case (link-heavy <p>/<li>) that the ratio alone
 // dropped. 30 is ~the length of a short clause (a 1-2 word nav label is well
 // under this), so it doesn't pull in nav/button fragments.
-const ABSOLUTE_TEXT_LEN_FLOOR = 30
+export const ABSOLUTE_TEXT_LEN_FLOOR = 30
 
 /** Text that should stay verbatim even when it appears in a normally
  * translatable tag. DOM-specific metadata (programming-language badges,

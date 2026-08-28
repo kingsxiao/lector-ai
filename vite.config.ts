@@ -4,6 +4,13 @@ import { resolve } from 'path'
 
 export default defineConfig({
   plugins: [react()],
+  // Strip console.log calls from the production bundles (the content script
+  // logged on every page otherwise); keep console.warn — it surfaces relay/
+  // storage failures users report. `pure` (vs drop) removes only calls with
+  // no use of the return value, which is all of ours.
+  esbuild: {
+    pure: ['console.log'],
+  },
   // Pre-bundle stable deps so dev cold-start skips re-scanning them.
   optimizeDeps: {
     include: ['react', 'react-dom', 'zustand'],

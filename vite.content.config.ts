@@ -10,6 +10,10 @@ import { resolve } from 'path'
 // dynamic imports (inlineDynamicImports), then the build script writes it to
 // dist/content.js.
 export default defineConfig({
+  // Match the main config: strip console.log, keep console.warn.
+  esbuild: {
+    pure: ['console.log'],
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: false,

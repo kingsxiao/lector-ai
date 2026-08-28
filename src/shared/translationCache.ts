@@ -31,27 +31,63 @@ export type CacheRemovalTombstones = ReadonlyMap<string, number>
 /** Hard cap shared by normal inserts and read/merge/write persistence. */
 export const MAX_CACHE_ENTRIES = 1000
 
+/** Soft byte budget for the whole store (UTF-16 chars ≈ 2 bytes each; key +
+ *  value counted). chrome.storage.local gives ~10MB total shared with the vocab
+ *  queue and settings, so the cache self-trims well below that to keep quota
+ *  errors — which would silently kill every subsequent write — off the table. */
+export const MAX_CACHE_BYTES = 4_000_000
+
 /** Bump whenever prompt semantics or output validation changes. Keeping it in
  * the key prevents an old source-language echo from surviving a quality fix. */
 export const TRANSLATION_CACHE_VERSION = 'page-translation-v3'
 
 /**
- * A tiny, dependency-free, synchronous string hash (FNV-1a 32-bit, base36).
- * We avoid window.crypto/subtle here because (a) the content script's
- * crypto.subtle is async and we want a sync key, and (b) collision-safety is
- * not security-sensitive — a rare collision just re-translates a chunk. The
- * hash mixes every char so similar strings (same prefix, different tail) get
- * distinct keys.
+ * A tiny, dependency-free, synchronous string hash (two independent FNV-1a
+ * 32-bit lanes, base36). We avoid window.crypto/subtle here because (a) the
+ * content script's crypto.subtle is async and we want a sync key, and (b)
+ * collision-safety is not security-sensitive — a rare collision just
+ * re-translates a chunk. Two lanes give an effective ~64-bit key: with the
+ * 1000-entry cap the birthday-collision probability (~n²/2⁶⁵) is negligible,
+ * whereas a single 32-bit lane collided often enough to silently serve the
+ * WRONG cached translation — the worst failure mode for a translator. Each
+ * lane hashes every char so similar strings get distinct keys.
  */
 export function hashString(s: string): string {
-  let h = 0x811c9dc5
+  let h1 = 0x811c9dc5
+  let h2 = 0x89abc141
   for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
+    const c = s.charCodeAt(i)
+    h1 ^= c
     // FNV prime (16777619) via Math.imul to keep it a 32-bit int.
-    h = Math.imul(h, 0x01000193)
+    h1 = Math.imul(h1, 0x01000193)
+    // Second lane: a different offset basis + a different prime (0x85ebca6b,
+    // the murmur3 finalizer constant) so the two lanes decorrelate.
+    h2 = Math.imul(h2 ^ c, 0x85ebca6b)
   }
-  // Force unsigned then base36.
-  return (h >>> 0).toString(36)
+  // Force unsigned, pad to a fixed width so concatenation is unambiguous.
+  return (h1 >>> 0).toString(36).padStart(7, '0') + (h2 >>> 0).toString(36).padStart(7, '0')
+}
+
+/**
+ * Hash the shared part of the cache key once per translation run. The
+ * glossary/persona blocks can be several KB; folding them into the key for
+ * every chunk re-hashed all of it per chunk (×2: hit check + write-back).
+ * `cacheKeyWithPrefix` then only hashes the chunk's own source text.
+ */
+export function cacheKeyPrefix(
+  targetLang: string,
+  model: string,
+  glossaryBlock: string,
+  personaPrompt: string = ''
+): string {
+  return hashString(
+    [TRANSLATION_CACHE_VERSION, targetLang, model, glossaryBlock, personaPrompt].join('\u0000')
+  )
+}
+
+/** Complete the run-level prefix with a chunk's source text. */
+export function cacheKeyWithPrefix(prefix: string, source: string): string {
+  return hashString(prefix + '\u0000' + source)
 }
 
 /**
@@ -68,8 +104,9 @@ export function cacheKey(
   glossaryBlock: string,
   personaPrompt: string = ''
 ): string {
-  return hashString(
-    [TRANSLATION_CACHE_VERSION, targetLang, model, glossaryBlock, personaPrompt, source].join('\u0000')
+  return cacheKeyWithPrefix(
+    cacheKeyPrefix(targetLang, model, glossaryBlock, personaPrompt),
+    source
   )
 }
 
@@ -100,23 +137,63 @@ export function putEntry(
   now: number = Date.now(),
   maxEntries = MAX_CACHE_ENTRIES
 ): CacheStore {
-  const next: CacheStore = { ...store, [key]: { v: value, t: now, n: estimateTokens('x'.repeat(sourceLen)) } }
+  return putEntries(store, [[key, value, sourceLen]], now, maxEntries)
+}
+
+/**
+ * Batched insert for a translation run: one store copy + one trim for the
+ * whole batch instead of two per chunk. Entries earlier in the list win on
+ * duplicate keys (they were requested first; the run's own retries overwrite
+ * them by passing the later one last).
+ */
+export function putEntries(
+  store: CacheStore,
+  entries: ReadonlyArray<readonly [key: string, value: string, sourceLen: number]>,
+  now: number = Date.now(),
+  maxEntries = MAX_CACHE_ENTRIES
+): CacheStore {
+  if (entries.length === 0) return store
+  const next: CacheStore = { ...store }
+  for (const [key, value, sourceLen] of entries) {
+    next[key] = { v: value, t: now, n: Math.max(1, Math.ceil(sourceLen / 4)) }
+  }
   return trimStore(next, maxEntries)
 }
 
-/** Return a capped copy, evicting the oldest entries by their LRU timestamp. */
+/** Rough byte footprint of the store (UTF-16 ≈ 2 bytes/char, key included). */
+export function storeBytes(store: CacheStore): number {
+  let bytes = 0
+  for (const [k, e] of Object.entries(store)) bytes += (k.length + e.v.length) * 2
+  return bytes
+}
+
+/**
+ * Return a capped copy, evicting the oldest entries by their LRU timestamp.
+ * Under both caps the input store is returned as-is: every caller either
+ * passes a freshly-built object (putEntries/mergeCacheStores) or treats the
+ * result as read-only, so the "new object" promise is only needed when the
+ * store actually shrinks. This keeps the hot path (per-chunk insert under the
+ * cap) from paying an O(entries) copy.
+ */
 export function trimStore(
   store: CacheStore,
-  maxEntries: number = MAX_CACHE_ENTRIES
+  maxEntries: number = MAX_CACHE_ENTRIES,
+  maxBytes: number = MAX_CACHE_BYTES
 ): CacheStore {
+  const keys = Object.keys(store)
+  let count = keys.length
+  let bytes = storeBytes(store)
+  if (count <= maxEntries && bytes <= maxBytes) return store
   const next: CacheStore = { ...store }
-  const keys = Object.keys(next)
-  if (keys.length <= maxEntries) return next
-  // Evict oldest by t ascending until we are back under the cap.
-  keys
-    .sort((a, b) => next[a].t - next[b].t)
-    .slice(0, keys.length - maxEntries)
-    .forEach((k) => delete next[k])
+  // Evict oldest by t ascending until we are back under both caps.
+  const sorted = keys.sort((a, b) => store[a].t - store[b].t)
+  let i = 0
+  while (i < sorted.length && (count > maxEntries || bytes > maxBytes)) {
+    const k = sorted[i++]
+    bytes -= (k.length + next[k].v.length) * 2
+    delete next[k]
+    count--
+  }
   return next
 }
 

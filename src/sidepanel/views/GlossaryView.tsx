@@ -81,7 +81,7 @@ function GlossaryViewImpl({
   const handleImport = async (file: File) => {
     const res = await readJsonFile(file, importGlossary)
     if (!res.ok || !res.entries) {
-      setFlash(tr('side.glossary.importFail').replace('{msg}', res.reason || ''))
+      setFlash(tr('side.importFail').replace('{msg}', res.reason || ''))
       return
     }
     // A valid top-level array whose rows ALL fail validation parses to ok with
@@ -89,7 +89,7 @@ function GlossaryViewImpl({
     // replace the user's existing glossary with an empty list — treat it as a
     // failed import instead.
     if (res.entries.length === 0) {
-      setFlash(tr('side.glossary.importFail').replace('{msg}', '0'))
+      setFlash(tr('side.importFail').replace('{msg}', '0'))
       return
     }
     onImport(res.entries)

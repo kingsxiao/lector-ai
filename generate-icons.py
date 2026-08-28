@@ -26,6 +26,9 @@ DEST = ROOT / "public" / "icons"
 
 SIZES = [
     (16, SRC_SMALL),
+    # 32 is used by Chrome in several surfaces (Windows taskbar, history);
+    # letting it downscale 48 made edges soft.
+    (32, SRC_LARGE),
     (48, SRC_LARGE),
     (128, SRC_LARGE),
 ]

@@ -7,7 +7,7 @@
 // user's own key — there is no backend.
 
 import { t, type StringKey } from './shared/i18n'
-import { getSettings, completeOnce } from './shared/byok'
+import { getSettings, completeOnce, saveSettings } from './shared/byok'
 import { SENTENCE_CARD_SYSTEM_PROMPT, extractTranslation, extractKeywords, extractCefr, newCardId, type SentenceCard } from './shared/sentences'
 import { appendHistory, newHistoryId, type TranslationHistoryEntry } from './shared/translation'
 import { normalizeTranslationSettings } from './shared/providers'
@@ -27,18 +27,32 @@ let highlightChain: Promise<void> = Promise.resolve()
 // Thin adapter from chrome.storage.local (callback-style) to the async
 // get/set ListStore interface the serialization helper expects. Lives here so
 // the pure logic in shared/storageQueue.ts stays chrome-free and unit-tested.
+// lastError MUST be checked: a failed get used to resolve [] and the
+// read-modify-write mutator would then overwrite a 2000-entry vocab list with
+// a single-row list — unrecoverable data loss. Rejecting propagates to
+// appendToList's onError instead.
 const listStore: ListStore = {
   get(key) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       chrome.storage.local.get([key], (r) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message))
+          return
+        }
         const v = (r as Record<string, unknown>)[key]
         resolve(Array.isArray(v) ? v : [])
       })
     })
   },
   set(key, value) {
-    return new Promise((resolve) => {
-      chrome.storage.local.set({ [key]: value }, () => resolve())
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.set({ [key]: value }, () => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message))
+          return
+        }
+        resolve()
+      })
     })
   },
 }
@@ -99,16 +113,23 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       (list) => {
         list.unshift(message.highlight)
         return list.slice(0, 500)
-      }
+      },
+      (err) => console.warn('[Lector] highlight queue write failed:', err instanceof Error ? err.message : String(err))
     )
     return false
   }
   if (message?.action === 'lector-save-word') {
-    handleSaveWordRelay(message).catch(() => {})
+    if (typeof message.word !== 'string' || !message.word.trim()) return false
+    handleSaveWordRelay(message).catch((err) =>
+      console.warn('[Lector] save-word relay failed:', err instanceof Error ? err.message : String(err))
+    )
     return false
   }
   if (message?.action === 'lector-explain-sentence') {
-    handleExplainSentenceRelay(message).catch(() => {})
+    if (typeof message.sentence !== 'string' || !message.sentence.trim()) return false
+    handleExplainSentenceRelay(message).catch((err) =>
+      console.warn('[Lector] explain-sentence relay failed:', err instanceof Error ? err.message : String(err))
+    )
     return false
   }
   if (message?.action === 'lector-translation-history') {
@@ -119,7 +140,8 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       historyChain,
       listStore,
       'lectorTranslationHistory',
-      (list) => appendHistory(list as TranslationHistoryEntry[], { ...message.entry, id: newHistoryId() })
+      (list) => appendHistory(list as TranslationHistoryEntry[], { ...message.entry, id: newHistoryId() }),
+      (err) => console.warn('[Lector] history queue write failed:', err instanceof Error ? err.message : String(err))
     )
     return false
   }
@@ -129,16 +151,19 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       const s = await getSettings()
       const ts = normalizeTranslationSettings(s.translation)
       ts.targetLanguage = message.target
-      const next = { ...s, translation: ts }
-      // Save directly to storage (background has no zustand).
-      await chrome.storage.local.set({ lector_byok_settings: next })
+      // Route through saveSettings' serialized write chain: a direct
+      // storage.set here raced the panel's own saveSettings and could
+      // resurrect an older snapshot over the user's newer edits.
+      await saveSettings({ ...s, translation: ts })
       const tabs = await chrome.tabs.query({})
       for (const tab of tabs) {
-        if (tab.id !== undefined) {
-          chrome.tabs.sendMessage(tab.id, { action: 'lector-translation-settings-changed' }, () => {
-            void chrome.runtime.lastError
-          })
-        }
+        if (tab.id === undefined) continue
+        // Content scripts only exist on real web pages; messaging chrome://
+        // and friends just produces lastError noise.
+        if (!tab.url || !/^https?:/i.test(tab.url)) continue
+        chrome.tabs.sendMessage(tab.id, { action: 'lector-translation-settings-changed' }, () => {
+          void chrome.runtime.lastError
+        })
       }
     })()
     return false
@@ -171,6 +196,23 @@ chrome.commands?.onCommand.addListener((cmd) => {
   })
 })
 
+/** Deliver an enrichment to the live side panel first. The panel drains the
+ *  storage queue into zustand within milliseconds of the initial write, so by
+ *  the time a multi-second provider call resolves, the queued row (matched by
+ *  id) is usually already gone — the old storage-only enrich silently dropped
+ *  the PAID result. The panel merges by id with fill-empty semantics; when no
+ *  panel is open (or it never drained this row), we fall back to the storage
+ *  enrich below. */
+async function panelHasEntry(kind: 'lectorVocab' | 'lectorSentences', id: string): Promise<boolean> {
+  try {
+    const resp = await chrome.runtime.sendMessage({ action: 'lector-has-entry', kind, id })
+    return resp?.ok === true
+  } catch {
+    // No receiving end (panel closed) — use the storage fallback.
+    return false
+  }
+}
+
 async function handleSaveWordRelay(message: {
   word: string
   context: string
@@ -201,7 +243,8 @@ async function handleSaveWordRelay(message: {
     listStore,
     'lectorVocab',
     (list) => {
-      const idx = list.findIndex((x) => x.word.toLowerCase() === entry.word.toLowerCase())
+      const w = entry.word.toLowerCase()
+      const idx = list.findIndex((x) => x.word.toLowerCase() === w)
       if (idx === -1) {
         list.unshift(entry)
       } else {
@@ -236,6 +279,15 @@ async function handleSaveWordRelay(message: {
     // leave translation empty; flagged at review time
   }
   if (!translation) return
+  // Live panel first (it owns the row now); storage enrich only as fallback.
+  if (await panelHasEntry('lectorVocab', entry.id)) {
+    try {
+      await chrome.runtime.sendMessage({ action: 'lector-vocab-enrich', id: entry.id, translation })
+    } catch {
+      /* panel closed between the check and the send — fall through */
+    }
+    return
+  }
   // Enrich the persisted row (same id). Only fills an EMPTY translation so a
   // concurrent save of the same word with its own result is never clobbered.
   vocabChain = appendToList<VocabEntry>(
@@ -309,6 +361,15 @@ async function handleExplainSentenceRelay(message: {
     analysis = '' // 空分析；卡片仍创建，UI 显示占位
   }
   if (!analysis) return
+  // Live panel first (it owns the card now); storage enrich only as fallback.
+  if (await panelHasEntry('lectorSentences', card.id)) {
+    try {
+      await chrome.runtime.sendMessage({ action: 'lector-sentence-enrich', id: card.id, analysis })
+    } catch {
+      /* panel closed between the check and the send — fall through */
+    }
+    return
+  }
   // Enrich the persisted card (same id) with the parsed analysis fields.
   sentenceChain = appendToList<SentenceCard>(
     sentenceChain,
