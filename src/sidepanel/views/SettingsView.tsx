@@ -20,9 +20,11 @@ import {
   newSiteRuleId,
   type SiteRule,
 } from '../../shared/siteRules'
-import { CheckIcon, XIcon } from '../../shared/icons'
+import { CheckIcon, XIcon, DownloadIcon, UploadIcon } from '../../shared/icons'
 import { Select } from '../components/Select'
 import { THEMES, getTheme, type ThemePalette } from '../../shared/themes'
+import { downloadBlob, readJsonFile } from '../lib/downloads'
+import { parseBackup } from '../../shared/backup'
 
 // ---------------------------------------------------------------------------
 // LanguageSelect — searchable language picker. 100+ langs are unwieldy in a
@@ -229,6 +231,94 @@ function CacheControls({ ttlDays, locale }: { ttlDays: number; locale: LocalePre
       >
         {cleared ? '✓' : t('settings.translation.cacheClear', locale)}
       </button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// BackupControls — whole-library export/import. Everything (sessions,
+// highlights, vocab + SRS, sentences, glossary, history) lives only in this
+// browser's localStorage; "clear site data" wipes it with no undo. Export
+// writes one JSON file; import MERGES (existing rows win, idempotent). The
+// API key is deliberately never part of a backup file.
+function BackupControls({ locale }: { locale: LocalePref }) {
+  const exportBackup = useStore((s) => s.exportBackup)
+  const importBackup = useStore((s) => s.importBackup)
+  const fileRef = useRef<HTMLInputElement>(null)
+  // Import outcome: '+'-prefixed success line, or a failure message. Null = idle.
+  const [result, setResult] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  const handleExport = () => {
+    const d = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`
+    downloadBlob(
+      `lector-ai-backup-${stamp}.json`,
+      JSON.stringify(exportBackup(), null, 2),
+      'application/json'
+    )
+    setResult(null)
+  }
+
+  const handleFile = async (file: File) => {
+    try {
+      const backup = await readJsonFile(file, parseBackup)
+      const added = importBackup(backup)
+      const total =
+        added.sessions + added.highlights + added.vocab + added.templates +
+        added.glossary + added.sentences + added.history
+      setFailed(false)
+      setResult(
+        total === 0
+          ? t('settings.backup.importedNone', locale)
+          : t('settings.backup.imported', locale).replace('{n}', String(total))
+      )
+    } catch (e) {
+      setFailed(true)
+      setResult(
+        e instanceof Error ? e.message : t('settings.backup.importFail', locale)
+      )
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={handleExport}
+          className="btn-add flex-1 py-2 text-[12px]"
+        >
+          <DownloadIcon size={13} />
+          {t('settings.backup.export', locale)}
+        </button>
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className="btn-add flex-1 py-2 text-[12px]"
+        >
+          <UploadIcon size={13} />
+          {t('settings.backup.import', locale)}
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".json,application/json"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) void handleFile(f)
+            // Reset so picking the same file again re-fires onChange.
+            e.target.value = ''
+          }}
+        />
+      </div>
+      {result && (
+        <p className={`mt-2 text-[10.5px] leading-relaxed rounded-md px-2 py-1.5 ${failed ? 'text-danger bg-danger-soft/40' : 'text-success bg-success-soft/50'}`}>
+          {result}
+        </p>
+      )}
     </div>
   )
 }
@@ -859,6 +949,17 @@ function SettingsViewImpl({ byok, onChange }: SettingsViewProps) {
               </section>
             )
           })()}
+
+          {/* Backup & restore */}
+          <section className="settings-card">
+            <label className="label">{t('settings.backup.title', byok.locale)}</label>
+            <p className="text-[10.5px] text-ink-faint leading-relaxed mb-2.5">
+              {t('settings.backup.desc', byok.locale)}
+              {' '}
+              {t('settings.backup.noKey', byok.locale)}
+            </p>
+            <BackupControls locale={byok.locale} />
+          </section>
         </div>
     </div>
   )

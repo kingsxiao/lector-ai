@@ -3,7 +3,7 @@ import { useStore, type ChatMessage, type ChatSession } from '../shared/store'
 import { renderMarkdown } from './markdown'
 import { renderCitations, type PageBlock } from '../shared/citations'
 import { isDue, scheduleSrs, type Grade } from '../shared/srs'
-import { toMarkdown } from '../shared/exporters'
+import { toMarkdown, sessionToMarkdown } from '../shared/exporters'
 import type { Highlight } from '../shared/highlights'
 import type { VocabEntry } from '../shared/vocabulary'
 import {
@@ -17,7 +17,7 @@ import {
   SendIcon, XIcon, ClipboardListIcon, TrashIcon,
   BookMarkedIcon, DownloadIcon, CardsIcon, SparklesIcon,
   SettingsIcon, GridIcon, StopIcon, RotateIcon, ExpandIcon,
-  FileTextIcon, ListIcon, PencilIcon,
+  FileTextIcon, ListIcon, PencilIcon, CheckIcon,
 } from '../shared/icons'
 import {
   getProvider,
@@ -186,6 +186,7 @@ export default function App() {
   const updateSentenceSrs = useStore((s) => s.updateSentenceSrs)
   const translationHistory = useStore((s) => s.translationHistory)
   const clearTranslationHistory = useStore((s) => s.clearTranslationHistory)
+  const removeTranslationHistory = useStore((s) => s.removeTranslationHistory)
   const hasOpened = useStore((s) => s.hasOpened)
   const markOpened = useStore((s) => s.markOpened)
   const [hintDismissed, setHintDismissed] = useState(false)
@@ -193,6 +194,10 @@ export default function App() {
   // isn't persisted — the strip returns next session until a key is set).
   const [byokBannerDismissed, setByokBannerDismissed] = useState(false)
   const [histSearch, setHistSearch] = useState('')
+  // Inline rename in the Library view: the session id being edited + its draft
+  // title. Null when no row is in edit mode.
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
 
   // Stable across renders (they depend only on locale) so memoized child views
   // don't re-render on every unrelated App state change.
@@ -244,6 +249,16 @@ export default function App() {
   }, [translationHistory, histSearch])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
+  // Per-message copy feedback: id of the message whose text was just copied;
+  // its button flashes "Copied" for ~1.2s (timer cleared on unmount below).
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null)
+  const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const copyMessage = useCallback((m: ChatMessage) => {
+    navigator.clipboard.writeText(m.content).catch(() => {})
+    setCopiedMsgId(m.id)
+    if (copyResetTimerRef.current !== null) clearTimeout(copyResetTimerRef.current)
+    copyResetTimerRef.current = setTimeout(() => setCopiedMsgId(null), 1200)
+  }, [])
   const [error, setError] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
@@ -321,6 +336,7 @@ export default function App() {
     abortRef.current?.abort()
     if (tokenFrameRef.current !== null) cancelAnimationFrame(tokenFrameRef.current)
     if (progressClearTimerRef.current !== null) clearTimeout(progressClearTimerRef.current)
+    if (copyResetTimerRef.current !== null) clearTimeout(copyResetTimerRef.current)
   }, [])
 
   // Close the tools dropdown on outside click / Escape.
@@ -721,6 +737,32 @@ export default function App() {
 
   const downloadMarkdown = (hs: Highlight[]) => {
     downloadBlob('lector-highlights.md', toMarkdown(hs), 'text/markdown')
+  }
+  const downloadSessionMarkdown = (s: ChatSession) => {
+    const slug = (s.title || 'conversation')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48)
+    downloadBlob(`lector-${slug || 'chat'}.md`, sessionToMarkdown(s), 'text/markdown')
+  }
+  /** Finish an inline Library rename. Enter and blur both land here; Escape
+   *  cancels first (renamingId cleared), making this a no-op. Empty titles
+   *  are ignored — a session must never become nameless. */
+  const commitRename = (id: string) => {
+    if (renamingId !== id) return
+    setRenamingId(null)
+    const title = renameDraft.trim()
+    if (title) updateSession(id, { title })
+  }
+  /** Hostname for the translation-history source link; '' for urls the URL
+   *  parser can't make sense of (the anchor then simply isn't rendered). */
+  const safeHost = (url: string): string => {
+    try {
+      return new URL(url).hostname.replace(/^www\./, '')
+    } catch {
+      return ''
+    }
   }
 
   // (gradeVocab + toggleReveal moved into VocabView — reveal-set is single-consumer.)
@@ -1512,11 +1554,23 @@ ${(() => { const gp = renderGlossaryPrompt(glossary); return gp ? `\n${gp}\n` : 
 
         {messages.map((m) => {
           const isUser = m.role === 'user'
+          const failed = !!m.content && FAILED_TURN_RE.test(m.content)
+          const copied = copiedMsgId === m.id
           return (
-          <div key={m.id} className={`flex gap-2.5 ${isUser ? 'justify-end' : 'justify-start items-start'}`}>
+          <div key={m.id} className={`group flex gap-2.5 ${isUser ? 'justify-end' : 'justify-start items-start'}`}>
             {isUser ? (
-              <div className="max-w-[85%] px-3.5 py-2 bg-accent text-accent-on text-body rounded-lg whitespace-pre-wrap break-words shadow-sm">
-                {m.content}
+              <div className="max-w-[85%] flex flex-col items-end">
+                <div className="px-3.5 py-2 bg-accent text-accent-on text-body rounded-lg whitespace-pre-wrap break-words shadow-sm">
+                  {m.content}
+                </div>
+                <button
+                  onClick={() => copyMessage(m)}
+                  aria-label={tr('aria.copy')}
+                  className="mt-1 inline-flex items-center gap-1 text-[11px] text-ink-faint hover:text-accent transition-colors opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                >
+                  {copied ? <CheckIcon size={12} /> : <ClipboardListIcon size={12} />}
+                  {copied ? tr('side.chat.copied') : tr('side.chat.copy')}
+                </button>
               </div>
             ) : (
               <>
@@ -1542,18 +1596,34 @@ ${(() => { const gp = renderGlossaryPrompt(glossary); return gp ? `\n${gp}\n` : 
                       {tr('side.thinking')}
                     </div>
                   )}
-                  {/* Retry affordance on a failed or stopped assistant message:
-                      re-send the last user turn. Hidden while a stream is in
-                      flight and for the in-progress (empty) bubble. */}
-                  {m.content && !streaming && FAILED_TURN_RE.test(m.content) && (
-                    <div className="mt-1.5 pt-1.5 border-t border-line/60">
+                  {/* Message action row: Copy on every finalized reply, plus
+                      Retry when the turn failed/was stopped. The row is
+                      hover-revealed normally, but stays pinned on a failed
+                      turn — the stopped-copy tells the user to tap Retry, so
+                      that button must be findable without hovering. */}
+                  {m.content && (
+                    <div
+                      className={`mt-1.5 pt-1.5 border-t border-line/60 flex items-center gap-4 ${
+                        failed ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity'
+                      }`}
+                    >
                       <button
-                        onClick={retryLast}
-                        className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent-hover transition-colors"
+                        onClick={() => copyMessage(m)}
+                        aria-label={tr('aria.copy')}
+                        className="inline-flex items-center gap-1 text-[11px] text-ink-faint hover:text-accent transition-colors"
                       >
-                        <RotateIcon size={12} />
-                        {tr('side.chat.retry')}
+                        {copied ? <CheckIcon size={12} /> : <ClipboardListIcon size={12} />}
+                        {copied ? tr('side.chat.copied') : tr('side.chat.copy')}
                       </button>
+                      {failed && !streaming && (
+                        <button
+                          onClick={retryLast}
+                          className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent-hover transition-colors"
+                        >
+                          <RotateIcon size={12} />
+                          {tr('side.chat.retry')}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1684,14 +1754,20 @@ ${(() => { const gp = renderGlossaryPrompt(glossary); return gp ? `\n${gp}\n` : 
             {sessions.length === 0 ? (
               <Empty text={tr('side.library.empty')} />
             ) : (
-              sessions.map((s) => (
+              sessions.map((s) => {
+                const renaming = renamingId === s.id
+                return (
                 <div
                   key={s.id}
                   className="group row row-hover"
                   role="button"
                   tabIndex={0}
-                  onClick={() => openSession(s)}
+                  onClick={() => {
+                    if (renaming) return
+                    openSession(s)
+                  }}
                   onKeyDown={(e) => {
+                    if (renaming) return
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
                       openSession(s)
@@ -1700,23 +1776,65 @@ ${(() => { const gp = renderGlossaryPrompt(glossary); return gp ? `\n${gp}\n` : 
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className="text-[12px] font-medium text-ink truncate">{s.title}</div>
+                      {renaming ? (
+                        <input
+                          autoFocus
+                          value={renameDraft}
+                          onChange={(e) => setRenameDraft(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => {
+                            e.stopPropagation()
+                            if (e.key === 'Enter') commitRename(s.id)
+                            if (e.key === 'Escape') setRenamingId(null)
+                          }}
+                          onBlur={() => commitRename(s.id)}
+                          aria-label={tr('aria.rename')}
+                          className="field-sm w-full"
+                        />
+                      ) : (
+                        <div className="text-[12px] font-medium text-ink truncate">{s.title}</div>
+                      )}
                       <div className="text-[10px] text-ink-faint mt-0.5">{formatListTimestamp(s.createdAt)}</div>
                     </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        removeSession(s.id)
-                        if (activeSessionId === s.id) startNewChat()
-                      }}
-                      aria-label={tr('aria.deleteConversation')}
-                      className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-danger transition-opacity"
-                    >
-                      <XIcon size={15} />
-                    </button>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setRenamingId(s.id)
+                          setRenameDraft(s.title)
+                        }}
+                        aria-label={tr('aria.rename')}
+                        disabled={renaming}
+                        className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-accent transition-opacity disabled:hidden"
+                      >
+                        <PencilIcon size={14} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          downloadSessionMarkdown(s)
+                        }}
+                        aria-label={tr('aria.download')}
+                        className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-accent transition-opacity"
+                      >
+                        <DownloadIcon size={14} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          removeSession(s.id)
+                          if (activeSessionId === s.id) startNewChat()
+                        }}
+                        aria-label={tr('aria.deleteConversation')}
+                        className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-danger transition-opacity"
+                      >
+                        <XIcon size={15} />
+                      </button>
+                    </div>
                   </div>
                 </div>
-              ))
+                )
+              })
             )}
           </div>
           {sessions.length > 0 && (
@@ -1821,6 +1939,20 @@ ${(() => { const gp = renderGlossaryPrompt(glossary); return gp ? `\n${gp}\n` : 
                             <span className="text-[10px] text-ink-faint">
                               {formatListTimestamp(e.createdAt)}
                             </span>
+                            {/* The source url is captured but was invisible —
+                                show it as a host link so a history row can
+                                take you back to the page it came from. */}
+                            {e.url && (
+                              <a
+                                href={e.url}
+                                target="_blank"
+                                rel="noreferrer noopener"
+                                className="text-[10px] text-accent/80 hover:text-accent hover:underline truncate max-w-[120px]"
+                                onClick={(ev) => ev.stopPropagation()}
+                              >
+                                {safeHost(e.url)}
+                              </a>
+                            )}
                           </div>
                           <div className="text-[12px] text-ink leading-relaxed border-l-2 border-accent/40 pl-2.5">{e.source}</div>
                           <div className="text-[12px] text-ink-soft leading-relaxed mt-1 pl-2.5">{e.target}</div>
@@ -1832,6 +1964,13 @@ ${(() => { const gp = renderGlossaryPrompt(glossary); return gp ? `\n${gp}\n` : 
                             className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-accent transition-opacity"
                           >
                             <ClipboardListIcon size={14} />
+                          </button>
+                          <button
+                            onClick={() => removeTranslationHistory(e.id)}
+                            aria-label={tr('aria.delete')}
+                            className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 text-ink-faint hover:text-danger transition-opacity"
+                          >
+                            <XIcon size={14} />
                           </button>
                         </div>
                       </div>

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { toMarkdown, toObsidian, toNotionProperties } from '../src/shared/exporters'
+import { toMarkdown, toObsidian, toNotionProperties, sessionToMarkdown, toAnkiTsv } from '../src/shared/exporters'
 import type { Highlight } from '../src/shared/highlights'
+import type { VocabEntry } from '../src/shared/vocabulary'
 
 const hs: Highlight[] = [
   {
@@ -93,5 +94,73 @@ describe('toNotionProperties', () => {
       Note: { rich_text: { text: { content: string } }[] }
     }
     expect(payload.Note.rich_text[0].text.content.length).toBe(2000)
+  })
+})
+
+describe('sessionToMarkdown', () => {
+  const session = {
+    id: 's1',
+    title: 'My chat',
+    url: 'https://a.com/p',
+    createdAt: new Date('2026-08-28T10:00:00').getTime(),
+    messages: [
+      { id: 'm1', role: 'user' as const, content: 'What is this about?' },
+      { id: 'm2', role: 'assistant' as const, content: 'It is about **testing**.' },
+    ],
+  }
+
+  it('emits a header with title, source link and date, then the turns', () => {
+    const out = sessionToMarkdown(session)
+    expect(out).toContain('# My chat')
+    expect(out).toContain('Source: [My chat](<https://a.com/p>)')
+    expect(out).toContain('## ❓ What is this about?')
+    expect(out).toContain('It is about **testing**.')
+  })
+
+  it('escapes markdown-injecting titles like the highlight exporters', () => {
+    const out = sessionToMarkdown({ ...session, title: 'a](https://evil.example) x' })
+    expect(out).toContain('# a\\](https://evil.example) x')
+    expect(out).not.toContain('# a](https://evil.example) x')
+  })
+
+  it('omits the source line when the session has no url', () => {
+    const out = sessionToMarkdown({ ...session, url: '' })
+    expect(out).not.toContain('Source:')
+  })
+})
+
+describe('toAnkiTsv', () => {
+  const entries: VocabEntry[] = [
+    {
+      id: 'v1', word: 'serendipity', translation: '机缘巧合', context: 'A happy accident.',
+      url: 'u', title: 'T', lang: 'en', createdAt: 1,
+      srs: { due: 0, interval: 0, ease: 2.5, reps: 0, lapses: 0 },
+    },
+    {
+      // Commas/quotes/newlines/tabs in fields must not corrupt the row.
+      id: 'v2', word: 'tricky, "word"', translation: '难\n词', context: 'has\ttab',
+      url: 'u', title: 'T', lang: 'en', createdAt: 1,
+      srs: { due: 0, interval: 0, ease: 2.5, reps: 0, lapses: 0 },
+    },
+  ]
+
+  it('writes Anki import headers and one tab-separated row per word', () => {
+    const out = toAnkiTsv(entries)
+    const lines = out.trimEnd().split('\n')
+    expect(lines[0]).toBe('#separator:tab')
+    expect(lines[1]).toBe('#html:true')
+    expect(lines[2]).toBe('#columns:Word\tTranslation\tContext\tSource')
+    expect(lines[3]).toBe('serendipity\t机缘巧合\tA happy accident.\tT')
+  })
+
+  it('escapes fields containing separators/quotes/newlines', () => {
+    const out = toAnkiTsv(entries)
+    const row = out.trimEnd().split('\n')[4]
+    const fields = row.split('\t')
+    expect(fields).toHaveLength(4)
+    expect(fields[0]).toBe('"tricky, ""word"""')
+    // Newlines become <br> (html:true), tabs become spaces.
+    expect(fields[1]).toBe('难<br>词')
+    expect(fields[2]).toBe('has tab')
   })
 })

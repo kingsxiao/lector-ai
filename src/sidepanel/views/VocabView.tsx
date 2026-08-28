@@ -12,9 +12,11 @@ import {
   DEFAULT_DECK_NAME,
   DEFAULT_MODEL_NAME,
 } from '../../shared/anki'
-import { SparklesIcon, XIcon, CardsIcon } from '../../shared/icons'
+import { SparklesIcon, XIcon, CardsIcon, DownloadIcon } from '../../shared/icons'
 import { ViewShell, Empty, StatsBar, SrsGradeButtons } from '../components/leaf'
 import { formatAnkiResult } from '../lib/ankiFormat'
+import { downloadBlob } from '../lib/downloads'
+import { toAnkiTsv } from '../../shared/exporters'
 
 interface VocabViewProps {
   vocab: VocabEntry[]
@@ -192,13 +194,26 @@ function VocabViewImpl({
           {/* Anki export action bar */}
           <div className="px-4 py-3 border-b border-line">
             {!showPanel ? (
-              <button
-                onClick={() => setShowPanel(true)}
-                className="btn-add py-2 text-[12px]"
-              >
-                <CardsIcon size={13} />
-                {tr('side.vocab.sendAnki')}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowPanel(true)}
+                  className="btn-add py-2 text-[12px] flex-1"
+                >
+                  <CardsIcon size={13} />
+                  {tr('side.vocab.sendAnki')}
+                </button>
+                <button
+                  onClick={() =>
+                    downloadBlob('lector-vocab.txt', toAnkiTsv(vocab), 'text/tab-separated-values')
+                  }
+                  aria-label={tr('side.vocab.exportTsv')}
+                  title={tr('side.vocab.exportTsv')}
+                  className="btn-add py-2 text-[12px]"
+                >
+                  <DownloadIcon size={13} />
+                  {tr('side.vocab.exportTsv')}
+                </button>
+              </div>
             ) : (
               <div className="space-y-2.5 py-0.5">
                 <div>

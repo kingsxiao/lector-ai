@@ -1,5 +1,7 @@
 // Export providers for Feature ②. Pure functions producing payloads/strings.
 import type { Highlight } from './highlights'
+import type { VocabEntry } from './vocabulary'
+import type { ChatSession } from './store'
 
 export interface ExportOptions {
   /** Optional vault root for relative links (Obsidian). */
@@ -113,4 +115,47 @@ export function toNotionProperties(h: Highlight): Record<string, unknown> {
       rich_text: [{ text: { content: (h.note || '').slice(0, 2000) } }],
     },
   }
+}
+
+/** Markdown export of one chat session: header with source link + date, then
+ *  the Q&A turns. Model replies are already markdown source — emitted verbatim
+ *  so structure (lists/code/citations) survives the round-trip. */
+export function sessionToMarkdown(s: ChatSession): string {
+  const head = [
+    `# ${escapeMdLinkText(s.title || 'Untitled conversation')}`,
+    '',
+    s.url ? `Source: [${escapeMdLinkText(s.title || s.url)}](${mdLinkUrl(s.url)})` : '',
+    `Date: ${localDateString(new Date(s.createdAt))}`,
+    '',
+    '---',
+    '',
+  ]
+  const turns = s.messages.map((m) =>
+    m.role === 'user'
+      ? `## ❓ ${m.content}\n`
+      : `${m.content}\n`
+  )
+  return head.filter((l) => l !== undefined).join('\n') + turns.join('\n\n') + '\n'
+}
+
+/** RFC-4180 CSV field escaping: quote when the value has a comma, quote,
+ *  newline, or CR; double embedded quotes. */
+function csvField(s: string): string {
+  const v = s ?? ''
+  return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
+}
+
+/** Vocab export as an Anki-importable tab-separated file: front=word,
+ *  back=translation, extra columns context + source. Anki's importer accepts
+ *  TSV natively (Field separation: Tabs); HTML line breaks render multi-line
+ *  context inside a card. */
+export function toAnkiTsv(vs: VocabEntry[]): string {
+  const lines = ['#separator:tab', '#html:true', '#columns:Word\tTranslation\tContext\tSource']
+  for (const v of vs) {
+    const br = (s: string) => (s ?? '').replace(/\t/g, ' ').replace(/\n/g, '<br>')
+    lines.push(
+      [br(v.word), br(v.translation), br(v.context), br(v.title)].map(csvField).join('\t')
+    )
+  }
+  return lines.join('\n') + '\n'
 }

@@ -98,6 +98,17 @@ export const STRINGS = {
     zh: 'Lector 免费且私密。你的密钥仅存储在本浏览器中，并直接发送至你选择的服务商 —— 绝不发送给我们。',
   },
   'settings.provider': { en: 'Provider', zh: '服务商' },
+  'settings.backup.title': { en: 'Backup & restore', zh: '备份与恢复' },
+  'settings.backup.desc': {
+    en: 'Your sessions, highlights, vocabulary, sentence cards and history live only in this browser — clear site data and they are gone. Export a backup file regularly; importing merges it back without creating duplicates.',
+    zh: '会话、高亮、词汇、句卡与历史只存在本浏览器——清除站点数据即全部丢失。建议定期导出备份；导入时按内容合并，不会产生重复。',
+  },
+  'settings.backup.noKey': { en: 'Backup files never contain your API key.', zh: '备份文件绝不包含你的 API 密钥。' },
+  'settings.backup.export': { en: 'Export all data', zh: '导出全部数据' },
+  'settings.backup.import': { en: 'Import backup', zh: '导入备份' },
+  'settings.backup.imported': { en: 'Imported {n} items.', zh: '已导入 {n} 条。' },
+  'settings.backup.importedNone': { en: 'Nothing new — this backup matches your current data.', zh: '没有新增——备份与当前数据一致。' },
+  'settings.backup.importFail': { en: 'Import failed.', zh: '导入失败。' },
   'settings.baseUrl': { en: 'Base URL', zh: 'Base URL' },
   'settings.baseUrl.hint': { en: '(OpenAI-compatible)', zh: '（OpenAI 兼容）' },
   'settings.apiKey': { en: 'API Key', zh: 'API Key' },
@@ -265,6 +276,8 @@ export const STRINGS = {
   'side.chat.stop': { en: 'Stop', zh: '停止' },
   'side.chat.canceled': { en: '(stopped)', zh: '（已停止）' },
   'side.chat.retry': { en: 'Retry', zh: '重试' },
+  'side.chat.copy': { en: 'Copy', zh: '复制' },
+  'side.chat.copied': { en: 'Copied', zh: '已复制' },
   'side.chat.stoppedShort': {
     en: 'Response stopped — tap Retry to continue.',
     zh: '回答已停止 — 点「重试」继续。',
@@ -299,6 +312,9 @@ export const STRINGS = {
   'aria.sendToAnki': { en: 'Send to Anki', zh: '发送到 Anki' },
   'aria.edit': { en: 'Edit', zh: '编辑' },
   'aria.delete': { en: 'Delete', zh: '删除' },
+  'aria.copy': { en: 'Copy message', zh: '复制消息' },
+  'aria.rename': { en: 'Rename conversation', zh: '重命名会话' },
+  'aria.download': { en: 'Download', zh: '下载' },
   'aria.enableGlossary': { en: 'Enable glossary entry', zh: '启用术语' },
 
   // --- provider descriptions (localized; providers.ts holds an English fallback) ---
@@ -401,6 +417,7 @@ export const STRINGS = {
 
   // --- Anki export (Feature: Anki 一键制卡) ---
   'side.vocab.sendAnki': { en: 'Send to Anki', zh: '发送到 Anki' },
+  'side.vocab.exportTsv': { en: 'Export TSV', zh: '导出 TSV' },
   'side.vocab.ankiUrl': { en: 'AnkiConnect URL', zh: 'AnkiConnect 地址' },
   'side.vocab.ankiDeck': { en: 'Deck name', zh: '牌组名称' },
   'side.vocab.ankiModel': { en: 'Note type', zh: '笔记类型' },

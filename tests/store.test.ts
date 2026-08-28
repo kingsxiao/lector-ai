@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useStore, type ChatSession } from '../src/shared/store'
+import { parseBackup } from '../src/shared/backup'
 import { BUILTIN_TEMPLATES } from '../src/shared/promptTemplates'
 import type { Highlight } from '../src/shared/highlights'
 import type { VocabEntry } from '../src/shared/vocabulary'
@@ -246,6 +247,65 @@ describe('translation history', () => {
     })
     useStore.getState().clearTranslationHistory()
     expect(useStore.getState().translationHistory).toHaveLength(0)
+  })
+  it('removeTranslationHistory deletes exactly one row by id', () => {
+    useStore.getState().addTranslationHistory({
+      source: 'a', target: '甲', sourceLang: 'auto', targetLang: 'zh',
+      kind: 'selection', url: 'u', createdAt: 1,
+    })
+    useStore.getState().addTranslationHistory({
+      source: 'b', target: '乙', sourceLang: 'auto', targetLang: 'zh',
+      kind: 'selection', url: 'u', createdAt: 2,
+    })
+    const before = useStore.getState().translationHistory
+    // appendHistory prepends, so [0] is 'b' (newest) — remove the older 'a'.
+    const idA = before.find((e) => e.source === 'a')!.id
+    useStore.getState().removeTranslationHistory(idA)
+    const after = useStore.getState().translationHistory
+    expect(after).toHaveLength(1)
+    expect(after[0].source).toBe('b')
+  })
+})
+
+describe('full backup (exportBackup / importBackup)', () => {
+  const srs = { due: 1, interval: 0, ease: 2.5, reps: 0, lapses: 0 }
+
+  it('exportBackup snapshots every data slice and never the API key', () => {
+    useStore.setState({
+      sessions: [{ id: 's1', title: 'T', url: 'u', createdAt: 1, messages: [] }],
+      vocab: [{ id: 'v1', word: 'w', translation: 't', context: '', url: '', title: '', lang: 'en', createdAt: 1, srs }],
+    })
+    const b = useStore.getState().exportBackup()
+    expect(b.app).toBe('lector-ai')
+    expect(b.sessions).toHaveLength(1)
+    expect(b.vocab).toHaveLength(1)
+    expect('byok' in b).toBe(false)
+    expect('hasOpened' in b).toBe(false)
+  })
+
+  it('importBackup merges into live data and is idempotent', () => {
+    useStore.setState({
+      vocab: [{ id: 'v1', word: 'alpha', translation: '甲', context: '', url: '', title: '', lang: 'en', createdAt: 1, srs: { ...srs, reps: 5 } }],
+    })
+    const backup = useStore.getState().exportBackup()
+    // Simulate the pre-backup machine: add a different word locally.
+    useStore.setState({
+      vocab: [
+        { id: 'v1', word: 'alpha', translation: '甲', context: '', url: '', title: '', lang: 'en', createdAt: 1, srs: { ...srs, reps: 5 } },
+        { id: 'v2', word: 'beta', translation: '乙', context: '', url: '', title: '', lang: 'en', createdAt: 2, srs },
+      ],
+    })
+    // And age the backup's copy of alpha (fewer reps) — live must win.
+    backup.vocab[0].srs = { ...srs }
+    const added1 = useStore.getState().importBackup(backup)
+    expect(added1.vocab).toBe(0) // alpha already present (better SRS)
+    const vocab = useStore.getState().vocab
+    expect(vocab).toHaveLength(2)
+    expect(vocab.find((v) => v.word === 'alpha')?.srs.reps).toBe(5)
+    // Round-trip through JSON, like a real file: parseBackup accepts it.
+    const reparsed = parseBackup(JSON.stringify(backup))
+    const added2 = useStore.getState().importBackup(reparsed)
+    expect(added2.vocab).toBe(0)
   })
 })
 

@@ -8,6 +8,7 @@ import { BUILTIN_TEMPLATES, newTemplateId, type PromptTemplate } from './promptT
 import { newEntryId, type GlossaryEntry } from './glossary'
 import { newCardId, normalizeSentence, makeSentenceCard, mergeSentenceCard, dedupeCards, type SentenceCard } from './sentences'
 import { appendHistory, newHistoryId, type TranslationHistoryEntry } from './translation'
+import { buildBackup, mergeBackupInto, type BackupSource, type BackupSummary, type LectorBackup } from './backup'
 
 // --- debounced persistence ---------------------------------------------------
 // zustand/persist writes the ENTIRE partialized state (sessions + highlights +
@@ -66,6 +67,18 @@ export interface ChatSession {
   url: string
   createdAt: number
   messages: ChatMessage[]
+}
+
+function pickBackupSource(s: AppState): BackupSource {
+  return {
+    sessions: s.sessions,
+    highlights: s.highlights,
+    vocab: s.vocab,
+    templates: s.templates,
+    glossary: s.glossary,
+    sentences: s.sentences,
+    translationHistory: s.translationHistory,
+  }
 }
 
 interface AppState {
@@ -145,6 +158,12 @@ interface AppState {
   /** Batch append for relay-queue drains. */
   addTranslationHistoryBatch: (entries: Array<Omit<TranslationHistoryEntry, 'id'>>) => void
   clearTranslationHistory: () => void
+  removeTranslationHistory: (id: string) => void
+
+  // Full-library backup (Settings → 备份与恢复). Export never touches byok;
+  // import merges into the live library (existing rows win, idempotent).
+  exportBackup: () => LectorBackup
+  importBackup: (backup: LectorBackup) => BackupSummary
 
   // Mark the panel as opened (first-run onboarding gate).
   markOpened: () => void
@@ -152,7 +171,7 @@ interface AppState {
 
 export const useStore = create<AppState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       byok: DEFAULT_BYOK_SETTINGS,
       sessions: [],
       highlights: [],
@@ -432,6 +451,21 @@ export const useStore = create<AppState>()(
           return { translationHistory: history }
         }),
       clearTranslationHistory: () => set({ translationHistory: [] }),
+      removeTranslationHistory: (id) =>
+        set((s) => ({ translationHistory: s.translationHistory.filter((e) => e.id !== id) })),
+
+      exportBackup: () => buildBackup(pickBackupSource(get())),
+      importBackup: (backup) => {
+        let added: BackupSummary = {
+          sessions: 0, highlights: 0, vocab: 0, templates: 0, glossary: 0, sentences: 0, history: 0,
+        }
+        set((s) => {
+          const { next, added: a } = mergeBackupInto(pickBackupSource(s), backup)
+          added = a
+          return next
+        })
+        return added
+      },
 
       markOpened: () => set({ hasOpened: true }),
     }),
