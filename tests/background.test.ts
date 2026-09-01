@@ -9,7 +9,7 @@
  * loss — the end-to-end proof for the A6 RMW-race fix (the pure helper is
  * covered separately in storageQueue.test.ts).
  */
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest'
 
 // --- chrome stub -----------------------------------------------------------
 // A minimal, callback-style chrome.storage.local + chrome.runtime.onMessage
@@ -127,5 +127,69 @@ describe('background relay (A6 serialization integration)', () => {
     expect(list.length).toBe(1)
     expect(list[0].source).toBe('s')
     expect(typeof list[0].id).toBe('string')
+  })
+})
+
+describe('handleSaveWordRelay — duplicate save keeps its paid translation', () => {
+  const origFetch = globalThis.fetch
+  afterEach(() => {
+    globalThis.fetch = origFetch
+  })
+
+  // Regression: saving a word that already sits in the queue takes the MERGE
+  // branch, which keeps the existing row and discards the fresh entry.id. The
+  // post-translate enrich used to be keyed on the discarded id, so the paid
+  // translation silently vanished (word left untranslated). The enrich must
+  // follow the row that actually survived the merge.
+  it('enriches the merged (pre-existing) row, not the discarded insert id', async () => {
+    storage = {}
+    // Pre-existing undrained row saved earlier with NO api key → translation ''.
+    storage.lectorVocab = [
+      {
+        id: 'vseed',
+        word: 'hello',
+        translation: '',
+        context: 'old context',
+        url: 'https://a.example',
+        title: 'A',
+        lang: 'en',
+        createdAt: 1,
+        srs: { due: 1, interval: 0, ease: 2.5, reps: 0, lapses: 0 },
+      },
+    ]
+    // Now a key exists; re-saving the same word translates it (BYOK).
+    storage.lector_byok_settings = { provider: 'openai', apiKey: 'sk-test', model: 'gpt-x' }
+    const enc = new TextEncoder()
+    globalThis.fetch = (async () => ({
+      ok: true,
+      status: 200,
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            enc.encode('data: ' + JSON.stringify({ type: 'response.output_text.delta', delta: 'T' }) + '\n\n')
+          )
+          controller.enqueue(
+            enc.encode(
+              'data: ' +
+                JSON.stringify({ type: 'response.completed', response: { status: 'completed', output: [] } }) +
+                '\n\n'
+            )
+          )
+          controller.close()
+        },
+      }),
+      headers: { get: () => 'text/event-stream' },
+      json: async () => ({}),
+      text: async () => '',
+    })) as unknown as typeof fetch
+
+    messageListener!({ action: 'lector-save-word', word: 'hello', context: 'new context', url: 'https://b.example', title: 'B' }, {}, () => {})
+    await flush(8000)
+
+    const list = storage.lectorVocab as any[]
+    expect(list.length).toBe(1)
+    expect(list[0].id).toBe('vseed') // merged, not duplicated
+    expect(list[0].translation).toBe('T') // paid enrich landed on the surviving row
+    expect(list[0].context).toBe('new context') // merge branch applied
   })
 })

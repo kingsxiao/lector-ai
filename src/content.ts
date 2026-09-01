@@ -365,7 +365,7 @@ async function summarizePage() {
   const x = rect?.left || 100
   const y = rect?.top || 100
   showLoading(x, y)
-  const settings = await requireApiKey(x, y, 'translate')
+  const settings = await requireApiKey(x, y, 'summary')
   if (!settings) return
   const pageText = extractPage().text
   try {
@@ -880,8 +880,13 @@ function persistPickedTarget(raw: string) {
   safeRuntimeSend({ action: 'lector-set-translation-target', target: raw })
 }
 
-/**
- * Streaming translate popup (DeepL-style). Shows immediately with a skeleton +
+// Registry of the currently-open streaming popup's aborter, so removeResult()
+// can stop an in-flight stream the user dismissed (paid tokens + a history
+// entry must not keep landing for a closed popup). Set on popup creation,
+// cleared/aborted by removeResult.
+let activeResultStream: { abort: () => void } | null = null
+
+/** Streaming translate popup (DeepL-style). Shows immediately with a skeleton +
  * target-language selector; tokens stream into the content area. The caller's
  * `run(target, sink)` does the actual streaming; re-running on language change
  * reuses the same popup.
@@ -1000,6 +1005,15 @@ function showStreamingTranslateResult(
   // sink callbacks are ignored so two streams never interleave.
   let gen = 0
   let runController: AbortController | null = null
+  let popupClosed = false
+  // Expose the in-flight run to removeResult(): closing the popup aborts the
+  // stream (no orphaned paid generation racing into detached DOM nodes).
+  activeResultStream = {
+    abort: () => {
+      popupClosed = true
+      runController?.abort()
+    },
+  }
   const sink = {
     append(delta: string) {
       acc += delta
@@ -1026,6 +1040,11 @@ function showStreamingTranslateResult(
     try {
       await run(target, mySink, runController.signal)
       if (myGen !== gen) return // superseded; don't touch DOM or history
+      // The popup was closed mid-stream: the run was aborted, so reaching the
+      // success path here means the final frame raced the close. The user saw
+      // nothing — don't detach-into caret juggling and don't log a history
+      // entry for a translation that was never displayed.
+      if (popupClosed) return
       if (caret.parentNode === content) content.removeChild(caret)
       // The history relay is best-effort and orphan-safe (safeRuntimeSend).
       // It lives OUTSIDE the stream's error path on purpose: a failure here
@@ -1049,7 +1068,10 @@ function showStreamingTranslateResult(
       if (myGen !== gen) return
       if (caret.parentNode === content) content.removeChild(caret)
       const msg = e instanceof Error ? e.message : tr('err.requestFailed')
-      content.textContent = tr('err.failedPrefix').replace('{msg}', msg)
+      // Write into the fixed textNode, NOT content.textContent: replacing the
+      // content children would detach textNode, and a later language switch
+      // would stream into the detached node with the stale error left visible.
+      textNode.data = tr('err.failedPrefix').replace('{msg}', msg)
     }
   }
 
@@ -1058,6 +1080,10 @@ function showStreamingTranslateResult(
 
 function removeResult() {
   closeAllDropdowns()
+  // A dismissed popup must stop paying for its stream: abort the in-flight
+  // run (Close / Escape / outside click / popup replacement all funnel here).
+  activeResultStream?.abort()
+  activeResultStream = null
   if (resultPopup) {
     resultPopup.remove()
     resultPopup = null
@@ -1382,7 +1408,13 @@ function handleAction(kind: 'translate' | 'summarize' | 'explain' | 'ask', text:
 
 async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: string) {
   const rect = selectionToolbar?.getBoundingClientRect()
-  const settings = await requireApiKey(rect?.left || 100, rect?.top || 100, 'translate')
+  // The no-key popup is titled by action — a keyless Summarize must not be
+  // greeted with a "Translation" heading.
+  const settings = await requireApiKey(
+    rect?.left || 100,
+    rect?.top || 100,
+    kind === 'summarize' ? 'summary' : kind
+  )
   if (!settings) return
 
   if (kind === 'translate') {
@@ -2919,6 +2951,11 @@ let hoverAbort: AbortController | null = null
 async function translateBlockOnHover(block: HTMLElement) {
   // Skip if already translated (avoid duplicate injection on repeated hovers).
   if (block.querySelector(':scope > .lector-bilingual')) return
+  // A whole-page run (or its post-run incremental observer) owns block
+  // translation: the run's translateBlockChunks strips foreign .lector-bilingual
+  // spans, so a hover translation started mid-run gets ripped out in flight and
+  // can even double-charge the provider. Let the run/incremental pass do it.
+  if (bilingualAbort || incrementalCtx) return
   const settings = await getSettingsCached()
   if (!settings.apiKey) return
   const tSettings = normalizeTranslationSettings(settings.translation)
@@ -3040,7 +3077,13 @@ function writeEditableField(el: EditableField, value: string) {
   el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }))
 }
 
+/** Per-field generation counter: a second trigger on the same field supersedes
+ *  the first, so two rapid translations can never write back out of order. */
+const inputFieldGen = new WeakMap<EditableField, number>()
+
 async function translateInputField(el: EditableField, targetOverride?: string) {
+  const myGen = (inputFieldGen.get(el) || 0) + 1
+  inputFieldGen.set(el, myGen)
   const settings = await getSettingsCached()
   if (!settings.apiKey) return
   const tSettings = normalizeTranslationSettings(settings.translation)
@@ -3058,6 +3101,12 @@ async function translateInputField(el: EditableField, targetOverride?: string) {
       { maxTokens: Math.min(2000, Math.max(200, raw.length * 2)), temperature: 0.2 }
     )
     if (!out) return
+    // Staleness guards BEFORE the write: the user may have kept typing during
+    // the multi-second provider call (unconditionally replacing the field
+    // would silently destroy their input), and a newer trigger on the same
+    // field must be the only writer.
+    if (inputFieldGen.get(el) !== myGen) return
+    if (readEditableField(el) !== raw) return
     if (inputCfg.mode === 'append') {
       writeEditableField(el, raw + '\n' + out)
     } else {

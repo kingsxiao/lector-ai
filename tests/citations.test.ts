@@ -59,4 +59,22 @@ describe('renderCitations', () => {
     expect(html).not.toContain('data-cite')
     expect(html).not.toMatch(/\[99\]/)
   })
+  it('leaves code spans untouched — arr[0] is indexing, not a citation', () => {
+    const html = renderCitations('use <code>arr[0]</code> first, source says [0].', valid)
+    // The code span keeps its raw bracket text and gains NO chip.
+    expect(html).toContain('<code>arr[0]</code>')
+    // Prose outside the span still gets its chip.
+    expect(html).toContain('data-cite="b0"')
+  })
+  it('leaves pre/code blocks untouched (multi-line, multiple indexes)', () => {
+    const code = '<pre><code>const x = items[1];\nreturn matrix[7][0];</code></pre>'
+    const html = renderCitations(`before [0] ${code} after [1].`, valid)
+    expect(html).toContain(code)
+    expect(html).toContain('data-cite="b0"')
+    expect(html).toContain('data-cite="b1"')
+  })
+  it('returns the html unchanged when the page has no citable blocks', () => {
+    const raw = 'the [0] and [42] brackets are plain prose here'
+    expect(renderCitations(raw, new Set())).toBe(raw)
+  })
 })

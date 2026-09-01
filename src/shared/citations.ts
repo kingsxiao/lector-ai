@@ -56,14 +56,29 @@ export function buildCitedSystemPrompt(blocks: PageBlock[]): string {
  * Render an HTML fragment, replacing [bN] markers with clickable citation
  * chips. Invalid ids are stripped entirely (no chip, no leftover bracket).
  * Input HTML is assumed already-escaped by the markdown renderer.
+ *
+ * Code regions (<pre>/<code>) and pages with no citable blocks are left
+ * untouched: `arr[0]` in a code block is indexing, not a citation, and on a
+ * page without blocks EVERY bracketed number is prose, not a citation marker —
+ * deleting either would silently corrupt the rendered answer.
  */
 export function renderCitations(html: string, validIds: Set<string>): string {
-  return html.replace(/\[(b?\d+)\]/g, (_full, inside: string) => {
-    const display = inside.replace(/^b/, '')
-    const raw = `b${display}`
-    if (!validIds.has(raw)) return ''
-    // tabindex+role make the chip reachable and activatable by keyboard; the
-    // sidepanel's delegated keydown handler listens for Enter/Space.
-    return `<sup class="lector-cite" data-cite="${raw}" title="Source block ${display}" role="button" tabindex="0" aria-label="Source block ${display}">[${display}]</sup>`
-  })
+  if (validIds.size === 0) return html
+  // renderCitations runs AFTER the markdown passes, so code spans/blocks are
+  // real <code>/<pre> elements by now. Split them out and only rewrite the
+  // prose segments (even indices).
+  return html
+    .split(/(<pre[\s\S]*?<\/pre>|<code>[\s\S]*?<\/code>)/g)
+    .map((segment, i) => {
+      if (i % 2 === 1) return segment
+      return segment.replace(/\[(b?\d+)\]/g, (_full, inside: string) => {
+        const display = inside.replace(/^b/, '')
+        const raw = `b${display}`
+        if (!validIds.has(raw)) return ''
+        // tabindex+role make the chip reachable and activatable by keyboard; the
+        // sidepanel's delegated keydown handler listens for Enter/Space.
+        return `<sup class="lector-cite" data-cite="${raw}" title="Source block ${display}" role="button" tabindex="0" aria-label="Source block ${display}">[${display}]</sup>`
+      })
+    })
+    .join('')
 }

@@ -142,9 +142,9 @@ export function putEntry(
 
 /**
  * Batched insert for a translation run: one store copy + one trim for the
- * whole batch instead of two per chunk. Entries earlier in the list win on
- * duplicate keys (they were requested first; the run's own retries overwrite
- * them by passing the later one last).
+ * whole batch instead of two per chunk. On duplicate keys the LAST entry in
+ * the list wins (plain overwrite) — the run's own retries rely on this by
+ * passing the retried chunk later in the batch.
  */
 export function putEntries(
   store: CacheStore,

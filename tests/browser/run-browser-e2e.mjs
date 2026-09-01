@@ -166,6 +166,10 @@ window.chrome = {
     },
   },
   runtime: {
+    // safeRuntimeSend() gates every fire-and-forget relay on chrome.runtime.id
+    // (orphan-script guard); without it all bilingual progress/error/open-panel
+    // messages are silently dropped and the assertions below see nothing.
+    id: 'testid',
     // Return a real Promise (resolved) so relayOrAlert()'s await completes.
     sendMessage: (msg) => {
       window.__lectorMsgs.push(msg);
@@ -206,7 +210,20 @@ window.chrome = {
         cb && cb();
       },
     },
+    // The content script caches settings for 60s and invalidates them on
+    // storage.onChanged; without this stub the overrides each test writes
+    // (target language / cache TTL / storage delay) would never reach the
+    // runs after the very first one.
+    onChanged: {
+      addListener(fn) { (window.__storageChangedListeners = window.__storageChangedListeners || []).push(fn); },
+    },
   },
+};
+
+// Tests call this after changing __translationSettingsOverride /
+// __storageDelayMs so the next run re-reads storage instead of the TTL cache.
+window.__fireStorageChanged = () => {
+  (window.__storageChangedListeners || []).forEach((fn) => fn({ lector_byok_settings: {} }, 'local'));
 };
 'done';
 `
@@ -576,6 +593,7 @@ async function main() {
       p.textContent = 'A successful test paragraph must be reused inside the same run when persistent caching is disabled.';
       document.body.appendChild(p);
       window.__translationSettingsOverride = { cacheTtlDays: 0 };
+      window.__fireStorageChanged();
       window.__translationResponseMode = 'translated';
       window.__fetchCalls = [];
     })()`)
@@ -593,6 +611,7 @@ async function main() {
       `state=${JSON.stringify(cacheOffProbeState)}`)
     await evalIn(page, `(() => {
       window.__translationSettingsOverride = {};
+      window.__fireStorageChanged();
       document.querySelector('#cache-off-probe-fixture')?.setAttribute('translate', 'no');
     })()`)
 
@@ -605,6 +624,10 @@ async function main() {
       p.textContent = 'This request must never reach the provider after an immediate cancellation.';
       document.body.appendChild(p);
       window.__storageDelayMs = 150;
+      // Invalidate the in-page settings cache so the run actually awaits the
+      // delayed storage read above — otherwise it resolves instantly and the
+      // cancel lands after the probe instead of during the settings load.
+      window.__fireStorageChanged();
       window.__fetchCalls = [];
     })()`)
     await fireContentMessage(page, { action: 'lector-toggle-bilingual' })
@@ -792,6 +815,7 @@ async function main() {
       spanish.textContent = 'Una app muy rápida.';
       document.body.append(english, spanish);
       window.__translationSettingsOverride = { targetLanguage: 'en', cacheTtlDays: 0 };
+      window.__fireStorageChanged();
       window.__translationResponseMode = 'spanish-paraphrase';
       window.__fetchCalls = [];
     })()`)
@@ -805,7 +829,7 @@ async function main() {
     check('§9.10 same-script detector skips target text and rejects source-language paraphrase',
       sameScriptState.fetches === 2 && sameScriptState.englishSkipped && sameScriptState.spanishRejected,
       `state=${JSON.stringify(sameScriptState)}`)
-    await evalIn(page, `document.querySelector('#same-script-already-english')?.setAttribute('translate', 'no'); document.querySelector('#same-script-spanish')?.setAttribute('translate', 'no'); window.__translationSettingsOverride = {}; window.__translationResponseMode = 'translated'`)
+    await evalIn(page, `document.querySelector('#same-script-already-english')?.setAttribute('translate', 'no'); document.querySelector('#same-script-spanish')?.setAttribute('translate', 'no'); window.__translationSettingsOverride = {}; window.__fireStorageChanged(); window.__translationResponseMode = 'translated'`)
 
     // §9.11 Cancel while output-language detection is pending. The provider
     // has already streamed a complete same-script translation, but ownership
@@ -817,6 +841,7 @@ async function main() {
       spanish.textContent = 'Una app muy rápida.';
       document.body.appendChild(spanish);
       window.__translationSettingsOverride = { targetLanguage: 'en', cacheTtlDays: 30 };
+      window.__fireStorageChanged();
       window.__translationResponseMode = 'english-translated';
       window.__delayLanguageDetectionAfterProviderMs = 1500;
       window.__fetchCalls = [];
@@ -847,7 +872,7 @@ async function main() {
     check('§9.11 cancel during delayed language detection restores DOM and skips cache/final completion',
       detectorCancelState.providerCalled && detectorCancelState.hostRestored && !detectorCancelState.cachedTranslatedOutput && detectorCancelState.completes === 0 && detectorCancelState.canceled,
       `state=${JSON.stringify(detectorCancelState)}`)
-    await evalIn(page, `document.querySelector('#cancel-during-detector')?.setAttribute('translate', 'no'); window.__delayLanguageDetectionAfterProviderMs = 0; window.__translationSettingsOverride = {}; window.__translationResponseMode = 'translated'`)
+    await evalIn(page, `document.querySelector('#cancel-during-detector')?.setAttribute('translate', 'no'); window.__delayLanguageDetectionAfterProviderMs = 0; window.__translationSettingsOverride = {}; window.__fireStorageChanged(); window.__translationResponseMode = 'translated'`)
 
     // §9.12 Rapid replacement waits for the old run's DOM cleanup. The
     // aborted run must not emit a stale final-complete that clears the new

@@ -452,6 +452,9 @@ async function main() {
     await sleep(300)
     const inkBg = await evalIn(page, `getComputedStyle(document.body).backgroundColor`)
     const inkAccent = await evalIn(page, `getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()`)
+    // Persistence is debounced (400ms trailing) — wait out the flush window
+    // before reading localStorage, or the pre-click value is still there.
+    await sleep(700)
     const inkSaved = await evalIn(page, `(JSON.parse(localStorage.getItem('lector-ai-storage')||'{}').state?.byok?.palette) || ''`)
     check(
       '§theme: selecting 靛墨 flips tokens + persists (bg #EEF1F6, accent #3D5488)',

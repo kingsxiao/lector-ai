@@ -328,6 +328,10 @@ export default function App() {
   // response, and lets us abort cleanly on unmount / session switch so the
   // stream can't write into the wrong session or an unmounted component.
   const abortRef = useRef<AbortController | null>(null)
+  // Set by abortActiveStream (session switch / New chat) so the stream's catch
+  // can tell a navigation-caused abort from a user Stop: a switched-away stream
+  // must not create a phantom session or hijack activeSessionId on persist.
+  const switchAbortRef = useRef(false)
   // Abort the in-flight stream when the panel unmounts (close / Chrome
   // teardown / strict-mode remount) — otherwise streamChat keeps running and
   // its onToken setMessages fires on a gone component. The progress-clear
@@ -1002,24 +1006,35 @@ export default function App() {
       // switch can cancel it. readSSE returns gracefully on abort, preserving
       // whatever streamed so far.
       abortRef.current = new AbortController()
+      // Freeze the owning session at send time: the user may switch sessions
+      // (or start a new chat) while this stream is in flight — the turn still
+      // belongs to the session it was sent from.
+      const sendSessionId = activeSessionId
 
-      // Persist the finalized turn into the session store. Guarded against the
-      // session being deleted while the stream was running (user removed it
-      // from the Library mid-response): updateSession on a missing id is a
-      // silent no-op, but the user would lose the answer — fall back to
-      // creating a fresh session so the exchange isn't dropped. Used by the
-      // success AND the abort/error paths: a stopped or failed turn must not
-      // silently diverge from the Library copy (it would vanish on reopen).
-      const persistTurn = (finalMessages: ChatMessage[]) => {
-        if (activeSessionId) {
+      // Persist the finalized turn into the session the stream STARTED in —
+      // not the live activeSessionId, which may already point elsewhere (the
+      // user switched sessions / started a new chat while the stream ran).
+      // Guarded against the session being deleted while the stream was running
+      // (user removed it from the Library mid-response): updateSession on a
+      // missing id is a silent no-op, but the user would lose the answer —
+      // fall back to creating a fresh session so the exchange isn't dropped.
+      // allowCreate=false marks a navigation-caused abort: the user abandoned
+      // that fresh-chat exchange, so persisting it as a surprise new session
+      // (and stealing activeSessionId from the chat they switched to) is
+      // worse than dropping the partial. Used by the success AND the
+      // abort/error paths: a stopped or failed turn must not silently diverge
+      // from the Library copy (it would vanish on reopen).
+      const persistTurn = (finalMessages: ChatMessage[], allowCreate = true) => {
+        if (sendSessionId) {
           const stillExists = useStore
             .getState()
-            .sessions.some((s) => s.id === activeSessionId)
+            .sessions.some((s) => s.id === sendSessionId)
           if (stillExists) {
-            updateSession(activeSessionId, { messages: finalMessages })
+            updateSession(sendSessionId, { messages: finalMessages })
             return
           }
         }
+        if (!allowCreate) return
         const session: ChatSession = {
           id: newId(),
           title: page?.title || text.slice(0, 60),
@@ -1117,7 +1132,13 @@ ${(() => { const gp = renderGlossaryPrompt(glossary); return gp ? `\n${gp}\n` : 
           content: assistantBuf.current || '(no response)',
         }
         const finalMessages = next.concat(finalAssistant)
-        setMessages(finalMessages)
+        // cur.map, not setMessages(final): if the user switched sessions and
+        // the final frame raced the abort, the visible transcript belongs to
+        // the NEW session and must not be clobbered — map is a no-op when the
+        // bubble id is absent.
+        setMessages((cur) =>
+          cur.map((m) => (m.id === assistantMsg.id ? finalAssistant : m))
+        )
         setLiveNotice(tr('aria.replyReady'))
         persistTurn(finalMessages)
       } catch (e) {
@@ -1128,6 +1149,8 @@ ${(() => { const gp = renderGlossaryPrompt(glossary); return gp ? `\n${gp}\n` : 
         // Abort (Stop / unmount / session switch) is intentional: keep whatever
         // streamed so far and don't show an error. A genuine failure surfaces
         // inline + (for key/quota errors) in the banner with an Open-settings link.
+        const switchAborted = switchAbortRef.current
+        switchAbortRef.current = false
         const aborted =
           abortRef.current?.signal.aborted ||
           (e instanceof DOMException && e.name === 'AbortError')
@@ -1144,7 +1167,13 @@ ${(() => { const gp = renderGlossaryPrompt(glossary); return gp ? `\n${gp}\n` : 
             )
           )
           setLiveNotice(tr('aria.replyStopped'))
-          persistTurn(next.concat({ ...assistantMsg, content: partial || tr('side.chat.canceled') }))
+          // A switch/New-chat abort must not conjure a phantom session (and
+          // steal activeSessionId from the chat the user moved to); it may
+          // still update the session the stream started in.
+          persistTurn(
+            next.concat({ ...assistantMsg, content: partial || tr('side.chat.canceled') }),
+            !switchAborted
+          )
         } else {
           const msg = e instanceof Error ? e.message : tr('err.requestFailed')
           setError(msg)
@@ -1157,7 +1186,7 @@ ${(() => { const gp = renderGlossaryPrompt(glossary); return gp ? `\n${gp}\n` : 
             )
           )
           setLiveNotice(tr('aria.replyFailed'))
-          persistTurn(next.concat({ ...assistantMsg, content: `⚠️ ${msg}` }))
+          persistTurn(next.concat({ ...assistantMsg, content: `⚠️ ${msg}` }), !switchAborted)
         }
       } finally {
         abortRef.current = null
@@ -1169,8 +1198,10 @@ ${(() => { const gp = renderGlossaryPrompt(glossary); return gp ? `\n${gp}\n` : 
 
   /** Tear down the active stream's transport + pending frame + buffer. Shared
    *  by startNewChat and openSession: a stream from another session must not
-   *  bleed into the chat being switched to. */
+   *  bleed into the chat being switched to. Flags the abort as navigation-
+   *  caused so the stream's catch suppresses its phantom-session persist. */
   const abortActiveStream = () => {
+    switchAbortRef.current = true
     abortRef.current?.abort()
     abortRef.current = null
     if (tokenFrameRef.current !== null) cancelAnimationFrame(tokenFrameRef.current)

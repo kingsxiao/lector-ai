@@ -238,6 +238,10 @@ async function handleSaveWordRelay(message: {
   // word entirely. The translation is enriched below once it resolves.
   // Serialized: prevents two quick word-saves from both reading the same base
   // list and losing one entry to a last-write-wins clobber.
+  // enrichId tracks the row the paid translation must land in: the merge branch
+  // keeps the EXISTING row (discarding entry.id), so enriching entry.id would
+  // silently drop a successful (paid) translation for a duplicate save.
+  let enrichId = entry.id
   vocabChain = appendToList<VocabEntry>(
     vocabChain,
     listStore,
@@ -248,6 +252,7 @@ async function handleSaveWordRelay(message: {
       if (idx === -1) {
         list.unshift(entry)
       } else {
+        enrichId = list[idx].id
         const existing = list[idx]
         list[idx] = {
           ...existing,
@@ -280,9 +285,9 @@ async function handleSaveWordRelay(message: {
   }
   if (!translation) return
   // Live panel first (it owns the row now); storage enrich only as fallback.
-  if (await panelHasEntry('lectorVocab', entry.id)) {
+  if (await panelHasEntry('lectorVocab', enrichId)) {
     try {
-      await chrome.runtime.sendMessage({ action: 'lector-vocab-enrich', id: entry.id, translation })
+      await chrome.runtime.sendMessage({ action: 'lector-vocab-enrich', id: enrichId, translation })
     } catch {
       /* panel closed between the check and the send — fall through */
     }
@@ -295,7 +300,7 @@ async function handleSaveWordRelay(message: {
     listStore,
     'lectorVocab',
     (list) => {
-      const idx = list.findIndex((x) => x.id === entry.id)
+      const idx = list.findIndex((x) => x.id === enrichId)
       if (idx !== -1 && !list[idx].translation) {
         list[idx] = { ...list[idx], translation }
       }
