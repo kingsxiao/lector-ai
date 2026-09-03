@@ -196,6 +196,16 @@ async function evalIn(ws, expression, awaitPromise = false) {
   if (r.exceptionDetails) throw new Error('eval: ' + (r.exceptionDetails.exception?.description || r.exceptionDetails.text).slice(0, 220))
   return r.result.value
 }
+// Real input-path click (Input.dispatchMouseEvent): unlike el.click(), it goes
+// through hit-testing, so a dropdown clipped by an overflow ancestor — state
+// flips but no user can see or click it — fails here. el.click() on the same
+// element would pass, which is exactly how the 0.5.0 "More does nothing" bug
+// slipped past this suite.
+async function realClick(ws, x, y) {
+  const base = { type: 'mousePressed', x, y, button: 'left', clickCount: 1 }
+  await cdpCall(ws, 'Input.dispatchMouseEvent', base)
+  await cdpCall(ws, 'Input.dispatchMouseEvent', { ...base, type: 'mouseReleased' })
+}
 const getTargets = async (port) => (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json())
 const openTab = async (port, url) => (await (await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' })).json())
 
@@ -387,9 +397,31 @@ async function main() {
     check('§9 bilingual button click → lector-toggle-bilingual dispatched', biMsg.length >= 1, `msgs=${biMsg.length}`)
 
     // ---- §7 session library: open via More menu → Library (flat view) ----
-    await evalIn(page, `(()=>{const more=[...document.querySelectorAll('.tab-bar button')].find(b=>/more/i.test(b.getAttribute('aria-label')||'')); if(!more) return 'no-more'; more.click(); return 'opened-more'})()`)
+    // Open AND activate the menu through real-coordinate clicks: the menu must
+    // not only mount but survive hit-testing at its own geometry (the tab-bar
+    // scroll container must not clip it — see realClick note above).
+    const moreRect = await evalIn(page, `JSON.stringify((()=>{const m=[...document.querySelectorAll('.tab-bar button')].find(b=>/more/i.test(b.getAttribute('aria-label')||'')); return m ? m.getBoundingClientRect().toJSON() : null})())`)
+    check('§7 More button found in tab-bar', !!moreRect)
+    const mr = moreRect && JSON.parse(moreRect)
+    if (mr) await realClick(page, mr.x + mr.width / 2, mr.y + mr.height / 2)
     await sleep(200)
-    await evalIn(page, `(()=>{const b=[...document.querySelectorAll('button')].find(x=>(x.getAttribute('aria-label')||'')==='Library'); if(b){b.click(); return 'opened'} return 'no-btn'})()`)
+    const menuVisible = await evalIn(page, `(()=>{
+      const menu = document.querySelector('[role=menu]');
+      if (!menu) return { open: false, hit: false };
+      const r = menu.getBoundingClientRect();
+      const first = menu.querySelector('button');
+      const b = first.getBoundingClientRect();
+      const hit = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2);
+      return { open: true, hit: !!hit && menu.contains(hit), rect: [r.x, r.y, r.width, r.height].map(Math.round), vh: innerHeight };
+    })()`)
+    check('§7 More menu opens visibly (real click; not clipped by tab-bar)', menuVisible.open && menuVisible.hit, JSON.stringify(menuVisible))
+    const libRect = await evalIn(page, `JSON.stringify((()=>{const b=[...document.querySelectorAll('[role=menu] button')].find(x=>(x.getAttribute('aria-label')||'')==='Library'); return b ? b.getBoundingClientRect().toJSON() : null})())`)
+    if (libRect) {
+      const lr = JSON.parse(libRect)
+      await realClick(page, lr.x + lr.width / 2, lr.y + lr.height / 2)
+    } else {
+      await evalIn(page, `(()=>{const b=[...document.querySelectorAll('button')].find(x=>(x.getAttribute('aria-label')||'')==='Library'); if(b){b.click(); return 'opened'} return 'no-btn'})()`)
+    }
     await sleep(400)
     check('§7 library view opens after a chat', await evalIn(page, `document.body.innerText.includes('Library')`))
 

@@ -132,16 +132,20 @@ body {
   }
 
   /* —— 顶部 Tab 栏（平铺视图切换） ——
-     5 个图标+文字 tab 在窄面板（Chrome side panel 常见 320–400px）放不下：
-     内容宽可达 ~470px。溢出必须发生在本容器内部滚动，而不是把 document 撑宽
-     （撑宽后打开抽屉时页面会带着横向 scrollOffset 错位，底部还会出现横向
-     滚动条）。滚动条隐藏，边缘自然半露暗示可滑。 */
+     4 个高频 tab 在窄面板（Chrome side panel 常见 320–400px）放不下：
+     滚动必须发生在内层 .tab-scroll 里，而不是 .tab-bar 自身——MoreMenu
+     下拉要溢出到 tab 栏下方显示，一旦滚动容器成为它的祖先，另一轴的
+     visible 会被计算成 auto，下拉被整个裁掉（点“更多”看似没反应）。
+     MoreMenu 触发器固定在栏尾不参与滚动，窄面板也永远可达。 */
   .tab-bar {
     @apply flex items-center gap-0.5 px-2 py-1.5 bg-surface border-b border-line;
+  }
+  .tab-scroll {
+    @apply flex items-center gap-0.5 min-w-0 flex-1;
     overflow-x: auto;
     scrollbar-width: none;
   }
-  .tab-bar::-webkit-scrollbar { display: none; }
+  .tab-scroll::-webkit-scrollbar { display: none; }
   .tab-item {
     @apply flex items-center justify-center gap-1 px-[7px] h-7 rounded-lg text-[12px] font-medium flex-shrink-0 whitespace-nowrap
            text-ink-faint transition-colors duration-150 ease-out

@@ -1344,49 +1344,53 @@ ${(() => { const gp = renderGlossaryPrompt(glossary); return gp ? `\n${gp}\n` : 
           a menu, not a tab, so the full tabs pattern (tabpanel linkage, roving
           tabindex) can't be completed without splitting the bar. */}
       <nav className="tab-bar" aria-label={tr('aria.views')}>
-        <button
-          onClick={() => setActiveView('chat')}
-          aria-current={activeView === 'chat' ? 'page' : undefined}
-          className={`tab-item ${activeView === 'chat' ? 'tab-item-active' : ''}`}
-          aria-label={tr('side.tab.chat')}
-        >
-          <SendIcon size={14} />
-          <span>{tr('side.tab.chat')}</span>
-        </button>
-        <button
-          onClick={() => setActiveView('sentences')}
-          aria-current={activeView === 'sentences' ? 'page' : undefined}
-          className={`tab-item relative ${activeView === 'sentences' ? 'tab-item-active' : ''}`}
-          aria-label={tr('side.sentences.title')}
-        >
-          <CardsIcon size={14} />
-          <span>{tr('side.sentences.title')}</span>
-          {sentencesHasDue && (
-            <span className="lector-due-badge tab-corner-badge">!</span>
-          )}
-        </button>
-        <button
-          onClick={() => setActiveView('highlights')}
-          aria-current={activeView === 'highlights' ? 'page' : undefined}
-          className={`tab-item relative ${activeView === 'highlights' ? 'tab-item-active' : ''}`}
-          aria-label={tr('side.tab.highlights')}
-        >
-          <BookmarkIcon size={14} />
-          <span>{tr('side.tab.highlights')}</span>
-          {highlights.length > 0 && <span className="dot-badge tab-corner-badge" />}
-        </button>
-        <button
-          onClick={() => setActiveView('vocab')}
-          aria-current={activeView === 'vocab' ? 'page' : undefined}
-          className={`tab-item relative ${activeView === 'vocab' ? 'tab-item-active' : ''}`}
-          aria-label={tr('side.tab.vocab')}
-        >
-          <BookOpenIcon size={14} />
-          <span>{tr('side.tab.vocab')}</span>
-          {vocabHasDue && <span className="lector-due-badge tab-corner-badge">!</span>}
-        </button>
-        {/* ⋯ MoreMenu: low-frequency views (Templates / Glossary / Library) */}
-        <div className="relative" ref={toolsRef}>
+        <div className="tab-scroll">
+          <button
+            onClick={() => setActiveView('chat')}
+            aria-current={activeView === 'chat' ? 'page' : undefined}
+            className={`tab-item ${activeView === 'chat' ? 'tab-item-active' : ''}`}
+            aria-label={tr('side.tab.chat')}
+          >
+            <SendIcon size={14} />
+            <span>{tr('side.tab.chat')}</span>
+          </button>
+          <button
+            onClick={() => setActiveView('sentences')}
+            aria-current={activeView === 'sentences' ? 'page' : undefined}
+            className={`tab-item relative ${activeView === 'sentences' ? 'tab-item-active' : ''}`}
+            aria-label={tr('side.sentences.title')}
+          >
+            <CardsIcon size={14} />
+            <span>{tr('side.sentences.title')}</span>
+            {sentencesHasDue && (
+              <span className="lector-due-badge tab-corner-badge">!</span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveView('highlights')}
+            aria-current={activeView === 'highlights' ? 'page' : undefined}
+            className={`tab-item relative ${activeView === 'highlights' ? 'tab-item-active' : ''}`}
+            aria-label={tr('side.tab.highlights')}
+          >
+            <BookmarkIcon size={14} />
+            <span>{tr('side.tab.highlights')}</span>
+            {highlights.length > 0 && <span className="dot-badge tab-corner-badge" />}
+          </button>
+          <button
+            onClick={() => setActiveView('vocab')}
+            aria-current={activeView === 'vocab' ? 'page' : undefined}
+            className={`tab-item relative ${activeView === 'vocab' ? 'tab-item-active' : ''}`}
+            aria-label={tr('side.tab.vocab')}
+          >
+            <BookOpenIcon size={14} />
+            <span>{tr('side.tab.vocab')}</span>
+            {vocabHasDue && <span className="lector-due-badge tab-corner-badge">!</span>}
+          </button>
+        </div>
+        {/* ⋯ MoreMenu: low-frequency views (Templates / Glossary / Library).
+            Outside .tab-scroll: the dropdown overflows below the bar, and a
+            scroll container ancestor would clip it (see index.css .tab-bar). */}
+        <div className="relative flex-shrink-0" ref={toolsRef}>
           <button
             ref={toolsTriggerRef}
             onClick={() => setShowTools((v) => !v)}
