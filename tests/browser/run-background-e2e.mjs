@@ -187,6 +187,19 @@ async function main() {
     const bgFetches = JSON.parse(await evalIn(page, `JSON.stringify(window.__bgFetchCalls.filter(u=>u.endsWith('/responses')))`) || '[]')
     check('§relay save-word translation hit provider /responses (BYOK)', bgFetches.length >= 1, `calls=${bgFetches.length}`)
 
+    // ---- runtime.onMessage: lector-save-word with a PRE-FILLED translation
+    // (dictionary card path) → stored verbatim, NO second paid call ----
+    await evalIn(page, `(()=>{ window.__bgFetchCalls = []; const fn = window.__onMessageListener; if(!fn) return 'no-listener'; fn({ action:'lector-save-word', word:'resilience', context:'shows resilience', url:'http://x', title:'T', translation:'韧性；恢复力' }, {}, ()=>{}); return 'sent' })()`)
+    await sleep(800)
+    const prefillStored = JSON.parse(await evalIn(page, `JSON.stringify((window.__storageLocal.lectorVocab || []).find(v => v.word === 'resilience') || null)`) || 'null')
+    const prefillFetches = JSON.parse(await evalIn(page, `JSON.stringify(window.__bgFetchCalls.filter(u=>u.endsWith('/responses')))`) || '[]')
+    check('§relay save-word with pre-filled translation stored verbatim',
+      !!prefillStored && prefillStored.translation === '韧性；恢复力',
+      JSON.stringify(prefillStored && { word: prefillStored.word, translation: prefillStored.translation }))
+    check('§relay save-word with pre-filled translation makes NO provider call',
+      prefillFetches.length === 0,
+      `calls=${prefillFetches.length}`)
+
     // ---- keyboard command handler registered (forwards to content script) ----
     check('§5 keyboard command handler registered (commands.onCommand)', (await evalIn(page, `window.__cmdHandlers.length`)) >= 1)
 

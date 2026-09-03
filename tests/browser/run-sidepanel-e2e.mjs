@@ -170,6 +170,22 @@ window.chrome = {
   },
   sidePanel: { open: () => Promise.resolve() },
 };
+
+// Seed zustand-persisted state BEFORE the app boots (rehydration reads this):
+// 3 due vocab cards (one without a translation) + 1 future card, for the
+// due-badge-count / review-filter / vocab→glossary assertions.
+localStorage.setItem('lector-ai-storage', JSON.stringify({
+  state: {
+    vocab: [
+      { id: 'v1', word: 'resilience', translation: '韧性', context: 'The system showed resilience.', url: 'http://x', title: 'T', lang: 'en', createdAt: 1, srs: { due: Date.now() - 3600000, interval: 1, ease: 2.5, reps: 2, lapses: 0 } },
+      { id: 'v2', word: 'advocate', translation: '拥护者', context: 'loyal advocates', url: 'http://x', title: 'T', lang: 'en', createdAt: 2, srs: { due: Date.now() - 1000, interval: 1, ease: 2.5, reps: 1, lapses: 0 } },
+      { id: 'v3', word: 'goodwill', translation: '', context: 'years of goodwill', url: 'http://x', title: 'T', lang: 'en', createdAt: 3, srs: { due: Date.now() - 2000, interval: 0, ease: 2.5, reps: 0, lapses: 0 } },
+      { id: 'v4', word: 'compound', translation: '复利；使复合', context: 'trust compounds', url: 'http://x', title: 'T', lang: 'en', createdAt: 4, srs: { due: Date.now() + 259200000, interval: 3, ease: 2.5, reps: 1, lapses: 0 } },
+    ],
+    glossary: [],
+  },
+  version: 1,
+}));
 </script>
 <script type="module" src="/sidepanel.js"></script>
 </body></html>`
@@ -433,6 +449,45 @@ async function main() {
     // ---- §tab: no absolute inset-0 overlay present (stacking eliminated) ----
     const overlayGone = await evalIn(page, `document.querySelectorAll('.absolute.inset-0').length === 0`)
     check('§tab: no absolute inset-0 overlay present (stacking eliminated)', overlayGone)
+
+    // ---- §vocab: due-count badge, review-focus filter, vocab→glossary ----
+    // Seeded (see localStorage seed): 3 due cards + 1 future card.
+    const badgeText = await evalIn(page, `document.querySelector('.lector-due-badge')?.textContent || ''`)
+    check('§vocab: due badge shows the due COUNT (not a bare "!")', badgeText === '3', `badge="${badgeText}"`)
+    await evalIn(page, `(()=>{ const t = [...document.querySelectorAll('.tab-bar button')].find(x => /Vocab/.test(x.textContent||'')); if (t) t.click(); return !!t })()`)
+    await sleep(500)
+    const vocabVisible = JSON.parse(await evalIn(page, `JSON.stringify({
+      words: [...document.querySelectorAll('.row .font-serif')].map(e => e.textContent.trim()),
+      reviewBtn: [...document.querySelectorAll('button')].some(b => /Review due \\(3\\)/.test(b.textContent || '')),
+      glossBtns: document.querySelectorAll('button[aria-label="Add to glossary"]').length,
+    })`) || '{}')
+    check('§vocab: seeded vocab rows render', vocabVisible.words.length === 4, JSON.stringify(vocabVisible.words))
+    check('§vocab: review-due filter offered with count', vocabVisible.reviewBtn, JSON.stringify(vocabVisible))
+    check('§vocab: every row exposes the glossary action', vocabVisible.glossBtns === 4, `btns=${vocabVisible.glossBtns}`)
+    // A card without a translation (goodwill) cannot become a term yet.
+    const glossDisabled = await evalIn(page, `(()=>{ const btns = [...document.querySelectorAll('button[aria-label="Add to glossary"]')]; const row = btns.find(b => b.closest('.row')?.textContent.includes('goodwill')); return row ? row.disabled : null })()`)
+    check('§vocab: glossary action disabled without a translation', glossDisabled === true, `disabled=${glossDisabled}`)
+    // Promote resilience → glossary; the store dedupes by source.
+    await evalIn(page, `(()=>{ const btns = [...document.querySelectorAll('button[aria-label="Add to glossary"]')]; const row = btns.find(b => b.closest('.row')?.textContent.includes('resilience')); if (row) row.click(); return !!row })()`)
+    await sleep(900) // zustand persist write is debounced
+    const glossaryState = JSON.parse(await evalIn(page, `JSON.stringify((JSON.parse(localStorage.getItem('lector-ai-storage')||'{}').state?.glossary) || [])`) || '[]')
+    check('§vocab: promote-to-glossary lands as a term (source+target)',
+      glossaryState.length === 1 && glossaryState[0].source === 'resilience' && glossaryState[0].target === '韧性',
+      JSON.stringify(glossaryState))
+    // Review focus: only due cards remain.
+    await evalIn(page, `(()=>{ const b = [...document.querySelectorAll('button')].find(x => /Review due \\(3\\)/.test(x.textContent||'')); if (b) b.click(); return !!b })()`)
+    await sleep(400)
+    const dueFiltered = JSON.parse(await evalIn(page, `JSON.stringify({
+      words: [...document.querySelectorAll('.row .font-serif')].map(e => e.textContent.trim()),
+      showAllBtn: [...document.querySelectorAll('button')].some(b => /Show all/.test(b.textContent || '')),
+    })`) || '{}')
+    check('§vocab: review filter shows ONLY due cards',
+      dueFiltered.words.length === 3 && !dueFiltered.words.includes('compound'),
+      JSON.stringify(dueFiltered.words))
+    check('§vocab: review filter can be toggled back (Show all)', dueFiltered.showAllBtn, JSON.stringify(dueFiltered))
+    // Back to chat for the later sections.
+    await evalIn(page, `(()=>{ const t = [...document.querySelectorAll('.tab-bar button')].find(x => /Chat/.test(x.textContent||'')); if (t) t.click(); return !!t })()`)
+    await sleep(300)
 
     // ---- §theme: palette switching (paper tint + accent family) ----
     // Settings lives behind the header gear (aria-label = settings.title).

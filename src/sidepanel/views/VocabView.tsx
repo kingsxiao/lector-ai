@@ -12,7 +12,7 @@ import {
   DEFAULT_DECK_NAME,
   DEFAULT_MODEL_NAME,
 } from '../../shared/anki'
-import { SparklesIcon, XIcon, CardsIcon, DownloadIcon } from '../../shared/icons'
+import { SparklesIcon, XIcon, CardsIcon, DownloadIcon, BookMarkedIcon } from '../../shared/icons'
 import { ViewShell, Empty, StatsBar, SrsGradeButtons } from '../components/leaf'
 import { formatAnkiResult } from '../lib/ankiFormat'
 import { downloadBlob } from '../lib/downloads'
@@ -28,6 +28,8 @@ interface VocabViewProps {
   onSaveAnkiConfig: (cfg: { url: string; deckName: string; modelName: string; tags: string[] }) => void
   /** Generate a sentence card from this vocab entry's context sentence. */
   onExplainVocab: (v: VocabEntry) => void
+  /** Promote a vocab word into a glossary term (dedupe by source in store). */
+  onAddToGlossary: (v: VocabEntry) => void
 }
 
 /** One vocab row, memoized: reveal toggles and unrelated re-renders only touch
@@ -40,6 +42,7 @@ const VocabRow = memo(function VocabRow({
   onRemoveVocab,
   onGrade,
   onExplainVocab,
+  onAddToGlossary,
   onToggleReveal,
 }: {
   v: VocabEntry
@@ -48,9 +51,13 @@ const VocabRow = memo(function VocabRow({
   onRemoveVocab: (id: string) => void
   onGrade: (v: VocabEntry, g: Grade) => void
   onExplainVocab: (v: VocabEntry) => void
+  onAddToGlossary: (v: VocabEntry) => void
   onToggleReveal: (id: string) => void
 }) {
   const due = isDue(v.srs)
+  // Transient ✓ feedback after promoting this word into the glossary.
+  const [glossed, setGlossed] = useState(false)
+  const canGloss = !!v.translation?.trim()
   return (
     <div className="group row">
       <div className="flex items-center gap-2">
@@ -75,6 +82,22 @@ const VocabRow = memo(function VocabRow({
             <SparklesIcon size={14} />
           </button>
         )}
+        <button
+          onClick={() => {
+            if (!canGloss) return
+            onAddToGlossary(v)
+            setGlossed(true)
+            setTimeout(() => setGlossed(false), 1600)
+          }}
+          disabled={!canGloss}
+          title={canGloss ? tr('side.vocab.toGlossary') : tr('side.vocab.toGlossaryNeedTranslation')}
+          aria-label={tr('side.vocab.toGlossary')}
+          className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity disabled:cursor-not-allowed ${
+            glossed ? 'text-success opacity-100' : 'text-ink-faint hover:text-accent'
+          }`}
+        >
+          {glossed ? '✓' : <BookMarkedIcon size={14} />}
+        </button>
         <button
           onClick={() => onRemoveVocab(v.id)}
           aria-label={tr('aria.deleteWord')}
@@ -113,9 +136,13 @@ function VocabViewImpl({
   onGradeVocab,
   onSaveAnkiConfig,
   onExplainVocab,
+  onAddToGlossary,
 }: VocabViewProps) {
   // Reveal-set is single-consumer (this view only) so it lives here, not in App.
   const [revealedVocab, setRevealedVocab] = useState<Set<string>>(new Set())
+  // Review focus mode: show ONLY due cards, so a review session isn't diluted
+  // by hundreds of not-yet-due entries (the store caps vocab at 2000).
+  const [dueOnly, setDueOnly] = useState(false)
   // List pagination: the store caps vocab at 2000 entries; mounting all rows
   // would freeze the panel, but a hard 200 cap hides due cards with no way to
   // reach them — same Load-more pattern as the Highlights/Sentences lists.
@@ -141,6 +168,10 @@ function VocabViewImpl({
   // Review stats: O(vocab) — memoized so it runs on list changes, not on
   // every reveal toggle / form keystroke.
   const stats = useMemo(() => computeReviewStats(vocab), [vocab])
+  const shownVocab = useMemo(
+    () => (dueOnly ? vocab.filter((v) => isDue(v.srs)) : vocab),
+    [vocab, dueOnly]
+  )
   // Anki export sub-panel state. `showPanel` toggles the form; `sending` and
   // `result` drive the UX during/after the POST.
   const [showPanel, setShowPanel] = useState(false)
@@ -191,10 +222,20 @@ function VocabViewImpl({
         <Empty text={tr('side.vocab.empty')} />
       ) : (
         <>
-          {/* Anki export action bar */}
+          {/* Anki export action bar + review-focus toggle */}
           <div className="px-4 py-3 border-b border-line">
             {!showPanel ? (
               <div className="flex gap-2">
+                {stats.due > 0 && (
+                  <button
+                    onClick={() => setDueOnly((v) => !v)}
+                    className={`btn-add py-2 text-[12px] ${dueOnly ? 'text-accent border-accent' : ''}`}
+                    title={dueOnly ? tr('side.vocab.showAll') : tr('side.vocab.reviewDueOnly').replace('{n}', String(stats.due))}
+                  >
+                    <CardsIcon size={13} />
+                    {(dueOnly ? tr('side.vocab.showAll') : tr('side.vocab.reviewDueOnly')).replace('{n}', String(stats.due))}
+                  </button>
+                )}
                 <button
                   onClick={() => setShowPanel(true)}
                   className="btn-add py-2 text-[12px] flex-1"
@@ -298,7 +339,7 @@ function VocabViewImpl({
           </div>
 
           <div className="flex-1 overflow-y-auto">
-            {vocab.slice(0, vocabLimit).map((v) => (
+            {shownVocab.slice(0, vocabLimit).map((v) => (
               <VocabRow
                 key={v.id}
                 v={v}
@@ -307,16 +348,22 @@ function VocabViewImpl({
                 onRemoveVocab={onRemoveVocab}
                 onGrade={gradeAndClear}
                 onExplainVocab={onExplainVocab}
+                onAddToGlossary={onAddToGlossary}
                 onToggleReveal={toggleReveal}
               />
             ))}
-            {vocab.length > vocabLimit && (
+            {shownVocab.length > vocabLimit && (
               <button
                 onClick={() => setVocabLimit((n) => n + 200)}
                 className="px-4 py-2.5 text-meta text-accent hover:bg-accent-softer border-t border-line transition-colors text-left w-full"
               >
-                {tr('side.loadMore').replace('{n}', String(vocab.length - vocabLimit))}
+                {tr('side.loadMore').replace('{n}', String(shownVocab.length - vocabLimit))}
               </button>
+            )}
+            {dueOnly && shownVocab.length === 0 && (
+              <p className="px-4 py-6 text-[11px] text-ink-faint text-center">
+                {tr('side.vocab.allReviewed')}
+              </p>
             )}
           </div>
         </>

@@ -145,6 +145,43 @@ function injectStyles() {
     .lector-tstatus .ts-close:hover { background: rgba(38,33,27,.08); color: #26211B; }
     .lector-tstatus.lector-tstatus-dark .ts-close { color: #BFB299; }
     .lector-tstatus.lector-tstatus-dark .ts-close:hover { background: rgba(255,255,255,.12); color: #FFF6EA; }
+    /* Dictionary-style lookup card (查词卡片). Shares .lector-pop chrome; the
+       body renders phonetics + CEFR chip + numbered senses with examples. */
+    .lector-dict .dict-word-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+    .lector-dict .dict-word { font-size: 17px; font-weight: 700; color: #26211B; font-family: Georgia, 'Iowan Old Style', 'Source Serif Pro', serif; }
+    .lector-pop-dark.lector-dict .dict-word { color: #EAE0CC; }
+    .lector-dict .dict-phon { font-size: 11px; color: #7A6E5C; display: inline-flex; align-items: center; gap: 3px; }
+    .lector-pop-dark.lector-dict .dict-phon { color: #BFB299; }
+    .lector-dict .dict-phon button { border: none; background: transparent; color: #8F5E30; cursor: pointer; padding: 0 2px; font-size: 11px; border-radius: 4px; }
+    .lector-dict .dict-phon button:hover { background: rgba(143,94,48,.12); }
+    .lector-pop-dark.lector-dict .dict-phon button { color: #C89866; }
+    .lector-pop-dark.lector-dict .dict-phon button:hover { background: rgba(200,152,102,.16); }
+    .lector-dict .dict-chip { font-size: 9.5px; font-weight: 700; letter-spacing: .5px; color: #8F5E30; background: rgba(143,94,48,.1); border-radius: 5px; padding: 2px 6px; line-height: 1; }
+    .lector-pop-dark.lector-dict .dict-chip { color: #C89866; background: rgba(200,152,102,.16); }
+    .lector-dict .dict-freq { font-size: 10.5px; color: #7A6E5C; margin-bottom: 8px; }
+    .lector-pop-dark.lector-dict .dict-freq { color: #BFB299; }
+    .lector-dict .dict-sense { padding: 7px 0; border-top: 1px dashed #E2D5BB; }
+    .lector-pop-dark.lector-dict .dict-sense { border-top-color: #3B3226; }
+    .lector-dict .dict-sense:first-of-type { border-top: none; }
+    .lector-dict .dict-sense-head { display: flex; align-items: baseline; gap: 7px; }
+    .lector-dict .dict-pos { flex: none; font-size: 10px; font-style: italic; color: #8F5E30; min-width: 26px; }
+    .lector-pop-dark.lector-dict .dict-pos { color: #C89866; }
+    .lector-dict .dict-gloss { font-size: 13px; color: #26211B; line-height: 1.5; }
+    .lector-pop-dark.lector-dict .dict-gloss { color: #EAE0CC; }
+    .lector-dict .dict-example { margin-top: 4px; padding-left: 8px; border-left: 2px solid #E2D5BB; }
+    .lector-pop-dark.lector-dict .dict-example { border-left-color: #3B3226; }
+    .lector-dict .dict-example-src { font-size: 11.5px; color: #5C5347; line-height: 1.5; }
+    .lector-pop-dark.lector-dict .dict-example-src { color: #C4B8A4; }
+    .lector-dict .dict-example-tgt { font-size: 11px; color: #7A6E5C; line-height: 1.5; margin-top: 2px; }
+    .lector-pop-dark.lector-dict .dict-example-tgt { color: #BFB299; }
+    .lector-dict .dict-note { font-size: 10.5px; color: #7A6E5C; margin-top: 8px; padding-top: 6px; border-top: 1px dashed #E2D5BB; }
+    .lector-pop-dark.lector-dict .dict-note { color: #BFB299; border-top-color: #3B3226; }
+    .lector-dict .dict-skeleton { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 2px; }
+    .lector-dict .dict-skeleton span { display: block; height: 11px; border-radius: 4px; background: linear-gradient(90deg, rgba(143,94,48,.12) 25%, rgba(143,94,48,.26) 37%, rgba(143,94,48,.12) 63%); background-size: 400% 100%; animation: lectorShimmer 1.3s ease infinite; }
+    .lector-dict .dict-skeleton span:nth-child(1) { width: 55%; }
+    .lector-dict .dict-skeleton span:nth-child(2) { width: 88%; }
+    .lector-dict .dict-skeleton span:nth-child(3) { width: 70%; }
+    .lector-pop-dark.lector-dict .dict-skeleton span { background: linear-gradient(90deg, rgba(200,152,102,.14) 25%, rgba(200,152,102,.3) 37%, rgba(200,152,102,.14) 63%); background-size: 400% 100%; }
     .lector-bilingual { display:block; font-size:.92em; line-height:1.6; color:#5C5347; border-left:3px solid #8F5E30; padding:4px 0 4px 12px; margin:8px 0 8px 4px; border-radius:0 3px 3px 0; position:relative; transition:opacity .2s ease; }
     /* Loading skeleton: before the first token lands, the blinking caret morphs
        into a shimmering ghost bar (Immersive-style placeholder) so the block
@@ -1452,6 +1489,13 @@ import {
 import { buildThemeStylesheet, TRANSLATION_THEMES } from './shared/translationThemes'
 import { personaPrompt } from './shared/translationPersonas'
 import {
+  isWordLookupQuery,
+  buildDictionarySystemPrompt,
+  buildDictionaryUserPrompt,
+  parseDictionaryCard,
+  type DictionaryCard,
+} from './shared/dictionary'
+import {
   cacheKeyPrefix,
   cacheKeyWithPrefix,
   putEntry,
@@ -1722,6 +1766,224 @@ function handleAction(kind: 'translate' | 'summarize' | 'explain' | 'ask', text:
   void runByokAction(kind, text)
 }
 
+/** Streaming selection-translate popup (DeepL-style): shows immediately with a
+ *  target-language selector; tokens stream into the content area. Extracted
+ *  from runByokAction so the dictionary card's "translate as sentence"
+ *  fallback reuses the exact same pipeline (persona + glossary included). */
+function startSelectionTranslate(
+  x: number,
+  y: number,
+  text: string,
+  settings: ByokSettings,
+  glossary: GlossaryEntry[]
+): void {
+  const tSettings = normalizeTranslationSettings(settings.translation)
+  const initialTarget = resolveTargetLang(tSettings.targetLanguage, text)
+  const persona = personaPrompt(tSettings.persona)
+  showStreamingTranslateResult(x, y, text, initialTarget, async (selTarget, sink, signal) => {
+    const sp = buildTranslateSystemPrompt(
+      selTarget,
+      renderGlossaryPrompt(filterGlossaryForDirection(glossary, selTarget)),
+      persona
+    )
+    await streamChat(
+      settings,
+      [{ role: 'system', content: sp }, { role: 'user', content: text.slice(0, 8000) }],
+      { maxTokens: Math.min(3000, Math.max(500, text.length * 2)), temperature: 0.2 },
+      (delta) => sink.append(delta),
+      signal
+    )
+  })
+}
+
+/** Dictionary-style lookup card for a single word / short phrase (查词卡片):
+ *  phonetics + TTS, CEFR, senses with examples, one-click save-to-vocab with
+ *  the first gloss pre-filled (no duplicate paid call in the background).
+ *  `fallback` re-runs the regular streaming sentence translation — used when
+ *  the model reply is not a usable dictionary JSON or the request fails, so a
+ *  bad reply never dead-ends the lookup. */
+async function showDictionaryCard(
+  x: number,
+  y: number,
+  word: string,
+  settings: ByokSettings,
+  tSettings: TranslationSettings,
+  fallback: () => void
+): Promise<void> {
+  clearPopups()
+  const target = resolveTargetLang(tSettings.targetLanguage, word)
+
+  resultPopup = document.createElement('div')
+  resultPopup.id = 'lector-ai-result'
+  resultPopup.className = 'lector-pop lector-dict'
+  if (popupDark()) resultPopup.classList.add('lector-pop-dark')
+  const maxHeight = window.innerHeight - y - 100
+  resultPopup.style.cssText = `
+    left: ${x}px; top: ${popupTopBelowToolbar(y)}px; max-height: ${Math.min(Math.max(maxHeight, 220), 480)}px; overflow-y: auto;
+  `
+
+  const header = document.createElement('div')
+  header.className = 'result-header'
+  const title = document.createElement('div')
+  title.className = 'result-title'
+  title.textContent = '📖 ' + tr('dict.title')
+  const closeBtn = document.createElement('button')
+  closeBtn.className = 'result-close'
+  closeBtn.textContent = tr('popup.close')
+  closeBtn.onclick = () => removeResult()
+  header.appendChild(title)
+  header.appendChild(closeBtn)
+
+  const body = document.createElement('div')
+  body.className = 'dict-body'
+  const skeleton = document.createElement('div')
+  skeleton.className = 'dict-skeleton'
+  skeleton.appendChild(document.createElement('span'))
+  skeleton.appendChild(document.createElement('span'))
+  skeleton.appendChild(document.createElement('span'))
+  const wordRow = document.createElement('div')
+  wordRow.className = 'dict-word-row'
+  const wordEl = document.createElement('span')
+  wordEl.className = 'dict-word'
+  wordEl.textContent = word
+  wordRow.appendChild(wordEl)
+  const loadingLabel = document.createElement('span')
+  loadingLabel.className = 'dict-freq'
+  loadingLabel.textContent = tr('dict.loading')
+  body.appendChild(wordRow)
+  body.appendChild(loadingLabel)
+  body.appendChild(skeleton)
+
+  resultPopup.appendChild(header)
+  resultPopup.appendChild(body)
+  document.body.appendChild(resultPopup)
+  lectorUiOpenedAt = Date.now()
+  makeDraggable(resultPopup, header)
+
+  let card: DictionaryCard | null = null
+  try {
+    const raw = await completeOnce(
+      settings,
+      buildDictionarySystemPrompt(target),
+      buildDictionaryUserPrompt(word, target),
+      { maxTokens: 700, temperature: 0.2 }
+    )
+    card = parseDictionaryCard(raw || '', word)
+  } catch {
+    card = null
+  }
+  if (!card) {
+    fallback()
+    return
+  }
+
+  // --- render the card body ---
+  body.innerHTML = ''
+  const row = document.createElement('div')
+  row.className = 'dict-word-row'
+  const w = document.createElement('span')
+  w.className = 'dict-word'
+  w.textContent = card.word
+  row.appendChild(w)
+  if (card.phoneticUs) {
+    const ph = document.createElement('span')
+    ph.className = 'dict-phon'
+    ph.textContent = card.phoneticUs
+    const tts = document.createElement('button')
+    tts.type = 'button'
+    tts.title = 'US ' + tr('popup.result.speak')
+    tts.textContent = '🔊'
+    tts.onclick = () => speak(card!.word, 'en-US')
+    ph.appendChild(tts)
+    row.appendChild(ph)
+  }
+  if (card.phoneticUk && card.phoneticUk !== card.phoneticUs) {
+    const ph = document.createElement('span')
+    ph.className = 'dict-phon'
+    ph.textContent = card.phoneticUk
+    const tts = document.createElement('button')
+    tts.type = 'button'
+    tts.title = 'UK ' + tr('popup.result.speak')
+    tts.textContent = '🔊'
+    tts.onclick = () => speak(card!.word, 'en-GB')
+    ph.appendChild(tts)
+    row.appendChild(ph)
+  }
+  if (card.cefr) {
+    const chip = document.createElement('span')
+    chip.className = 'dict-chip'
+    chip.textContent = card.cefr
+    row.appendChild(chip)
+  }
+  body.appendChild(row)
+  if (card.frequencyNote) {
+    const freq = document.createElement('div')
+    freq.className = 'dict-freq'
+    freq.textContent = card.frequencyNote
+    body.appendChild(freq)
+  }
+  card.senses.forEach((sense, i) => {
+    const el = document.createElement('div')
+    el.className = 'dict-sense'
+    const head = document.createElement('div')
+    head.className = 'dict-sense-head'
+    const pos = document.createElement('span')
+    pos.className = 'dict-pos'
+    pos.textContent = `${i + 1}. ${sense.pos}`
+    const gloss = document.createElement('span')
+    gloss.className = 'dict-gloss'
+    gloss.textContent = sense.gloss
+    head.appendChild(pos)
+    head.appendChild(gloss)
+    el.appendChild(head)
+    if (sense.example) {
+      const ex = document.createElement('div')
+      ex.className = 'dict-example'
+      const src = document.createElement('div')
+      src.className = 'dict-example-src'
+      src.textContent = sense.example
+      ex.appendChild(src)
+      if (sense.exampleTranslation) {
+        const tgt = document.createElement('div')
+        tgt.className = 'dict-example-tgt'
+        tgt.textContent = sense.exampleTranslation
+        ex.appendChild(tgt)
+      }
+      el.appendChild(ex)
+    }
+    body.appendChild(el)
+  })
+
+  const footer = document.createElement('div')
+  footer.className = 'result-footer'
+  const saveBtn = document.createElement('button')
+  saveBtn.className = 'action-btn primary'
+  saveBtn.type = 'button'
+  saveBtn.textContent = tr('dict.addToVocab')
+  saveBtn.onclick = () => {
+    // Pre-filled translation: the background relay skips its own paid call
+    // and lands this gloss directly in the vocab entry.
+    void relayOrAlert({
+      action: 'lector-save-word',
+      word: card!.word,
+      context: card!.senses.find((s) => s.example)?.example?.slice(0, 160) || '',
+      translation: card!.senses[0].gloss,
+      url: location.href,
+      title: document.title,
+    })
+    saveBtn.textContent = tr('dict.added')
+    saveBtn.disabled = true
+  }
+  const translateBtn = document.createElement('button')
+  translateBtn.className = 'copy-btn'
+  translateBtn.type = 'button'
+  translateBtn.textContent = tr('dict.translateInstead')
+  translateBtn.onclick = () => fallback()
+  footer.appendChild(saveBtn)
+  footer.appendChild(translateBtn)
+  resultPopup.appendChild(footer)
+}
+
 async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: string) {
   const rect = selectionToolbar?.getBoundingClientRect()
   // The no-key popup is titled by action — a keyless Summarize must not be
@@ -1735,27 +1997,22 @@ async function runByokAction(kind: 'translate' | 'summarize' | 'explain', text: 
 
   if (kind === 'translate') {
     const tSettings = normalizeTranslationSettings(settings.translation)
-    const initialTarget = resolveTargetLang(tSettings.targetLanguage, text)
-    const glossary = await loadGlossary()
-    const persona = personaPrompt(tSettings.persona)
     // Re-read the anchor after the awaits: the page (or the toolbar teardown)
     // may have moved since requireApiKey; show the popup where the user is now.
     const rect2 = selectionToolbar?.getBoundingClientRect()
-    // Show the streaming popup immediately with a target-language selector.
-    showStreamingTranslateResult(rect2?.left || rect?.left || 100, rect2?.top || rect?.top || 100, text, initialTarget, async (selTarget, sink, signal) => {
-      const sp = buildTranslateSystemPrompt(
-        selTarget,
-        renderGlossaryPrompt(filterGlossaryForDirection(glossary, selTarget)),
-        persona
+    const px = rect2?.left || rect?.left || 100
+    const py = rect2?.top || rect?.top || 100
+    const glossary = await loadGlossary()
+    // A single word / short phrase gets a dictionary card (phonetics, senses,
+    // examples, CEFR) instead of a sentence-style translation — the learner's
+    // lookup interaction. Parse failures fall back to the streaming popup.
+    if (isWordLookupQuery(text)) {
+      await showDictionaryCard(px, py, text, settings, tSettings, () =>
+        startSelectionTranslate(px, py, text, settings, glossary)
       )
-      await streamChat(
-        settings,
-        [{ role: 'system', content: sp }, { role: 'user', content: text.slice(0, 8000) }],
-        { maxTokens: Math.min(3000, Math.max(500, text.length * 2)), temperature: 0.2 },
-        (delta) => sink.append(delta),
-        signal
-      )
-    })
+      return
+    }
+    startSelectionTranslate(px, py, text, settings, glossary)
     return
   }
 

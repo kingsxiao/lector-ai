@@ -227,7 +227,10 @@ export default function App() {
     () => sentences.some((c) => c.srs !== null && isDue(c.srs)),
     [sentences]
   )
-  const vocabHasDue = useMemo(() => vocab.some((v) => isDue(v.srs)), [vocab])
+  // Due count for the vocab tab corner badge: the actual number (capped at
+  // 99+) tells the user how big today's review session is — a bare "!" gives
+  // no size signal and trains users to ignore it.
+  const vocabDueCount = useMemo(() => vocab.reduce((n, v) => n + (isDue(v.srs) ? 1 : 0), 0), [vocab])
 
   const [page, setPage] = useState<PageContext | null>(null)
   // Stable joined key of the active page's citation block ids. Used by
@@ -1384,7 +1387,11 @@ ${(() => { const gp = renderGlossaryPrompt(glossary); return gp ? `\n${gp}\n` : 
           >
             <BookOpenIcon size={14} />
             <span>{tr('side.tab.vocab')}</span>
-            {vocabHasDue && <span className="lector-due-badge tab-corner-badge">!</span>}
+            {vocabDueCount > 0 && (
+              <span className="lector-due-badge tab-corner-badge" aria-label={tr('side.vocab.due')}>
+                {vocabDueCount > 99 ? '99+' : vocabDueCount}
+              </span>
+            )}
           </button>
         </div>
         {/* ⋯ MoreMenu: low-frequency views (Templates / Glossary / Library).
@@ -2042,6 +2049,10 @@ ${(() => { const gp = renderGlossaryPrompt(glossary); return gp ? `\n${gp}\n` : 
           onGradeVocab={handleGradeVocab}
           onSaveAnkiConfig={handleSaveAnkiConfig}
           onExplainVocab={handleExplainVocab}
+          onAddToGlossary={(v) => {
+            if (!v.translation?.trim()) return
+            addGlossaryEntry({ source: v.word, target: v.translation.trim(), enabled: true })
+          }}
         />
         </Suspense>
       )}

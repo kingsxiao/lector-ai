@@ -241,6 +241,9 @@ async function handleSaveWordRelay(message: {
   url: string
   title: string
   blockId?: string
+  /** Pre-filled translation (e.g. from the dictionary card's first gloss).
+   *  When present the background skips its own paid translation call. */
+  translation?: string
 }) {
   const entry: VocabEntry = {
     id: 'v' + Date.now().toString(36),
@@ -289,21 +292,27 @@ async function handleSaveWordRelay(message: {
   )
 
   // Translate the saved word with the user's own key (BYOK). If no key is set,
-  // the translation stays empty and is surfaced at review time.
+  // the translation stays empty and is surfaced at review time. A pre-filled
+  // translation from the caller (dictionary card) is used as-is — no duplicate
+  // paid call for a gloss the user is literally looking at.
   let translation = ''
-  try {
-    const settings = await getSettings()
-    if (settings.apiKey) {
-      const target = /[\u4e00-\u9fff]/.test(message.word) ? 'English' : '中文'
-      translation = await completeOnce(
-        settings,
-        `You are a professional translator. Translate the user text to ${target}. Preserve meaning and tone. Output ONLY the translation.`,
-        message.word,
-        { maxTokens: 120, temperature: 0.2 }
-      )
+  if (typeof message.translation === 'string' && message.translation.trim()) {
+    translation = message.translation.trim()
+  } else {
+    try {
+      const settings = await getSettings()
+      if (settings.apiKey) {
+        const target = /[\u4e00-\u9fff]/.test(message.word) ? 'English' : '中文'
+        translation = await completeOnce(
+          settings,
+          `You are a professional translator. Translate the user text to ${target}. Preserve meaning and tone. Output ONLY the translation.`,
+          message.word,
+          { maxTokens: 120, temperature: 0.2 }
+        )
+      }
+    } catch {
+      // leave translation empty; flagged at review time
     }
-  } catch {
-    // leave translation empty; flagged at review time
   }
   if (!translation) return
   // Live panel first (it owns the row now); storage enrich only as fallback.

@@ -132,9 +132,22 @@ window.fetch = function (url, opts) {
       ? ['部分中文']
     : window.__translationResponseMode === 'spanish-paraphrase'
       ? ['Esta respuesta permanece completamente en español y no es una traducción al inglés.']
-    : window.__translationResponseMode === 'english-translated'
-      ? ['This is a complete English translation for the browser regression test.']
-    : ['这是完整的中文译文，', '用于浏览器回归测试。'];
+      : window.__translationResponseMode === 'english-translated'
+        ? ['This is a complete English translation for the browser regression test.']
+      : window.__translationResponseMode === 'dictionary'
+        ? [JSON.stringify({
+            word: sourceValue,
+            phonetic_us: '/rɪˈzɪliəns/',
+            phonetic_uk: '/rɪˈzɪliəns/',
+            cefr: 'C1',
+            frequency: '常见于技术与心理语境',
+            senses: [
+              { pos: 'n.', gloss: '韧性；恢复力', example: 'Trust in ' + sourceValue + ' keeps systems steady.', example_gloss: '对韧性的信任让系统保持稳定。' },
+              { pos: 'n.', gloss: '（心理）复原力' },
+            ],
+            note: '不可数名词',
+          })]
+      : ['这是完整的中文译文，', '用于浏览器回归测试。'];
   // Every official OpenAI BYOK call hits {baseUrl}/responses with stream:true.
   return Promise.resolve({
     ok: true,
@@ -500,6 +513,49 @@ async function main() {
 
     // close the result popup so it doesn't block later selections
     await evalIn(page, `document.querySelector('#lector-ai-result')?.remove()`)
+
+    // ---- §2.2c dictionary card: a single-word selection renders the lookup
+    // card (phonetics / CEFR / senses with examples), save-word carries the
+    // pre-filled gloss, and "translate as sentence" falls back to the
+    // streaming popup ----
+    await evalIn(page, `window.__translationResponseMode = 'dictionary'; window.__lectorMsgs = [];`)
+    await selectReveal(`(() => {
+      const el = document.querySelector('article p');
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const text = walker.nextNode();
+      const word = (text.textContent.match(/[A-Za-z]+/) || ['Trust'])[0];
+      const idx = text.textContent.indexOf(word);
+      const r = document.createRange();
+      r.setStart(text, idx); r.setEnd(text, idx + word.length);
+      const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    })()`)
+    await clickToolbarBtn('翻译')
+    for (let i = 0; i < 30; i++) { if (await evalIn(page, `!!document.querySelector('.lector-dict .dict-sense')`)) break; await sleep(150) }
+    const dictState = JSON.parse(await evalIn(page, `JSON.stringify({
+      card: !!document.querySelector('.lector-dict'),
+      word: document.querySelector('.lector-dict .dict-word')?.textContent || '',
+      senses: document.querySelectorAll('.lector-dict .dict-sense').length,
+      phon: document.querySelectorAll('.lector-dict .dict-phon').length,
+      cefr: document.querySelector('.lector-dict .dict-chip')?.textContent || '',
+      example: document.querySelector('.lector-dict .dict-example-src')?.textContent || '',
+      saveBtn: [...document.querySelectorAll('.lector-dict .result-footer button')].some(b => /存入生词本|Save word/.test(b.textContent || '')),
+    })`) || '{}')
+    check('§2.2c single word → dictionary card (senses + phonetics + CEFR)',
+      dictState.card && dictState.senses >= 2 && dictState.phon >= 1 && dictState.cefr === 'C1',
+      JSON.stringify(dictState))
+    check('§2.2c dictionary card offers save-word', dictState.saveBtn, JSON.stringify(dictState))
+    await evalIn(page, `(()=>{ const b = [...document.querySelectorAll('.lector-dict .result-footer button')].find(x => /存入生词本|Save word/.test(x.textContent || '')); if (b) b.click(); })()`)
+    await sleep(250)
+    const dictSave = JSON.parse(await evalIn(page, `JSON.stringify((window.__lectorMsgs || []).find(m => m.action === 'lector-save-word') || null)`) || 'null')
+    check('§2.2c save-word relay carries the pre-filled gloss (no duplicate paid call)',
+      !!dictSave && dictSave.word === dictState.word && /韧性/.test(dictSave.translation || ''),
+      JSON.stringify(dictSave && { word: dictSave.word, translation: dictSave.translation }))
+    await evalIn(page, `(()=>{ const b = [...document.querySelectorAll('.lector-dict .result-footer button')].find(x => /按整句翻译|Translate as sentence/.test(x.textContent || '')); if (b) b.click(); })()`)
+    await sleep(600)
+    check('§2.2c "translate as sentence" falls back to the streaming popup',
+      await evalIn(page, `!!document.querySelector('#lector-ai-result .lector-lang-dd')`),
+      'no-lang-dd')
+    await evalIn(page, `window.__translationResponseMode = 'translated'; document.querySelector('#lector-ai-result')?.remove();`)
 
     // ---- §3 highlight capture → lector-highlight message relayed ----
     await selectReveal(`(() => { const el = document.querySelectorAll('article p')[1]; const r = document.createRange(); r.selectNodeContents(el); const s = window.getSelection(); s.removeAllRanges(); s.addRange(r); })()`)

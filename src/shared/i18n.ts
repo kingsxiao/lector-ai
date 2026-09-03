@@ -165,6 +165,15 @@ export const STRINGS = {
     zh: '在任意页面选中单词，点击存词按钮即可加入复习。',
   },
   'side.vocab.due': { en: 'due', zh: '待复习' },
+  'side.vocab.toGlossary': { en: 'Add to glossary', zh: '转为术语' },
+  'side.vocab.toGlossaryDone': { en: '✓ In glossary', zh: '✓ 已入术语表' },
+  'side.vocab.toGlossaryNeedTranslation': {
+    en: 'Reveal the translation first (grade the card once) before making it a glossary term.',
+    zh: '该词还没有释义（复习一次后由 AI 回填），暂不能转为术语。',
+  },
+  'side.vocab.reviewDueOnly': { en: 'Review due ({n})', zh: '只复习到期（{n}）' },
+  'side.vocab.showAll': { en: 'Show all', zh: '显示全部' },
+  'side.vocab.allReviewed': { en: 'All caught up — nothing due right now 🎉', zh: '到期卡片已全部复习完 🎉' },
   // Unit suffixes shared by the vocab + sentence review rows.
   'srs.reviews': { en: 'reviews', zh: '次' },
   'srs.review': { en: 'review', zh: '次' },
@@ -566,6 +575,13 @@ export const STRINGS = {
   'popup.result.speak': { en: 'Read aloud', zh: '朗读' },
   'popup.result.speakSource': { en: 'Original', zh: '原文' },
   'popup.result.speakTarget': { en: 'Translation', zh: '译文' },
+  // --- dictionary-style word lookup card (划词查词卡片) ---
+  'dict.title': { en: 'Dictionary', zh: '查词' },
+  'dict.loading': { en: 'Looking up…', zh: '查询中…' },
+  'dict.addToVocab': { en: 'Save word', zh: '存入生词本' },
+  'dict.added': { en: '✓ Saved', zh: '✓ 已存' },
+  'dict.translateInstead': { en: 'Translate as sentence', zh: '按整句翻译' },
+  'dict.senses': { en: 'Senses', zh: '释义' },
   'popup.result.retranslate': { en: 'Retranslate', zh: '重新翻译' },
   'popup.result.targetLang': { en: 'Translate to', zh: '译为' },
 

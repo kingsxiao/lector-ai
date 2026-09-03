@@ -44,6 +44,7 @@ Lector AI 是一个 **Chrome 扩展（Manifest V3）**——**纯客户端、BYO
 - `color.ts`——`parseCssRgb` + `relativeLuminance`（content script 暗/亮玻璃判定用）
 - `readability.ts`——`scoreNodeFromStats` + `NOISE_SELECTORS`（页面抽取打分，纯函数版）
 - `siteRules.ts`（扩展）——除原有 `matchHost`/`findRuleForHost`/`shouldAutoTranslatePage` 外，还持有 `INPUT_BLACKLIST` + `inputBoxDisabledForHost`（用 `matchHost` 做主机后缀匹配，**不是** `includes` 子串匹配）
+- `dictionary.ts`——查词卡片纯逻辑：`isWordLookupQuery`（选区是否单词/短语，句末标点与 >3 词排除）、`buildDictionarySystemPrompt`/`buildDictionaryUserPrompt`（严格 JSON 词典输出，释义/例句译文必须用目标语言）、`parseDictionaryCard`（容忍 markdown 围栏与前后杂文，无可用义项返回 null 让调用方回退整句翻译弹窗）
 
 这些被 DOM/UI 层（`content.ts`、`sidepanel/*`、`background.ts`）消费。**禁止在 `src/shared/` 里 import DOM API 或 Chrome API**——正是这条边界让逻辑能在 jsdom 里做单元测试。新增领域逻辑先以纯函数形式落在这里。`content.ts` 里曾经内联的纯逻辑（脚本检测、抽取打分、径向几何、颜色阈值）已全部迁出，content.ts 现在只是"DOM 粘合层"。
 
