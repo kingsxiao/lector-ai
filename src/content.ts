@@ -25,10 +25,16 @@ function injectStyles() {
     @keyframes lectorFadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes lectorSpin { to { transform: rotate(360deg); } }
     @keyframes lectorFabPulse { 0%,100%{ box-shadow: 0 6px 20px rgba(143,94,48,.32);} 50%{ box-shadow: 0 8px 28px rgba(122,78,39,.5);} }
-    #lector-ai-fab { position: fixed; right: 20px; bottom: 24px; width: 48px; height: 48px; border-radius: 50%; background: #8F5E30; color: #FFF6EA; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 20px; font-family: Georgia, 'Iowan Old Style', 'Source Serif Pro', serif; cursor: pointer; z-index: 2147483646; box-shadow: 0 6px 20px rgba(143,94,48,.32); animation: lectorFabPulse 3s ease-in-out infinite; transition: transform .22s cubic-bezier(0.16,1,0.3,1), background-color .15s ease; user-select: none; }
+    #lector-ai-fab { position: fixed; right: 20px; bottom: 24px; width: 48px; height: 48px; border-radius: 50%; background: #8F5E30; color: #FFF6EA; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 20px; font-family: Georgia, 'Iowan Old Style', 'Source Serif Pro', serif; cursor: pointer; z-index: 2147483646; box-shadow: 0 6px 20px rgba(143,94,48,.32); animation: lectorFabPulse 3s ease-in-out infinite; transition: transform .22s cubic-bezier(0.16,1,0.3,1), background-color .15s ease; user-select: none; touch-action: none; }
     #lector-ai-fab:hover { transform: scale(1.08); background: #7A4E27; }
     #lector-ai-fab.is-open { transform: rotate(45deg); animation: none; background: #7A4E27; }
     #lector-ai-fab.is-open:hover { transform: rotate(45deg) scale(1.08); }
+    /* While dragging: kill the pulse + hover-scale transitions so left/top
+       track the pointer 1:1, lift the z-index above the (z-2147483647) result
+       popups, and let the pointer grab. touch-action:none (on the base rule)
+       keeps touch drags from scrolling the page instead of moving the FAB. */
+    #lector-ai-fab.is-dragging { animation: none; transition: none; cursor: grabbing; z-index: 2147483647; box-shadow: 0 10px 30px rgba(122,78,39,.4); }
+    #lector-ai-fab.is-dragging:hover { transform: none; background: #8F5E30; }
     /* Radial quick-action menu: items fan out from the FAB center along an
        upward arc. Each item is a circular button with a hover tooltip label. */
     .lector-fab-menu { position: fixed; z-index: 2147483645; pointer-events: none; }
@@ -36,6 +42,7 @@ function injectStyles() {
     .lector-fab-item svg { width: 20px; height: 20px; display: block; }
     .lector-fab-item:hover { background: #8F5E30; color: #FFF6EA; transform: var(--lector-rest) scale(1.1); }
     .lector-fab-label { position: absolute; right: 54px; top: 50%; transform: translateY(-50%); background: rgba(38,33,27,.92); color: #FFF6EA; font-size: 11px; font-weight: 500; padding: 3px 8px; border-radius: 6px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s ease; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+    .lector-fab-label.flip-right { right: auto; left: 54px; }
     .lector-fab-item:hover .lector-fab-label { opacity: 1; }
     #lector-ai-toolbar { display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 2px; padding: 4px 6px; border-radius: 14px; max-width: calc(100vw - 16px); }
     #lector-ai-toolbar .t-btn { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 9px; border: none; border-radius: 8px; background: transparent; color: #5C5347; cursor: pointer; font-size: 12px; font-weight: 500; line-height: 1; white-space: nowrap; transition: background-color .15s ease, color .15s ease, transform .1s ease; }
@@ -260,6 +267,149 @@ try {
   fabPanelUrl = ''
 }
 
+// --- Draggable FAB position -------------------------------------------------
+// The FAB defaults to bottom-right via CSS (right/bottom). Once the user drags
+// it, the position is switched to explicit left/top (right/bottom cleared),
+// clamped inside the viewport, and persisted to chrome.storage.local under
+// 'lectorFabPos' so every tab/page restores it. All storage access is guarded
+// the same way as the relays above: an orphaned content script must keep the
+// drag working (position applies live), just without persistence.
+let fabPos: FabPosition | null = null
+
+function applyFabPosition(pos: FabPosition): void {
+  if (!fab) return
+  // right/bottom must be cleared explicitly, else left/right fight and the
+  // computed position lands mid-way between them.
+  fab.style.left = `${pos.left}px`
+  fab.style.top = `${pos.top}px`
+  fab.style.right = 'auto'
+  fab.style.bottom = 'auto'
+}
+
+/** Restore a persisted FAB position (clamped into the current viewport — the
+ *  saved coordinates may come from a larger window / another monitor). */
+function restoreFabPosition(pos: FabPosition): void {
+  fabPos = clampFabPosition(pos, window.innerWidth, window.innerHeight)
+  applyFabPosition(fabPos)
+}
+
+async function loadFabPosition(): Promise<void> {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) return
+    const r = await chrome.storage.local.get('lectorFabPos')
+    const saved = (r as Record<string, unknown>)?.lectorFabPos
+    if (isFabPosition(saved)) restoreFabPosition(saved)
+  } catch {
+    // orphaned context / storage unavailable — keep the CSS default position
+  }
+}
+
+/** Best-effort persist; never throws (orphan-safe). */
+function saveFabPosition(): void {
+  if (!fabPos) return
+  try {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) return
+    void chrome.storage.local.set({ lectorFabPos: fabPos })
+  } catch {
+    // sync "Extension context invalidated" throw — swallow
+  }
+}
+
+interface FabDragState {
+  pointerId: number
+  startX: number
+  startY: number
+  origLeft: number
+  origTop: number
+  moved: boolean
+}
+
+// Set after a real drag; consumed by the FAB's onclick so releasing a drag
+// doesn't also toggle the menu open (browsers still fire click after pointerup
+// of a drag). Must live at module scope, not inside attachFabDrag: the onclick
+// guard runs inside ensureFab's handler, and for events targeting the FAB
+// itself listeners fire in REGISTRATION order regardless of capture flag, so
+// a later-registered capture listener cannot preempt the earlier onclick.
+// Reset on the next pointerdown so a canceled gesture doesn't eat the next
+// real click.
+let suppressFabClick = false
+
+/** Attach the pointer-drag interaction to the FAB: press-and-move past
+ *  FAB_DRAG_THRESHOLD_PX drags (with live clamping); a press released without
+ *  crossing it stays a click and toggles the radial menu as before.
+ *  setPointerCapture keeps the gesture alive when the pointer leaves the FAB
+ *  (or the window) mid-drag. */
+function attachFabDrag(): void {
+  if (!fab) return
+  let drag: FabDragState | null = null
+
+  fab.addEventListener('pointerdown', (e) => {
+    if (drag) return // ignore a second finger mid-drag
+    if (e.button !== 0 && e.pointerType === 'mouse') return
+    suppressFabClick = false
+    const rect = fab!.getBoundingClientRect()
+    drag = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      origLeft: rect.left,
+      origTop: rect.top,
+      moved: false,
+    }
+    try {
+      fab!.setPointerCapture(e.pointerId)
+    } catch {
+      // capture is best-effort; the move/up listeners on the FAB still work
+      // as long as the pointer stays over it
+    }
+  })
+
+  fab.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.pointerId) return
+    const dx = e.clientX - drag.startX
+    const dy = e.clientY - drag.startY
+    if (!drag.moved) {
+      if (Math.hypot(dx, dy) < FAB_DRAG_THRESHOLD_PX) return
+      drag.moved = true
+      fab!.classList.add('is-dragging')
+      // A drag starting with the menu open closes it (the menu anchors to the
+      // FAB, so it would chase the FAB across the screen otherwise).
+      if (fabMenu) closeFabMenu()
+    }
+    fabPos = clampFabPosition(
+      { left: drag.origLeft + dx, top: drag.origTop + dy },
+      window.innerWidth,
+      window.innerHeight
+    )
+    applyFabPosition(fabPos)
+  })
+
+  const endDrag = (e: PointerEvent) => {
+    if (!drag || e.pointerId !== drag.pointerId) return
+    const wasDrag = drag.moved
+    drag = null
+    if (!wasDrag) return
+    suppressFabClick = true
+    fab!.classList.remove('is-dragging')
+    // Clamp once more against the CURRENT viewport, then persist.
+    if (fabPos) fabPos = clampFabPosition(fabPos, window.innerWidth, window.innerHeight)
+    if (fabPos) applyFabPosition(fabPos)
+    saveFabPosition()
+  }
+  fab.addEventListener('pointerup', endDrag)
+  fab.addEventListener('pointercancel', endDrag)
+}
+
+// A saved position can reference a viewport larger than the current window
+// (shrunk browser, smaller monitor). Re-clamp on resize so the FAB never ends
+// up stranded outside the visible area. No re-persist: the clamped value only
+// matters for this viewport; the next load re-clamps anyway.
+window.addEventListener('resize', () => {
+  if (!fabPos) return
+  fabPos = clampFabPosition(fabPos, window.innerWidth, window.innerHeight)
+  applyFabPosition(fabPos)
+})
+
 function ensureFab() {
   if (fab) return
   fab = document.createElement('div')
@@ -273,6 +423,11 @@ function ensureFab() {
   fab.textContent = 'L'
   fab.onclick = (e) => {
     e.stopPropagation()
+    // A just-finished drag must not toggle the menu open (see suppressFabClick).
+    if (suppressFabClick) {
+      suppressFabClick = false
+      return
+    }
     toggleFabMenu()
   }
   fab.onkeydown = (e) => {
@@ -284,6 +439,8 @@ function ensureFab() {
     }
   }
   document.body.appendChild(fab)
+  attachFabDrag()
+  void loadFabPosition()
 }
 
 /** Best-effort runtime message send for orphan-safe relays. Once the
@@ -451,17 +608,23 @@ function toggleFabMenu() {
   menu.setAttribute('role', 'menu')
   menu.setAttribute('aria-label', tr('fab.menu'))
   // Anchor the menu's origin (0,0) at the FAB center; items are positioned by
-  // polar coordinates relative to that point.
+  // polar coordinates relative to that point. The origin is then clamped so
+  // every item stays in the viewport — without it, the rightmost item already
+  // overflows the right edge at the FAB's default bottom-right spot.
   const fr = fab.getBoundingClientRect()
   const cx = fr.left + fr.width / 2
   const cy = fr.top + fr.height / 2
-  menu.style.left = `${cx}px`
-  menu.style.top = `${cy}px`
   const R = 76 // arc radius (px) from FAB center to each item center
-  // Spread across the upper semicircle: from 200° (left-up) to 340° (right-up)
-  // so items sit above the FAB and don't overlap the edge. Geometry lives in
-  // src/shared/radialMenu.ts so it can be unit-tested.
-  const positions = fanOutPositions(actions.length, R, 200, 340)
+  // Spread across a semicircle so items don't overlap the edge. Geometry
+  // lives in src/shared/ so it can be unit-tested. Once the FAB is draggable,
+  // "up" isn't always available: dragged near the top edge, the menu flips and
+  // fans downward instead (classic bottom-anchored look stays the default).
+  const { startDeg, endDeg } = fabMenuArcDegrees(fr.top, window.innerHeight)
+  const positions = fanOutPositions(actions.length, R, startDeg, endDeg)
+  const origin = clampFabMenuOrigin(cx, cy, positions, window.innerWidth, window.innerHeight)
+  menu.style.left = `${origin.cx}px`
+  menu.style.top = `${origin.cy}px`
+  const labelFlipChecks: Array<() => void> = []
   actions.forEach((a, i) => {
     const { dx, dy } = positions[i] // negative dy = upward (screen y grows downward)
     const item = document.createElement('button')
@@ -494,8 +657,18 @@ function toggleFabMenu() {
     })
     // Adjust delay via transitionDelay so each item reveals in sequence.
     item.style.transitionDelay = `${delay}ms`
+    // Labels rest to the item's LEFT (toward the FAB at the default right-edge
+    // spot). When the FAB is parked near the left edge that side has no room —
+    // flip this one label to the item's right. Deferred until the menu is in
+    // the DOM so offsetWidth measures the real rendered width.
+    labelFlipChecks.push(() => {
+      if (origin.cx + dx - 22 - label.offsetWidth - 54 < 8) {
+        label.classList.add('flip-right')
+      }
+    })
   })
   document.body.appendChild(menu)
+  for (const check of labelFlipChecks) check()
   fabMenu = menu
   fab.classList.add('is-open')
   fab.setAttribute('aria-expanded', 'true')
@@ -1155,6 +1328,14 @@ import {
 import { findRuleForHost, shouldAutoTranslatePage, inputBoxDisabledForHost } from './shared/siteRules'
 import { normalizeTranslationSettings, type ByokSettings, type TranslationSettings } from './shared/providers'
 import { fanOutPositions } from './shared/radialMenu'
+import {
+  clampFabPosition,
+  clampFabMenuOrigin,
+  isFabPosition,
+  fabMenuArcDegrees,
+  FAB_DRAG_THRESHOLD_PX,
+  type FabPosition,
+} from './shared/fabPosition'
 import { parseCssRgb, relativeLuminance } from './shared/color'
 import { NOISE_SELECTORS, scoreNodeFromStats } from './shared/readability'
 

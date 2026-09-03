@@ -200,6 +200,9 @@ window.chrome = {
             ),
           },
           lectorGlossary: [],
+          // Pre-seeded FAB position for the §1.5 drag tests (undefined → the
+          // content script keeps the CSS bottom-right default).
+          lectorFabPos: window.__lectorFabPosInitial,
         };
         if (!cb) return Promise.resolve(value);
         if (window.__storageDelayMs > 0) setTimeout(() => cb(value), window.__storageDelayMs);
@@ -265,6 +268,9 @@ async function main() {
 
     // Install the chrome.* stub, then inject the REAL production content.js.
     await evalIn(page, CHROME_STUB)
+    // Seed a persisted FAB position BEFORE injection so the §1.5 restore check
+    // exercises loadFabPosition's read-clamp-apply path from the start.
+    await evalIn(page, `window.__lectorFabPosInitial = { left: 123, top: 45 }`)
     const inj = await cdpCall(page, 'Runtime.evaluate', { expression: CONTENT_SRC, awaitPromise: false, returnByValue: true })
     check('real dist/content.js injects without error', !inj.exceptionDetails, inj.exceptionDetails ? (inj.exceptionDetails.exception?.description || inj.exceptionDetails.text).slice(0, 120) : 'ran')
     await sleep(500)
@@ -272,6 +278,13 @@ async function main() {
     // ---- §1 content script + FAB + styles ----
     check('§1.1 FAB injected (text "L")', (await evalIn(page, `document.querySelector('#lector-ai-fab')?.textContent`)) === 'L')
     check('§1 content styles injected', await evalIn(page, `!!document.getElementById('lector-ai-styles')`))
+    // The persisted position (seeded above) must be restored as explicit
+    // left/top with right/bottom cleared, or left+right would fight.
+    const restoredPos = JSON.parse(await evalIn(page, `(()=>{ const f = document.querySelector('#lector-ai-fab'); const r = f.getBoundingClientRect(); return JSON.stringify({ left: r.left, top: r.top, sLeft: f.style.left, sRight: f.style.right }); })()`) || '{}')
+    check('§1.1 persisted FAB position restored (123,45)',
+      Math.abs(restoredPos.left - 123) <= 1 && Math.abs(restoredPos.top - 45) <= 1,
+      `pos=${JSON.stringify(restoredPos)}`)
+    check('§1.1 restore clears the CSS right anchor', restoredPos.sLeft === '123px' && restoredPos.sRight === 'auto', `sLeft=${restoredPos.sLeft} sRight=${restoredPos.sRight}`)
 
     // ---- extractPage via the content script's lector-get-page handler ----
     // Run BEFORE the FAB menu tests: the "translate page" menu item injects
@@ -351,6 +364,90 @@ async function main() {
     await sleep(350)
     const closedCount = await evalIn(page, `document.querySelectorAll('.lector-fab-item').length`)
     check('§1.2 clicking FAB again closes the menu', openCount === 4 && closedCount === 0, `open=${openCount} closed=${closedCount}`)
+
+    // ---- §1.5 FAB drag (position change + persistence + click suppression) ----
+    // Synthetic PointerEvents exercise the real pointerdown/move/up listeners
+    // in dist/content.js (setPointerCapture, threshold, live clamp, persist).
+    // A browser-fired click always follows a drag's pointerup, so the first
+    // click after a drag is suppressed by design (asserted below) — helpers
+    // therefore click-until-state instead of assuming click parity.
+    const fabDrag = async (txExpr, tyExpr) => {
+      const expr = `(() => {
+        const fab = document.querySelector('#lector-ai-fab');
+        const r0 = fab.getBoundingClientRect();
+        const x0 = r0.left + r0.width / 2, y0 = r0.top + r0.height / 2;
+        const tx = ${txExpr}, ty = ${tyExpr};
+        const fire = (type, x, y) => fab.dispatchEvent(new PointerEvent(type, {
+          bubbles: true, cancelable: true, composed: true,
+          pointerId: 7, pointerType: 'mouse', isPrimary: true,
+          clientX: x, clientY: y, button: 0, buttons: type === 'pointerup' ? 0 : 1,
+        }));
+        fire('pointerdown', x0, y0);
+        for (let i = 1; i <= 8; i++) fire('pointermove', x0 + (tx - x0) * i / 8, y0 + (ty - y0) * i / 8);
+        fire('pointerup', tx, ty);
+        const r1 = fab.getBoundingClientRect();
+        return JSON.stringify({ fromX: r0.left, fromY: r0.top, left: r1.left, top: r1.top, right: r1.right, bottom: r1.bottom, vw: innerWidth, vh: innerHeight });
+      })()`
+      return JSON.parse((await evalIn(page, expr)) || '{}')
+    }
+    // Click-until-open / until-closed: tolerant of the one-shot post-drag
+    // suppression and of a menu already being in the desired state.
+    const fabClickUntil = async (wantOpen) => {
+      for (let i = 0; i < 3; i++) {
+        const open = await evalIn(page, `!!document.querySelector('.lector-fab-menu')`)
+        if (open === wantOpen) return true
+        await evalIn(page, `document.querySelector('#lector-ai-fab').click()`)
+        await sleep(320)
+      }
+      return await evalIn(page, `!!document.querySelector('.lector-fab-menu')`) === wantOpen
+    }
+    await evalIn(page, `window.__storageSets.length = 0`)
+    const dragRes = await fabDrag('Math.round(innerWidth * 0.45)', 'Math.round(innerHeight * 0.5)')
+    check('§1.5 drag moves the FAB a real distance',
+      Math.hypot(dragRes.left - dragRes.fromX, dragRes.top - dragRes.fromY) > 50,
+      `from=(${dragRes.fromX},${dragRes.fromY}) to=(${dragRes.left},${dragRes.top})`)
+    check('§1.5 dropped position stays inside the viewport',
+      dragRes.left >= 7 && dragRes.top >= 7 && dragRes.right <= dragRes.vw + 1 && dragRes.bottom <= dragRes.vh + 1,
+      `rect=[${dragRes.left},${dragRes.top},${dragRes.right},${dragRes.bottom}] vw=${dragRes.vw} vh=${dragRes.vh}`)
+    const fabWrites = JSON.parse(await evalIn(page, `JSON.stringify((window.__storageSets||[]).filter(e => e && e.lectorFabPos))`) || '[]')
+    check('§1.5 drag persists lectorFabPos matching the dropped position',
+      fabWrites.length === 1 && Math.abs(fabWrites[0].lectorFabPos.left - dragRes.left) <= 1 && Math.abs(fabWrites[0].lectorFabPos.top - dragRes.top) <= 1,
+      `writes=${JSON.stringify(fabWrites)}`)
+    // The click right after a drag MUST be suppressed (browsers fire click
+    // after pointerup even for drags — without the guard the menu would pop
+    // open on every drop).
+    await evalIn(page, `document.querySelector('#lector-ai-fab').click()`)
+    await sleep(300)
+    check('§1.5 click after a drag does NOT toggle the menu', !(await evalIn(page, `!!document.querySelector('.lector-fab-menu')`)))
+    check('§1.5 the next ordinary click still opens the menu', await fabClickUntil(true))
+    check('§1.5 menu closes again', await fabClickUntil(false))
+    // Sub-threshold jitter is NOT a drag: position unchanged + click toggles.
+    const jitterRes = await fabDrag('x0 + 3', 'y0 + 2')
+    const jitterItems = await evalIn(page, `(()=>{ const f = document.querySelector('#lector-ai-fab'); f.click(); return document.querySelectorAll('.lector-fab-item').length; })()`)
+    check('§1.5 sub-threshold jitter is a click, not a drag',
+      Math.abs(jitterRes.left - jitterRes.fromX) <= 1 && jitterItems === 4,
+      `moved=${Math.abs(jitterRes.left - jitterRes.fromX)} items=${jitterItems}`)
+    check('§1.5 menu closes again after jitter', await fabClickUntil(false))
+    // Dragged to the top edge, the radial menu flips and fans DOWNWARD, and
+    // every item stays inside the viewport (origin clamp).
+    await fabDrag('Math.round(innerWidth * 0.3)', '12')
+    check('§1.5 FAB near the top edge → menu opens', await fabClickUntil(true))
+    await sleep(450) // let the staggered fan-out finish before measuring rects
+    const fanState = JSON.parse(await evalIn(page, `(()=>{ const f = document.querySelector('#lector-ai-fab').getBoundingClientRect(); const cy = f.top + f.height / 2; const items = [...document.querySelectorAll('.lector-fab-item')].map(i => i.getBoundingClientRect()); return JSON.stringify({ count: items.length, cy, allBelow: items.length > 0 && items.every(r => r.top >= cy - 24), inViewport: items.length > 0 && items.every(r => r.left >= 0 && r.right <= innerWidth + 1 && r.top >= 0 && r.bottom <= innerHeight + 1) }); })()`) || '{}')
+    check('§1.5 FAB near the top edge → menu fans downward', fanState.allBelow, JSON.stringify(fanState))
+    check('§1.5 flipped menu stays inside the viewport', fanState.inViewport, JSON.stringify(fanState))
+    check('§1.5 menu closes again after top-edge fan', await fabClickUntil(false))
+    // Park at the bottom-right corner: the up-arc's rightmost item must be
+    // pulled back inside the viewport by the origin clamp (regression: before
+    // the clamp it overflowed the right edge even at the CSS default spot).
+    await fabDrag('innerWidth - 24', 'innerHeight - 24')
+    check('§1.5 bottom-right corner → menu opens', await fabClickUntil(true))
+    await sleep(450)
+    const cornerState = JSON.parse(await evalIn(page, `(()=>{ const items = [...document.querySelectorAll('.lector-fab-item')].map(i => i.getBoundingClientRect()); return JSON.stringify({ count: items.length, maxRight: Math.max(...items.map(r => r.right)), maxBottom: Math.max(...items.map(r => r.bottom)), minLeft: Math.min(...items.map(r => r.left)), minTop: Math.min(...items.map(r => r.top)) }); })()`) || '{}')
+    check('§1.5 bottom-right corner → no menu item overflows the viewport',
+      cornerState.count === 4 && cornerState.maxRight <= dragRes.vw + 1 && cornerState.maxBottom <= dragRes.vh + 1 && cornerState.minLeft >= -1 && cornerState.minTop >= -1,
+      `state=${JSON.stringify(cornerState)} vw=${dragRes.vw} vh=${dragRes.vh}`)
+    check('§1.5 menu closed when §1.5 ends', await fabClickUntil(false))
 
     // ---- §1.3 FAB menu survives "Extension context invalidated" ----
     // The orphaned-content-script regression: after ext reload / SW destroyed,

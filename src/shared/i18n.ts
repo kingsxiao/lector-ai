@@ -242,7 +242,12 @@ export const STRINGS = {
   },
 
   // --- content script: FAB & errors ---
-  'fab.title': { en: 'Open Lector AI', zh: '打开 Lector AI' },
+  // The parenthetical teaches the drag affordance — there is no other visual
+  // cue that the FAB is movable.
+  'fab.title': {
+    en: 'Open Lector AI (drag to move)',
+    zh: '打开 Lector AI（可拖动）',
+  },
   // When the FAB opens Lector in a standalone window (the MV3 fallback, since
   // chrome.sidePanel.open can't be triggered reliably from a content-script
   // click), tell the user they can switch to the side-panel form via the
