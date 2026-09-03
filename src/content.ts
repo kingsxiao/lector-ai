@@ -24,11 +24,18 @@ function injectStyles() {
   style.textContent = `
     @keyframes lectorFadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes lectorSpin { to { transform: rotate(360deg); } }
+    @keyframes lectorShimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
     @keyframes lectorFabPulse { 0%,100%{ box-shadow: 0 6px 20px rgba(143,94,48,.32);} 50%{ box-shadow: 0 8px 28px rgba(122,78,39,.5);} }
     #lector-ai-fab { position: fixed; right: 20px; bottom: 24px; width: 48px; height: 48px; border-radius: 50%; background: #8F5E30; color: #FFF6EA; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 20px; font-family: Georgia, 'Iowan Old Style', 'Source Serif Pro', serif; cursor: pointer; z-index: 2147483646; box-shadow: 0 6px 20px rgba(143,94,48,.32); animation: lectorFabPulse 3s ease-in-out infinite; transition: transform .22s cubic-bezier(0.16,1,0.3,1), background-color .15s ease; user-select: none; touch-action: none; }
     #lector-ai-fab:hover { transform: scale(1.08); background: #7A4E27; }
     #lector-ai-fab.is-open { transform: rotate(45deg); animation: none; background: #7A4E27; }
     #lector-ai-fab.is-open:hover { transform: rotate(45deg) scale(1.08); }
+    /* While a whole-page bilingual run is in flight the FAB doubles as the
+       status indicator (Immersive-style): the letter hides and a spinner ring
+       takes its place. Class lifetime is owned by runBilingualTranslation. */
+    #lector-ai-fab.is-translating { animation: none; color: transparent; }
+    #lector-ai-fab.is-translating:hover { transform: none; }
+    #lector-ai-fab.is-translating::after { content: ''; position: absolute; inset: 7px; border: 2px solid rgba(255,246,234,.3); border-top-color: #FFF6EA; border-radius: 50%; animation: lectorSpin .9s linear infinite; }
     /* While dragging: kill the pulse + hover-scale transitions so left/top
        track the pointer 1:1, lift the z-index above the (z-2147483647) result
        popups, and let the pointer grab. touch-action:none (on the base rule)
@@ -108,8 +115,42 @@ function injectStyles() {
     .lector-pop-dark .lector-lang-dd-item { color: #BFB299; }
     .lector-pop-dark .lector-lang-dd-item:hover { background: rgba(200,152,102,.14); color: #EAE0CC; }
     .lector-pop-dark .lector-lang-dd-item.is-selected { color: #C89866; }
+    /* Popup header is also the drag handle (DeepL-style movable popup). The
+       grab cursor is the affordance; pointer handling lives in makeDraggable. */
+    .lector-pop .result-header { cursor: grab; user-select: none; }
+    .lector-pop .result-header:active { cursor: grabbing; }
+    /* Detected source-language badge in the streaming translate popup: shows
+       the direction ("EN →") next to the target picker so auto direction is
+       visible and auditable. Compact uppercase code keeps the header tight. */
+    .lector-src-badge { flex: none; font-size: 10px; font-weight: 700; letter-spacing: .4px; color: #8F5E30; background: rgba(143,94,48,.1); border-radius: 5px; padding: 3px 6px; line-height: 1; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+    .lector-pop-dark .lector-src-badge { color: #C89866; background: rgba(200,152,102,.16); }
+    /* On-page translation status toast — the page-level twin of the sidepanel
+       progress readout (Imm/Google-style): progress + cancel while running,
+       result actions when done, error attribution on failure. Warm paper genes;
+       dark variant mirrors the popup dark mode. */
+    .lector-tstatus { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 2147483646; display: flex; align-items: center; gap: 10px; padding: 8px 12px; max-width: calc(100vw - 24px); background: #FFF6EA; border: 1px solid #E2D5BB; border-radius: 12px; box-shadow: 0 4px 10px rgba(66,45,16,.06), 0 12px 28px rgba(66,45,16,.16); font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; font-size: 12px; color: #26211B; animation: lectorFadeIn .25s ease-out; }
+    .lector-tstatus.lector-tstatus-dark { background: #2A241C; border-color: #3B3226; color: #EAE0CC; box-shadow: 0 4px 10px rgba(0,0,0,.35), 0 12px 28px rgba(0,0,0,.45); }
+    .lector-tstatus .ts-text { display: flex; align-items: center; gap: 7px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lector-tstatus .ts-text.is-error { color: #c0392b; white-space: normal; }
+    .lector-tstatus.lector-tstatus-dark .ts-text.is-error { color: #E8837A; }
+    .lector-tstatus .ts-bar { flex: none; width: 108px; height: 4px; border-radius: 2px; background: rgba(143,94,48,.18); overflow: hidden; }
+    .lector-tstatus .ts-bar-fill { height: 100%; width: 0%; background: #8F5E30; border-radius: 2px; transition: width .3s ease; }
+    .lector-tstatus.lector-tstatus-dark .ts-bar { background: rgba(255,255,255,.14); }
+    .lector-tstatus.lector-tstatus-dark .ts-bar-fill { background: #C89866; }
+    .lector-tstatus .ts-btn { flex: none; border: none; border-radius: 7px; padding: 5px 10px; font-size: 11px; font-weight: 600; line-height: 1; cursor: pointer; background: rgba(143,94,48,.12); color: #8F5E30; transition: background-color .15s ease; font-family: inherit; }
+    .lector-tstatus .ts-btn:hover { background: rgba(143,94,48,.22); }
+    .lector-tstatus.lector-tstatus-dark .ts-btn { background: rgba(200,152,102,.16); color: #C89866; }
+    .lector-tstatus.lector-tstatus-dark .ts-btn:hover { background: rgba(200,152,102,.28); }
+    .lector-tstatus .ts-close { flex: none; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; border: none; background: transparent; color: #7A6E5C; cursor: pointer; border-radius: 6px; padding: 0; transition: background-color .15s ease, color .15s ease; }
+    .lector-tstatus .ts-close:hover { background: rgba(38,33,27,.08); color: #26211B; }
+    .lector-tstatus.lector-tstatus-dark .ts-close { color: #BFB299; }
+    .lector-tstatus.lector-tstatus-dark .ts-close:hover { background: rgba(255,255,255,.12); color: #FFF6EA; }
     .lector-bilingual { display:block; font-size:.92em; line-height:1.6; color:#5C5347; border-left:3px solid #8F5E30; padding:4px 0 4px 12px; margin:8px 0 8px 4px; border-radius:0 3px 3px 0; position:relative; transition:opacity .2s ease; }
-    .lector-bilingual.is-loading { opacity:.6; }
+    /* Loading skeleton: before the first token lands, the blinking caret morphs
+       into a shimmering ghost bar (Immersive-style placeholder) so the block
+       keeps a stable line box instead of collapsing to a 2px sliver. */
+    .lector-bilingual.is-loading { opacity:1; }
+    .lector-bilingual.is-loading .lector-bi-caret { width: 46%; height: .82em; vertical-align: middle; border-radius: 3px; margin-left: 0; background: linear-gradient(90deg, rgba(143,94,48,.14) 25%, rgba(143,94,48,.30) 37%, rgba(143,94,48,.14) 63%); background-size: 400% 100%; animation: lectorShimmer 1.3s ease infinite; }
     .lector-bilingual.is-error { border-left-color:#c0392b; color:#c0392b; }
     .lector-bi-caret { display:inline-block; width:2px; height:1em; background:#8F5E30; vertical-align:text-bottom; margin-left:1px; animation:lectorBlink 1s steps(2) infinite; }
     @keyframes lectorBlink { 50% { opacity:0; } }
@@ -485,7 +526,7 @@ const SUMMARIZE_SYSTEM_PROMPT =
  *  Includes [data-lector-no-translate] which the hover guard already used but the
  *  click/selection guards missed. */
 const LECTOR_UI_SELECTOR =
-  '#lector-ai-result, #lector-ai-toolbar, #lector-ai-loading, #lector-ai-fab, .lector-fab-menu, [data-lector-no-translate]'
+  '#lector-ai-result, #lector-ai-toolbar, #lector-ai-loading, #lector-ai-fab, .lector-fab-menu, .lector-tstatus, [data-lector-no-translate]'
 
 function isLectorUiTarget(target: HTMLElement): boolean {
   return !!target.closest(LECTOR_UI_SELECTOR)
@@ -547,15 +588,45 @@ type FabAction = {
 }
 
 /** Build the radial menu's action list. Built per-open so labels reflect the
- *  current locale (which can change without a reload). */
+ *  current locale (which can change without a reload) AND the live translation
+ *  state: the primary action is a true toggle (Immersive-style) — run in
+ *  flight → cancel; translations shown → restore original; otherwise →
+ *  translate. A display-mode cycle item sits right after it so the
+ *  bilingual/translation-only/hover switch never requires the side panel. */
 function fabActions(): FabAction[] {
-  return [
-    {
+  let primary: FabAction
+  if (bilingualAbort) {
+    primary = {
+      id: 'cancelTranslate',
+      label: tr('fab.menu.cancelTranslate'),
+      icon: FAB_MENU_ICONS.cancelTranslate,
+      run: () => cancelBilingual(),
+    }
+  } else if (pageHasTranslations()) {
+    primary = {
+      id: 'restoreOriginal',
+      label: tr('fab.menu.restoreOriginal'),
+      icon: FAB_MENU_ICONS.restoreOriginal,
+      run: () => restorePageTranslations(),
+    }
+  } else {
+    primary = {
       id: 'translatePage',
-      label: tr('fab.menu.translatePage'),
+      label: tr('fab.menu.translatePage') + ` (${tr('fab.menu.translatePageHint')})`,
       icon: FAB_MENU_ICONS.translatePage,
       run: () => {
         void toggleBilingual()
+      },
+    }
+  }
+  return [
+    primary,
+    {
+      id: 'displayMode',
+      label: tr('fab.menu.displayMode').replace('{mode}', displayModeLabel(currentDisplayMode)),
+      icon: FAB_MENU_ICONS.displayMode,
+      run: () => {
+        void cycleDisplayMode()
       },
     },
     {
@@ -713,6 +784,12 @@ const TOOLBAR_ICONS: Record<string, string> = {
 const FAB_MENU_ICONS: Record<string, string> = {
   // bilingual page translation (globe)
   translatePage: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18Z"/></svg>',
+  // cancel an in-flight page translation (slash circle)
+  cancelTranslate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6"/><path d="m15 9-6 6"/></svg>',
+  // restore the original (untranslated) page (eye)
+  restoreOriginal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.6"/></svg>',
+  // cycle bilingual display mode (text lines)
+  displayMode: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 11h16"/><path d="M4 16h10"/></svg>',
   // summarize whole page (document with lines)
   summarizePage: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></svg>',
   // open side panel (chat bubble)
@@ -931,6 +1008,13 @@ function popupDark(): boolean {
   return selectionToolbar?.classList.contains('is-dark') ?? false
 }
 
+/** Vertical offset from an anchor (usually the selection toolbar's top) so a
+ *  popup clears the toolbar's FULL height — the old +20 started the popup
+ *  18px into the ~38px toolbar and covered its lower half. */
+function popupTopBelowToolbar(y: number): number {
+  return y + (selectionToolbar?.offsetHeight ?? 0) + 12
+}
+
 function showLoading(x: number, y: number) {
   clearPopups()
 
@@ -939,7 +1023,7 @@ function showLoading(x: number, y: number) {
   loadingPopup.className = 'lector-pop lector-pop-loading'
   if (popupDark()) loadingPopup.classList.add('lector-pop-dark')
   // Only geometry stays inline; the look lives in .lector-pop(-loading).
-  loadingPopup.style.cssText = `left: ${x}px; top: ${y + 20}px;`
+  loadingPopup.style.cssText = `left: ${x}px; top: ${popupTopBelowToolbar(y)}px;`
 
   const spinner = document.createElement('div')
   spinner.className = 'lector-pop-spinner'
@@ -970,7 +1054,7 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
   // Only geometry stays inline; the look lives in .lector-pop.
   resultPopup.style.cssText = `
     left: ${x}px;
-    top: ${y + 20}px;
+    top: ${popupTopBelowToolbar(y)}px;
     max-height: ${Math.min(maxHeight, 500)}px;
     overflow-y: auto;
   `
@@ -1029,6 +1113,7 @@ function showResult(x: number, y: number, result: string, type: 'translate' | 's
 
   document.body.appendChild(resultPopup)
   lectorUiOpenedAt = Date.now()
+  makeDraggable(resultPopup, header)
 }
 
 /** Read source text aloud via the browser's built-in SpeechSynthesis (zero-dep). */
@@ -1038,6 +1123,41 @@ function speak(text: string, langSpeechCode: string) {
   const u = new SpeechSynthesisUtterance(text)
   u.lang = langSpeechCode
   window.speechSynthesis.speak(u)
+}
+
+/** Make a fixed popup movable by dragging its header (DeepL-style). Pointer
+ *  events on interactive children (buttons, the language dropdown) never start
+ *  a drag. Clamped to the viewport so the popup can't be dragged out of reach.
+ *  Pointer capture keeps the gesture alive when the cursor outruns the handle. */
+function makeDraggable(popup: HTMLElement, handle: HTMLElement): void {
+  handle.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return
+    if ((e.target as HTMLElement).closest('button, input, .lector-lang-dd')) return
+    const rect = popup.getBoundingClientRect()
+    const startX = e.clientX
+    const startY = e.clientY
+    const origLeft = rect.left
+    const origTop = rect.top
+    try {
+      handle.setPointerCapture(e.pointerId)
+    } catch {
+      /* best-effort; move still tracks while over the handle */
+    }
+    const onMove = (ev: PointerEvent) => {
+      const left = Math.max(8, Math.min(window.innerWidth - 80, origLeft + ev.clientX - startX))
+      const top = Math.max(8, Math.min(window.innerHeight - 48, origTop + ev.clientY - startY))
+      popup.style.left = `${left}px`
+      popup.style.top = `${top}px`
+    }
+    const onUp = () => {
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', onUp)
+      handle.removeEventListener('pointercancel', onUp)
+    }
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', onUp)
+    handle.addEventListener('pointercancel', onUp)
+  })
 }
 
 /** Map a language-dropdown pick ('auto' | language code) to a concrete target. */
@@ -1085,7 +1205,7 @@ function showStreamingTranslateResult(
   const maxHeight = window.innerHeight - y - 100
   // Only geometry stays inline; the look lives in .lector-pop.
   resultPopup.style.cssText = `
-    left: ${x}px; top: ${y + 20}px; max-height: ${Math.min(maxHeight, 500)}px; overflow-y: auto;
+    left: ${x}px; top: ${popupTopBelowToolbar(y)}px; max-height: ${Math.min(maxHeight, 500)}px; overflow-y: auto;
   `
 
   const header = document.createElement('div')
@@ -1093,6 +1213,18 @@ function showStreamingTranslateResult(
   const title = document.createElement('div')
   title.className = 'result-title'
   title.innerHTML = tr('popup.result.translate')
+
+  // Detected source-language badge ("EN →"): makes the auto direction visible
+  // and auditable next to the target picker (surpass-feature parity with the
+  // side panel's "Detected: X → Y" labeling).
+  const srcLang = detectSourceLang(sourceText)
+  const srcBadge = document.createElement('span')
+  srcBadge.className = 'lector-src-badge'
+  srcBadge.textContent = `${srcLang.toUpperCase()} →`
+  srcBadge.title = tr('bilingual.sourceDetected').replace(
+    '{lang}',
+    cachedPref === 'zh' ? getLanguage(srcLang).zh : getLanguage(srcLang).en
+  )
 
   // Target language selector (self-drawn dropdown — see createLangDropdown).
   const langWrap = document.createElement('div')
@@ -1108,6 +1240,7 @@ function showStreamingTranslateResult(
       persistPickedTarget(raw)
     },
   })
+  langWrap.appendChild(srcBadge)
   langWrap.appendChild(langLabel)
   langWrap.appendChild(langDd)
 
@@ -1134,13 +1267,14 @@ function showStreamingTranslateResult(
   const speakSrc = document.createElement('button')
   speakSrc.className = 'copy-btn'
   speakSrc.type = 'button'
-  speakSrc.textContent = '🔊 ' + tr('popup.result.speak')
+  speakSrc.textContent = '🔊 ' + tr('popup.result.speakSource')
+  speakSrc.title = tr('popup.result.speak')
   speakSrc.style.flex = '0 0 auto'
   speakSrc.onclick = () => speak(sourceText, getLanguage(detectScript(sourceText) === 'cjk' ? 'zh' : 'en').speechCode)
   const speakTgt = document.createElement('button')
   speakTgt.className = 'copy-btn'
   speakTgt.type = 'button'
-  speakTgt.textContent = '🔊'
+  speakTgt.textContent = '🔊 ' + tr('popup.result.speakTarget')
   speakTgt.title = tr('popup.result.speak')
   speakTgt.style.flex = '0 0 auto'
   speakTgt.onclick = () => speak(content.textContent || '', getLanguage(curTarget).speechCode)
@@ -1170,6 +1304,7 @@ function showStreamingTranslateResult(
   resultPopup.appendChild(footer)
   document.body.appendChild(resultPopup)
   lectorUiOpenedAt = Date.now()
+  makeDraggable(resultPopup, header)
 
   let acc = ''
   let curTarget = initialTarget
@@ -1733,6 +1868,7 @@ function isChromeWorthyBlock(el: HTMLElement): boolean {
 const TRANSLATION_SELF_SELECTOR =
   [
     '#lector-ai-result', '#lector-ai-toolbar', '#lector-ai-loading', '#lector-ai-fab',
+    '.lector-fab-menu', '.lector-tstatus',
     '[data-lector-no-translate]',
     // A successfully translated host is done; a FAILED host (.lector-translation-error)
     // must stay eligible so a later run (or Retry) can retranslate it.
@@ -2036,7 +2172,29 @@ export function collectTranslationCandidates(
   })
 }
 
+/** Live display-mode mirror so the FAB menu / status toast can label and cycle
+ *  the mode without a settings round-trip. Kept in sync by applyDisplayMode. */
+let currentDisplayMode: DisplayMode = 'bilingual'
+
+function displayModeLabel(mode: DisplayMode): string {
+  return tr(('settings.translation.displayMode.' + mode) as StringKey)
+}
+
+/** Cycle bilingual → translationOnly → hover, apply immediately (CSS body
+ *  class), persist via the background relay, and confirm with a transient
+ *  toast. Page-level counterpart of the Settings segmented control. */
+const DISPLAY_MODE_ORDER: DisplayMode[] = ['bilingual', 'translationOnly', 'hover']
+async function cycleDisplayMode(): Promise<void> {
+  const next = DISPLAY_MODE_ORDER[
+    (DISPLAY_MODE_ORDER.indexOf(currentDisplayMode) + 1) % DISPLAY_MODE_ORDER.length
+  ]
+  applyDisplayMode(next)
+  safeRuntimeSend({ action: 'lector-set-translation-display-mode', mode: next })
+  showTranslationNotice(tr('fab.menu.displayMode').replace('{mode}', displayModeLabel(next)))
+}
+
 function applyDisplayMode(mode: DisplayMode) {
+  currentDisplayMode = mode
   document.body.classList.remove('lector-dm-bilingual', 'lector-dm-translationOnly', 'lector-dm-hover')
   document.body.classList.add('lector-dm-' + mode)
 }
@@ -2066,12 +2224,17 @@ function applyTranslationStyle(ts: TranslationSettings) {
   styleEl.textContent = buildThemeStylesheet(ts.fontSize, ts.customCss, ts.readingFocus)
 }
 
-/** Build the per-chunk hover action cluster (retry + copy). Shared by the
- *  streaming path and the cache-hit fast-path so a cached translation gets the
- *  same per-chunk controls. `onRetry` re-runs just this chunk. On an error
- *  chunk Copy is hidden (there is no valid translation to copy) while Retry
- *  stays — the whole point of the error state is retryability. */
-function makeChunkActions(span: HTMLElement, onRetry: () => void, opts: { hideCopy?: boolean } = {}): HTMLElement {
+/** Build the per-chunk hover action cluster (retry + speak + copy). Shared by
+ *  the streaming path and the cache-hit fast-path so a cached translation gets
+ *  the same per-chunk controls. `onRetry` re-runs just this chunk. `lang` (the
+ *  run's target language) enables the read-aloud button. On an error chunk
+ *  speak/copy are hidden (there is no valid translation) while Retry stays —
+ *  the whole point of the error state is retryability. */
+function makeChunkActions(
+  span: HTMLElement,
+  onRetry: () => void,
+  opts: { hideCopy?: boolean; lang?: TargetLangCode } = {}
+): HTMLElement {
   const actions = document.createElement('span')
   actions.className = 'lector-bi-actions'
   const retry = document.createElement('button')
@@ -2079,6 +2242,19 @@ function makeChunkActions(span: HTMLElement, onRetry: () => void, opts: { hideCo
   retry.className = 'lector-bi-retry'
   retry.textContent = tr('bilingual.retry')
   retry.onclick = (ev) => { ev.stopPropagation(); onRetry() }
+  actions.appendChild(retry)
+  if (opts.lang) {
+    const speakBtn = document.createElement('button')
+    speakBtn.type = 'button'
+    speakBtn.className = 'lector-bi-speak'
+    speakBtn.textContent = tr('popup.result.speak')
+    if (opts.hideCopy) speakBtn.style.display = 'none'
+    speakBtn.onclick = (ev) => {
+      ev.stopPropagation()
+      speak(readChunkTranslation(span), getLanguage(opts.lang!).speechCode)
+    }
+    actions.appendChild(speakBtn)
+  }
   const copy = document.createElement('button')
   copy.type = 'button'
   copy.className = 'lector-bi-copy'
@@ -2088,7 +2264,6 @@ function makeChunkActions(span: HTMLElement, onRetry: () => void, opts: { hideCo
     ev.stopPropagation()
     navigator.clipboard.writeText(readChunkTranslation(span)).catch(() => {})
   }
-  actions.appendChild(retry)
   actions.appendChild(copy)
   return actions
 }
@@ -2284,7 +2459,7 @@ async function translateOneChunk(
         const actions = makeChunkActions(span, () => {
           span.remove()
           void translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 0, undefined, cache ? cacheDisabled(cache) : undefined).catch(() => {})
-        })
+        }, { lang: targetLang })
         span.appendChild(actions)
         block.appendChild(span)
         return value
@@ -2314,7 +2489,7 @@ async function translateOneChunk(
     void translateOneChunk(settings, systemPrompt, block, chunkText, targetLang, 0, undefined, cache ? cacheDisabled(cache) : undefined).catch(() => {})
   }
   // Per-chunk hover actions: retry re-runs ONLY this chunk.
-  const actions = makeChunkActions(span, onManualRetry)
+  const actions = makeChunkActions(span, onManualRetry, { lang: targetLang })
   block.appendChild(span)
 
   // On the forced retry, prepend an imperative instruction so the model stops
@@ -2368,7 +2543,7 @@ async function translateOneChunk(
     span.classList.add('is-error')
     block.classList.add('lector-translation-error')
     span.textContent = tr('bilingual.blockError')
-    span.appendChild(makeChunkActions(span, onManualRetry, { hideCopy: true }))
+    span.appendChild(makeChunkActions(span, onManualRetry, { hideCopy: true, lang: targetLang }))
     throw e
   }
 
@@ -2389,7 +2564,7 @@ async function translateOneChunk(
     span.classList.add('is-error')
     block.classList.add('lector-translation-error')
     span.textContent = message
-    span.appendChild(makeChunkActions(span, onManualRetry, { hideCopy: true }))
+    span.appendChild(makeChunkActions(span, onManualRetry, { hideCopy: true, lang: targetLang }))
     throw new TranslationQualityError(message)
   }
 
@@ -2601,12 +2776,198 @@ export function reportBilingualTerminal(message: string): void {
     action: 'lector-bilingual-error',
     message,
   })
+  // Page-level twin so a closed side panel still sees WHY the run stopped.
+  showTranslationError(message)
 }
 
 /** Monotonic run id: only the CURRENT run may remove the body run-active
  *  class. A re-entering run bumps the serial so the aborted run's finally
  *  doesn't clear the marker of the run that replaced it. */
 let bilingualRunSerial = 0
+
+// ---------------------------------------------------------------------------
+// On-page translation status toast — the page-level twin of the sidepanel's
+// progress readout (Immersive/Google-style). The sidepanel is often CLOSED
+// when the user triggers translation from the FAB or Alt+A; without this the
+// run is a black box: no progress, no cancel, no failure attribution. States:
+//   progress  — "Translating 12/48" + progress bar + Cancel + dismiss
+//   done      — "Translated N blocks" + Show original + mode cycle (auto-hide)
+//   error     — "Translation stopped: <reason>" (auto-hide, slower)
+//   notice    — small transient confirmation (mode switch / restored)
+// A same-kind progress update mutates the live nodes in place so the 250ms
+// report cadence never restarts the entrance animation.
+// ---------------------------------------------------------------------------
+let tstatusEl: HTMLElement | null = null
+let tstatusKind: 'progress' | 'done' | 'error' | 'notice' | null = null
+let tstatusTimer: ReturnType<typeof setTimeout> | null = null
+
+function tstatusDark(): boolean {
+  try {
+    return isDarkPage(document.body)
+  } catch {
+    return false
+  }
+}
+
+function killTstatusTimer(): void {
+  if (tstatusTimer !== null) {
+    clearTimeout(tstatusTimer)
+    tstatusTimer = null
+  }
+}
+
+function hideTranslationStatus(): void {
+  killTstatusTimer()
+  tstatusEl?.remove()
+  tstatusEl = null
+  tstatusKind = null
+}
+
+/** Shared toast scaffold: root + text row; callers append their own controls. */
+function buildTstatus(kind: 'progress' | 'done' | 'error' | 'notice'): { root: HTMLElement; text: HTMLElement } {
+  hideTranslationStatus()
+  const root = document.createElement('div')
+  root.className = 'lector-tstatus' + (tstatusDark() ? ' lector-tstatus-dark' : '')
+  const text = document.createElement('span')
+  text.className = 'ts-text'
+  if (kind === 'error') text.classList.add('is-error')
+  root.appendChild(text)
+  tstatusEl = root
+  tstatusKind = kind
+  return { root, text }
+}
+
+function finishTstatus(root: HTMLElement, autoHideMs: number | null): void {
+  const close = document.createElement('button')
+  close.type = 'button'
+  close.className = 'ts-close'
+  close.setAttribute('aria-label', tr('popup.close'))
+  close.innerHTML =
+    '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>'
+  close.onclick = hideTranslationStatus
+  root.appendChild(close)
+  document.body.appendChild(root)
+  if (autoHideMs !== null) tstatusTimer = setTimeout(hideTranslationStatus, autoHideMs)
+}
+
+/** Progress state. Passing total=0 renders the indeterminate "Translating…"
+ *  form used while the run is still probing/collecting candidates. */
+function showTranslationProgress(done: number, total: number): void {
+  if (tstatusKind === 'progress' && tstatusEl?.isConnected) {
+    // In-place update: keep the entrance animation out of the 250ms cadence.
+    const text = tstatusEl.querySelector<HTMLElement>('.ts-text')
+    if (text) text.textContent = total > 0
+      ? tr('bilingual.status.translating')
+          .replace('{done}', String(done))
+          .replace('{total}', String(total))
+      : tr('bilingual.status.probing')
+    const fill = tstatusEl.querySelector<HTMLElement>('.ts-bar-fill')
+    if (fill) fill.style.width = total > 0 ? `${Math.round((done / total) * 100)}%` : '0%'
+    return
+  }
+  const { root, text } = buildTstatus('progress')
+  text.textContent = total > 0
+    ? tr('bilingual.status.translating')
+        .replace('{done}', String(done))
+        .replace('{total}', String(total))
+    : tr('bilingual.status.probing')
+  const bar = document.createElement('span')
+  bar.className = 'ts-bar'
+  const fill = document.createElement('span')
+  fill.className = 'ts-bar-fill'
+  fill.style.width = total > 0 ? `${Math.round((done / total) * 100)}%` : '0%'
+  bar.appendChild(fill)
+  root.appendChild(bar)
+  const cancel = document.createElement('button')
+  cancel.type = 'button'
+  cancel.className = 'ts-btn'
+  cancel.textContent = tr('bilingual.cancel')
+  cancel.onclick = () => cancelBilingual()
+  root.appendChild(cancel)
+  finishTstatus(root, null)
+}
+
+/** Done state: result count + quick actions (show original / cycle mode).
+ *  Auto-hides — the FAB menu keeps both actions available afterwards. */
+function showTranslationDone(count: number): void {
+  const { root, text } = buildTstatus('done')
+  text.textContent = '✓ ' + tr('bilingual.status.done').replace('{n}', String(count))
+  const showOriginal = document.createElement('button')
+  showOriginal.type = 'button'
+  showOriginal.className = 'ts-btn'
+  showOriginal.textContent = tr('bilingual.status.showOriginal')
+  showOriginal.onclick = () => restorePageTranslations()
+  const mode = document.createElement('button')
+  mode.type = 'button'
+  mode.className = 'ts-btn'
+  mode.textContent = displayModeLabel(currentDisplayMode)
+  mode.title = tr('settings.translation.displayMode')
+  mode.onclick = () => { void cycleDisplayMode(); mode.textContent = displayModeLabel(currentDisplayMode) }
+  root.appendChild(showOriginal)
+  root.appendChild(mode)
+  finishTstatus(root, 6000)
+}
+
+/** Error state: keeps the provider's own message (auth/quota/probe failure)
+ *  so the user can attribute the stop, like Immersive's failed indicator. */
+function showTranslationError(message: string): void {
+  const { root, text } = buildTstatus('error')
+  text.textContent = '⚠ ' + tr('bilingual.status.error').replace('{msg}', message)
+  finishTstatus(root, 9000)
+}
+
+/** Small transient confirmation pill (mode switched / original restored). */
+function showTranslationNotice(message: string): void {
+  const { root, text } = buildTstatus('notice')
+  text.textContent = message
+  finishTstatus(root, 2500)
+}
+
+// ---------------------------------------------------------------------------
+// Restore-original (toggle semantics). Immersive-style: the SAME gesture that
+// starts translation also takes it away — Alt+A / FAB primary item become a
+// true toggle. Restores every host this page holds (whole-page runs, manual
+// retries and Shift+hover injections all share .lector-bilingual markup).
+// ---------------------------------------------------------------------------
+export function pageHasTranslations(): boolean {
+  return !!document.querySelector('.lector-bilingual:not(.is-error)')
+}
+
+export function restorePageTranslations(): void {
+  stopIncrementalTranslation()
+  if (bilingualAbort) {
+    bilingualAbort.abort()
+    bilingualAbort = null
+    fab?.classList.remove('is-translating')
+  }
+  // Thorough GLOBAL cleanup, not a per-host :scope > walk: pages legitimately
+  // re-parent our spans after injection (the user's own highlight <mark>, site
+  // scripts, framework re-renders), and a re-parented translation would
+  // otherwise survive the restore — leaving stray text AND keeping
+  // pageHasTranslations() true, which would turn every later toggle into a
+  // no-op restore instead of a fresh run.
+  document.querySelectorAll('.lector-bilingual').forEach((el) => el.remove())
+  document.querySelectorAll('.lector-bi-source-node').forEach((node) => {
+    node.classList.remove('lector-bi-source', 'lector-bi-source-node')
+    if ((node as HTMLElement).dataset?.lectorSourceText === 'true') {
+      node.replaceWith(...Array.from(node.childNodes))
+    }
+  })
+  document.querySelectorAll('.lector-bilingual-host').forEach((el) => {
+    el.classList.remove('lector-bilingual-host', 'lector-translation-error')
+  })
+  // Drop every presentation class this feature put on <body>; a new run
+  // re-applies them from settings. Without this, translationOnly would keep
+  // hiding source nodes whose host classes were just stripped.
+  document.body.classList.remove('lector-bilingual-run-active')
+  document.body.classList.remove('lector-dm-bilingual', 'lector-dm-translationOnly', 'lector-dm-hover')
+  document.body.classList.remove('lector-focus-on')
+  document.body.classList.remove(...TRANSLATION_THEMES.map((t) => `lector-theme-${t.id}`))
+  hideTranslationStatus()
+  // Release the side panel's busy/progress state (it keys off complete:true).
+  safeRuntimeSend({ action: 'lector-bilingual-progress', done: 0, total: 0, complete: true })
+  showTranslationNotice(tr('bilingual.restored'))
+}
 
 async function runBilingualTranslation() {
   // Re-entrancy guard: a second toggle (or a side-panel re-send) must abort
@@ -2635,6 +2996,10 @@ async function runBilingualTranslation() {
   bilingualAbort = controller
   const serial = ++bilingualRunSerial
   document.body.classList.add('lector-bilingual-run-active')
+  // Page-level status twin: FAB spinner + progress toast (indeterminate until
+  // the candidate count resolves). Both are cleared in the finally below.
+  fab?.classList.add('is-translating')
+  showTranslationProgress(0, 0)
   // Blocks this run turned into hosts — restored wholesale if the run aborts.
   const touched = new Set<HTMLElement>()
 
@@ -2741,6 +3106,8 @@ async function runBilingualTranslation() {
       if (!complete && now - lastReportAt < 250) return
       lastReportAt = now
       safeRuntimeSend({ action: 'lector-bilingual-progress', done, total, complete })
+      // Page-level twin, same cadence as the sidepanel message.
+      showTranslationProgress(done, total)
     }
     report()
 
@@ -2827,6 +3194,7 @@ async function runBilingualTranslation() {
     } catch (e) {
       if (e instanceof TranslationQualityError) {
         safeRuntimeSend({ action: 'lector-bilingual-error', message: tr('bilingual.probeFailed') })
+        showTranslationError(tr('bilingual.probeFailed'))
         report(true)
         return
       }
@@ -2890,6 +3258,9 @@ async function runBilingualTranslation() {
       cacheTtlDays: tSettings.cacheTtlDays,
     })
     report(true)
+    // Success terminal: swap the progress toast for the result row (count +
+    // show-original + mode cycle, auto-hide). Errors below take the error form.
+    showTranslationDone(done)
   } catch (e) {
     // Aborts were user-initiated (cancel / replacement run) — cancelBilingual
     // already reported. Anything else propagates to toggleBilingual's terminal
@@ -2904,6 +3275,9 @@ async function runBilingualTranslation() {
     }
     if (bilingualRunSerial === serial) {
       document.body.classList.remove('lector-bilingual-run-active')
+      // Only the current run may retire the FAB spinner; a replacement run
+      // already re-added it for itself.
+      if (bilingualAbort === controller) fab?.classList.remove('is-translating')
     }
     // Release the controller only if it is still ours. If a newer run already
     // reassigned bilingualAbort (re-entrancy), leave it alone — nulling it
@@ -3092,6 +3466,10 @@ function cancelBilingual() {
     bilingualAbort.abort()
     bilingualAbort = null
   }
+  // The aborted run's finally sees bilingualAbort already reassigned/cleared,
+  // so the FAB spinner + toast must be retired here, not only there.
+  fab?.classList.remove('is-translating')
+  hideTranslationStatus()
   // `canceled: true` lets the panel distinguish an intentional stop from a
   // provider failure; the run suppresses any late ordinary error after it.
   safeRuntimeSend({ action: 'lector-bilingual-error', message: tr('bilingual.canceled'), canceled: true })
@@ -3103,8 +3481,14 @@ function cancelBilingual() {
  *  Cleared after each run. */
 let bilingualScopeOverride: 'smart' | 'whole' | null = null
 
-/** Backwards-compat entry point; the side panel / command send lector-toggle-bilingual. */
+/** Backwards-compat entry point; the side panel / command send lector-toggle-bilingual.
+ *  Toggle semantics (Immersive-style Alt+A): translations already on the page
+ *  and no run in flight → restore the original instead of re-running. */
 async function toggleBilingual() {
+  if (!bilingualAbort && pageHasTranslations()) {
+    restorePageTranslations()
+    return
+  }
   try {
     await runBilingualTranslation()
   } catch (e) {
@@ -3392,6 +3776,7 @@ document.addEventListener('keydown', (e) => {
     removeToolbar()
     removeResult()
     removeLoading()
+    hideTranslationStatus()
   }
 })
 

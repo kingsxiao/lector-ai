@@ -77,6 +77,9 @@ Lector AI 是一个 **Chrome 扩展（Manifest V3）**——**纯客户端、BYO
 
 ### 整页双语翻译管线（content.ts `runBilingualTranslation`）
 
+- **toggle 语义（沉浸式翻译式）：** `lector-toggle-bilingual`（Alt+A / FAB 首项 / 侧栏按钮）是真正的开关——页面已有译文且无 run 进行中时再触发 = `restorePageTranslations()`（还原整页、清理 body 展示类、释放侧栏 busy、发「已恢复原文」toast）。还原是**全局清理**（所有 `.lector-bilingual` / source 包裹 / host 类），不是逐 host 的 `:scope >` 走查——页面脚本（如高亮 `<mark>`）会把译文 span 重新挂父节点，`:scope` 走查会漏掉它们，导致 `pageHasTranslations()` 永真、后续 toggle 永远走还原分支。E2E 各 §9 子测试自行清理 DOM 时同样必须全局清理。
+- **页内状态浮条（`.lector-tstatus`）：** 翻译运行时页面上有独立于侧栏的进度 UI——运行中「正在翻译 N/M + 进度条 + 取消」（250ms 节流、原位更新避免重启动画）、完成「✓ 已翻译 N 段 + 显示原文 + 显示模式切换」6s 自动收起、失败「⚠ + 原因」9s。FAB 同步加 `is-translating`（字母隐藏、spinner 环）。侧栏关闭时（FAB/Alt+A 触发的常见态）不再黑盒。
+- **显示模式页内切换：** FAB 径向菜单与完成态浮条都能循环 双语→仅译文→hover；持久化走 background 的 `lector-set-translation-display-mode`（读改写 `lector_byok_settings` + 广播 `lector-translation-settings-changed`，与 `lector-set-translation-target` 同模式；侧栏监听 storage 变化同步 zustand，不会回写覆盖）。
 - **控制器先行：** run 在任何 `await` 之前同步创建并持有 `AbortController`（赋给模块级 `bilingualAbort`），设置尚未加载完就取消也能命中本次 run。
 - **探测优先（probe-first）：** 先只翻译第一个候选块。质量重试仍失败（`TranslationQualityError`）→ 发一条 `bilingual.probeFailed` 并停止整页（其余块不变成 host、零请求）；探测成功 → 该块保留译文（不重复请求），其余块并发。单块页面 = 探测 = 唯一一次付费请求。
 - **结构化翻译请求：** 每块 user turn 走 `buildTranslateUserPrompt(text, target, strictRetry)`——目标语言在 user turn 重复一遍（兼容弱化 system 角色的入口），页面文本包成 `SOURCE_JSON:` JSON 字符串字面量（页面内容永远不可能注入指令）。

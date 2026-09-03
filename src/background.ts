@@ -9,7 +9,7 @@
 import { t, type StringKey } from './shared/i18n'
 import { getSettings, completeOnce, saveSettings } from './shared/byok'
 import { SENTENCE_CARD_SYSTEM_PROMPT, extractTranslation, extractKeywords, extractCefr, newCardId, type SentenceCard } from './shared/sentences'
-import { appendHistory, newHistoryId, type TranslationHistoryEntry } from './shared/translation'
+import { appendHistory, newHistoryId, isValidDisplayMode, type TranslationHistoryEntry } from './shared/translation'
 import { normalizeTranslationSettings } from './shared/providers'
 import { appendToList, type ListStore } from './shared/storageQueue'
 import type { Highlight } from './shared/highlights'
@@ -166,6 +166,28 @@ chrome.runtime.onMessage.addListener((message, sender) => {
         })
       }
     })()
+    return false
+  }
+  if (message?.action === 'lector-set-translation-display-mode') {
+    // Persist the page-level display-mode cycle (FAB menu / status toast) back
+    // into BYOK settings and broadcast — same relay pattern as
+    // lector-set-translation-target so the panel's zustand copy stays fresh.
+    if (isValidDisplayMode(message.mode)) {
+      void (async () => {
+        const s = await getSettings()
+        const ts = normalizeTranslationSettings(s.translation)
+        ts.displayMode = message.mode
+        await saveSettings({ ...s, translation: ts })
+        const tabs = await chrome.tabs.query({})
+        for (const tab of tabs) {
+          if (tab.id === undefined) continue
+          if (!tab.url || !/^https?:/i.test(tab.url)) continue
+          chrome.tabs.sendMessage(tab.id, { action: 'lector-translation-settings-changed' }, () => {
+            void chrome.runtime.lastError
+          })
+        }
+      })()
+    }
     return false
   }
   return false

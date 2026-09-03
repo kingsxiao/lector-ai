@@ -259,9 +259,22 @@ export const STRINGS = {
   // FAB radial quick-action menu (page-level; there's no text selection).
   'fab.menu': { en: 'Quick actions', zh: '快捷操作' },
   'fab.menu.translatePage': { en: 'Translate page', zh: '翻译整页' },
+  'fab.menu.translatePageHint': { en: 'Alt+A', zh: 'Alt+A' },
+  'fab.menu.cancelTranslate': { en: 'Cancel translation', zh: '取消翻译' },
+  'fab.menu.restoreOriginal': { en: 'Show original', zh: '显示原文' },
+  'fab.menu.displayMode': { en: 'Display: {mode}', zh: '显示：{mode}' },
   'fab.menu.summarizePage': { en: 'Summarize page', zh: '摘要整页' },
   'fab.menu.openPanel': { en: 'Open side panel', zh: '打开侧边栏' },
   'fab.menu.openStandalone': { en: 'Open in new window', zh: '单独打开页面' },
+  // On-page translation status toast (progress / done / error).
+  'bilingual.status.translating': { en: 'Translating {done}/{total}', zh: '正在翻译 {done}/{total}' },
+  'bilingual.status.probing': { en: 'Translating…', zh: '正在翻译…' },
+  'bilingual.status.done': { en: 'Translated {n} blocks', zh: '已翻译 {n} 段' },
+  'bilingual.status.showOriginal': { en: 'Show original', zh: '显示原文' },
+  'bilingual.status.retry': { en: 'Retry failed', zh: '重译失败段' },
+  'bilingual.status.error': { en: 'Translation stopped: {msg}', zh: '翻译已停止：{msg}' },
+  'bilingual.restored': { en: 'Original text restored', zh: '已恢复原文' },
+  'bilingual.sourceDetected': { en: 'Detected {lang}', zh: '识别为 {lang}' },
   // Side-panel header button that pops Lector out into its own window.
   'side.header.openStandalone': { en: 'Open in standalone window', zh: '单独窗口打开' },
   'highlight.markTitle': { en: 'Lector highlight', zh: 'Lector 高亮' },
@@ -551,6 +564,8 @@ export const STRINGS = {
 
   // --- selection popup (translate) ---
   'popup.result.speak': { en: 'Read aloud', zh: '朗读' },
+  'popup.result.speakSource': { en: 'Original', zh: '原文' },
+  'popup.result.speakTarget': { en: 'Translation', zh: '译文' },
   'popup.result.retranslate': { en: 'Retranslate', zh: '重新翻译' },
   'popup.result.targetLang': { en: 'Translate to', zh: '译为' },
 

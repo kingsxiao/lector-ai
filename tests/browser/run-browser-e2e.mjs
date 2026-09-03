@@ -308,9 +308,9 @@ async function main() {
     await sleep(300)
     const menuState = JSON.parse(await evalIn(page, `(()=>{ const m = document.querySelector('.lector-fab-menu'); const items = m ? m.querySelectorAll('.lector-fab-item') : []; return JSON.stringify({ open: !!m, itemCount: items.length, aria: document.querySelector('#lector-ai-fab').getAttribute('aria-expanded'), labels: [...items].map(i=>i.getAttribute('aria-label')) }); })()`) || '{}')
     check('§1.2 FAB click → radial menu opens', menuState.open, `open=${menuState.open}`)
-    check('§1.2 menu has 4 items (translate/summarize/panel/standalone)', menuState.itemCount === 4, `count=${menuState.itemCount}`)
+    check('§1.2 menu has 5 items (translate/display-mode/summarize/panel/standalone)', menuState.itemCount === 5, `count=${menuState.itemCount}`)
     check('§1.2 FAB aria-expanded reflects open state', menuState.aria === 'true', `aria=${menuState.aria}`)
-    check('§1.2 menu items are role=menuitem with labels', menuState.labels && menuState.labels.length === 4 && menuState.labels.every((l) => typeof l === 'string' && l.length > 0), `labels=${JSON.stringify(menuState.labels)}`)
+    check('§1.2 menu items are role=menuitem with labels', menuState.labels && menuState.labels.length === 5 && menuState.labels.every((l) => typeof l === 'string' && l.length > 0), `labels=${JSON.stringify(menuState.labels)}`)
 
     // Click the "open in new window" menu item → window.open(cached URL).
     await evalIn(page, `(()=>{ const items = document.querySelectorAll('.lector-fab-item'); const t = [...items].find(i => i.getAttribute('aria-label') && /new window|单独打开/i.test(i.getAttribute('aria-label'))); if (t) t.click(); })()`)
@@ -363,7 +363,7 @@ async function main() {
     await evalIn(page, `document.querySelector('#lector-ai-fab').click()`)
     await sleep(350)
     const closedCount = await evalIn(page, `document.querySelectorAll('.lector-fab-item').length`)
-    check('§1.2 clicking FAB again closes the menu', openCount === 4 && closedCount === 0, `open=${openCount} closed=${closedCount}`)
+    check('§1.2 clicking FAB again closes the menu', openCount === 5 && closedCount === 0, `open=${openCount} closed=${closedCount}`)
 
     // ---- §1.5 FAB drag (position change + persistence + click suppression) ----
     // Synthetic PointerEvents exercise the real pointerdown/move/up listeners
@@ -425,7 +425,7 @@ async function main() {
     const jitterRes = await fabDrag('x0 + 3', 'y0 + 2')
     const jitterItems = await evalIn(page, `(()=>{ const f = document.querySelector('#lector-ai-fab'); f.click(); return document.querySelectorAll('.lector-fab-item').length; })()`)
     check('§1.5 sub-threshold jitter is a click, not a drag',
-      Math.abs(jitterRes.left - jitterRes.fromX) <= 1 && jitterItems === 4,
+      Math.abs(jitterRes.left - jitterRes.fromX) <= 1 && jitterItems === 5,
       `moved=${Math.abs(jitterRes.left - jitterRes.fromX)} items=${jitterItems}`)
     check('§1.5 menu closes again after jitter', await fabClickUntil(false))
     // Dragged to the top edge, the radial menu flips and fans DOWNWARD, and
@@ -445,7 +445,7 @@ async function main() {
     await sleep(450)
     const cornerState = JSON.parse(await evalIn(page, `(()=>{ const items = [...document.querySelectorAll('.lector-fab-item')].map(i => i.getBoundingClientRect()); return JSON.stringify({ count: items.length, maxRight: Math.max(...items.map(r => r.right)), maxBottom: Math.max(...items.map(r => r.bottom)), minLeft: Math.min(...items.map(r => r.left)), minTop: Math.min(...items.map(r => r.top)) }); })()`) || '{}')
     check('§1.5 bottom-right corner → no menu item overflows the viewport',
-      cornerState.count === 4 && cornerState.maxRight <= dragRes.vw + 1 && cornerState.maxBottom <= dragRes.vh + 1 && cornerState.minLeft >= -1 && cornerState.minTop >= -1,
+      cornerState.count === 5 && cornerState.maxRight <= dragRes.vw + 1 && cornerState.maxBottom <= dragRes.vh + 1 && cornerState.minLeft >= -1 && cornerState.minTop >= -1,
       `state=${JSON.stringify(cornerState)} vw=${dragRes.vw} vh=${dragRes.vh}`)
     check('§1.5 menu closed when §1.5 ends', await fabClickUntil(false))
 
@@ -532,17 +532,22 @@ async function main() {
     // Reset the fetch counter so we can measure how many requests the
     // concurrent bilingual pass fires (concurrency default = 5).
     // An earlier FAB-menu assertion already translated the fixture. Restore
-    // each host to its source DOM first; otherwise the second run correctly
+    // the page to its source DOM first; otherwise the second run correctly
     // finds no untranslated candidates and this concurrency check is vacuous.
+    // The strip is GLOBAL (not host-scoped): §3's highlight test re-parented a
+    // translated span into a <mark>, and lector-toggle-bilingual now has
+    // Immersive-style toggle semantics — any surviving .lector-bilingual would
+    // flip the toggle into a restore instead of a fresh run.
     await evalIn(page, `(()=>{
+      document.querySelectorAll('.lector-bilingual').forEach(n => n.remove());
+      document.querySelectorAll('.lector-bi-source-node').forEach(node => {
+        node.classList.remove('lector-bi-source', 'lector-bi-source-node');
+        if (node.dataset.lectorSourceText === 'true') node.replaceWith(...Array.from(node.childNodes));
+      });
       document.querySelectorAll('.lector-bilingual-host').forEach(host => {
-        host.querySelectorAll(':scope > .lector-bilingual').forEach(n => n.remove());
-        Array.from(host.querySelectorAll(':scope > .lector-bi-source-node')).forEach(node => {
-          node.classList.remove('lector-bi-source', 'lector-bi-source-node');
-          if (node.dataset.lectorSourceText === 'true') node.replaceWith(...Array.from(node.childNodes));
-        });
         host.classList.remove('lector-bilingual-host', 'lector-translation-error');
       });
+      document.querySelectorAll('.lector-tstatus').forEach(n => n.remove());
       const li = document.createElement('li');
       li.id = 'dom-structure-fixture';
       li.innerHTML = '<strong id="dom-direct-child">Read the detailed migration guidance before upgrading.</strong>';
@@ -593,12 +598,12 @@ async function main() {
     // translation. The semantic retry happens exactly once, then a localized
     // error remains while the source stays readable.
     await evalIn(page, `(()=>{
+      document.querySelectorAll('.lector-bilingual').forEach(n => n.remove());
+      document.querySelectorAll('.lector-bi-source-node').forEach(node => {
+        node.classList.remove('lector-bi-source', 'lector-bi-source-node');
+        if (node.dataset.lectorSourceText === 'true') node.replaceWith(...Array.from(node.childNodes));
+      });
       document.querySelectorAll('.lector-bilingual-host').forEach(host => {
-        host.querySelectorAll(':scope > .lector-bilingual').forEach(n => n.remove());
-        Array.from(host.querySelectorAll(':scope > .lector-bi-source-node')).forEach(node => {
-          node.classList.remove('lector-bi-source', 'lector-bi-source-node');
-          if (node.dataset.lectorSourceText === 'true') node.replaceWith(...Array.from(node.childNodes));
-        });
         host.classList.remove('lector-bilingual-host', 'lector-translation-error');
       });
       document.querySelector('article').setAttribute('translate', 'no');
@@ -684,6 +689,17 @@ async function main() {
     // disabled persistent caching; one single-chunk paragraph means one paid
     // request, not probe + duplicate formal request.
     await evalIn(page, `(() => {
+      // Global strip: the recover run above left translations in the DOM, and
+      // lector-toggle-bilingual now toggles — a translated page would restore
+      // instead of running this probe-reuse scenario.
+      document.querySelectorAll('.lector-bilingual').forEach(n => n.remove());
+      document.querySelectorAll('.lector-bi-source-node').forEach(node => {
+        node.classList.remove('lector-bi-source', 'lector-bi-source-node');
+        if (node.dataset.lectorSourceText === 'true') node.replaceWith(...Array.from(node.childNodes));
+      });
+      document.querySelectorAll('.lector-bilingual-host').forEach(host => {
+        host.classList.remove('lector-bilingual-host', 'lector-translation-error');
+      });
       document.querySelectorAll('[id^="quality-echo-fixture"]').forEach((node) => node.setAttribute('translate', 'no'));
       const p = document.createElement('p');
       p.id = 'cache-off-probe-fixture';
@@ -846,6 +862,15 @@ async function main() {
     // still streaming. Retry controls stay hidden until the run settles, and
     // an external Cancel suppresses any already-collected late provider error.
     await evalIn(page, `(() => {
+      // Global strip (same reason as §9.4 cache-off): toggle semantics.
+      document.querySelectorAll('.lector-bilingual').forEach(n => n.remove());
+      document.querySelectorAll('.lector-bi-source-node').forEach(node => {
+        node.classList.remove('lector-bi-source', 'lector-bi-source-node');
+        if (node.dataset.lectorSourceText === 'true') node.replaceWith(...Array.from(node.childNodes));
+      });
+      document.querySelectorAll('.lector-bilingual-host').forEach(host => {
+        host.classList.remove('lector-bilingual-host', 'lector-translation-error');
+      });
       const texts = [
         ['run-active-probe', 'A normal probe paragraph confirms the provider before concurrent work begins.'],
         ['run-active-fail', 'FAIL BLOCK remains in English and creates a retryable quality error.'],
@@ -1010,12 +1035,12 @@ async function main() {
     // translated by the incremental observer after a finished run, with the
     // page-resolved target; a cancel stops the observer for good.
     await evalIn(page, `(() => {
+      document.querySelectorAll('.lector-bilingual').forEach(n => n.remove());
+      document.querySelectorAll('.lector-bi-source-node').forEach(node => {
+        node.classList.remove('lector-bi-source', 'lector-bi-source-node');
+        if (node.dataset.lectorSourceText === 'true') node.replaceWith(...Array.from(node.childNodes));
+      });
       document.querySelectorAll('.lector-bilingual-host').forEach(host => {
-        host.querySelectorAll(':scope > .lector-bilingual').forEach(n => n.remove());
-        Array.from(host.querySelectorAll(':scope > .lector-bi-source-node')).forEach(node => {
-          node.classList.remove('lector-bi-source', 'lector-bi-source-node');
-          if (node.dataset.lectorSourceText === 'true') node.replaceWith(...Array.from(node.childNodes));
-        });
         host.classList.remove('lector-bilingual-host', 'lector-translation-error');
       });
       const seed = document.createElement('p');
@@ -1103,6 +1128,99 @@ async function main() {
     await sleep(300)
     const swAfter = JSON.parse(await evalIn(page, `JSON.stringify((window.__lectorMsgs||[]).filter(m=>m.action==='lector-save-word'))`) || '[]').length
     check('§5 Alt+S command route → save word', swAfter > swBefore, `${swBefore}→${swAfter}`)
+
+    // ---- §9.14 page-level translation status toast + toggle-restore ----
+    // New UX: the run shows an on-page toast (progress w/ cancel → done w/
+    // show-original), the FAB spins while running, the toast's Cancel button
+    // stops the run, and lector-toggle-bilingual is a true toggle
+    // (Immersive-style): a second toggle RESTORES the page.
+    await evalIn(page, `(() => {
+      document.querySelectorAll('.lector-bilingual').forEach(n => n.remove());
+      document.querySelectorAll('.lector-bi-source-node').forEach(node => {
+        node.classList.remove('lector-bi-source', 'lector-bi-source-node');
+        if (node.dataset.lectorSourceText === 'true') node.replaceWith(...Array.from(node.childNodes));
+      });
+      document.querySelectorAll('.lector-bilingual-host').forEach(host => {
+        host.classList.remove('lector-bilingual-host', 'lector-translation-error');
+      });
+      document.querySelectorAll('.lector-tstatus').forEach(n => n.remove());
+      const p = document.createElement('p');
+      p.id = 'toast-run-fixture';
+      p.textContent = 'This paragraph keeps the run observable while the status toast is asserted.';
+      document.body.appendChild(p);
+      window.__fetchCalls = [];
+      window.__lectorMsgs = [];
+      window.__translationResponseMode = 'partial-hang';
+    })()`)
+    await fireContentMessage(page, { action: 'lector-toggle-bilingual' })
+    for (let i = 0; i < 60; i++) {
+      const ready = await evalIn(page, `!!document.querySelector('.lector-bilingual.is-loading') && !!document.querySelector('.lector-tstatus')`)
+      if (ready) break
+      await sleep(50)
+    }
+    const runState = JSON.parse(await evalIn(page, `JSON.stringify({
+      toast: document.querySelector('.lector-tstatus .ts-text')?.textContent || null,
+      hasCancel: !![...document.querySelectorAll('.lector-tstatus .ts-btn')].find(b => /取消|Cancel/.test(b.textContent || '')),
+      fabSpin: document.querySelector('#lector-ai-fab')?.classList.contains('is-translating') || false,
+    })`) || '{}')
+    check('§9.14 running state shows the on-page progress toast', !!runState.toast, `toast="${runState.toast}"`)
+    check('§9.14 progress toast exposes a Cancel button', runState.hasCancel, JSON.stringify(runState))
+    check('§9.14 FAB shows its translating spinner during the run', runState.fabSpin, JSON.stringify(runState))
+    // Cancel straight from the toast: run aborts, toast hides, spinner retires,
+    // the canceled notice is relayed to the side panel.
+    await evalIn(page, `(()=>{ const b = [...document.querySelectorAll('.lector-tstatus .ts-btn')].find(x => /取消|Cancel/.test(x.textContent || '')); if (b) b.click(); })()`)
+    await sleep(350)
+    const toastCancelState = JSON.parse(await evalIn(page, `JSON.stringify({
+      toast: !!document.querySelector('.lector-tstatus'),
+      fabSpin: document.querySelector('#lector-ai-fab')?.classList.contains('is-translating') || false,
+      blocks: document.querySelectorAll('.lector-bilingual').length,
+      canceledRelay: (window.__lectorMsgs || []).some(m => m.action === 'lector-bilingual-error' && m.canceled === true),
+    })`) || '{}')
+    check('§9.14 toast Cancel stops the run and dismisses the toast',
+      !toastCancelState.toast && !toastCancelState.fabSpin && toastCancelState.blocks === 0 && toastCancelState.canceledRelay,
+      `state=${JSON.stringify(toastCancelState)}`)
+    // Done state: a completing run reports the block count + Show original.
+    await evalIn(page, `window.__translationResponseMode = 'translated'; window.__fetchCalls = []`)
+    await fireContentMessage(page, { action: 'lector-toggle-bilingual' })
+    await sleep(2500)
+    const doneState = JSON.parse(await evalIn(page, `JSON.stringify({
+      toast: document.querySelector('.lector-tstatus .ts-text')?.textContent || null,
+      hasShowOriginal: !![...document.querySelectorAll('.lector-tstatus .ts-btn')].find(b => /显示原文|Show original/.test(b.textContent || '')),
+      fabSpin: document.querySelector('#lector-ai-fab')?.classList.contains('is-translating') || false,
+      blocks: document.querySelectorAll('.lector-bilingual').length,
+    })`) || '{}')
+    check('§9.14 done toast reports the translated block count', /已翻译|Translated/.test(doneState.toast || ''), `toast="${doneState.toast}"`)
+    check('§9.14 done toast offers Show original', doneState.hasShowOriginal, JSON.stringify(doneState))
+    check('§9.14 FAB spinner retires after completion', !doneState.fabSpin && doneState.blocks > 0, JSON.stringify(doneState))
+    // Second toggle on a translated page → RESTORE (not another run).
+    await evalIn(page, `window.__fetchCalls = []`)
+    await fireContentMessage(page, { action: 'lector-toggle-bilingual' })
+    await sleep(400)
+    const restoredState = JSON.parse(await evalIn(page, `JSON.stringify({
+      blocks: document.querySelectorAll('.lector-bilingual').length,
+      hosts: document.querySelectorAll('.lector-bilingual-host').length,
+      toast: document.querySelector('.lector-tstatus .ts-text')?.textContent || null,
+      fetches: (window.__fetchCalls || []).length,
+      released: (window.__lectorMsgs || []).some(m => m.action === 'lector-bilingual-progress' && m.complete === true),
+    })`) || '{}')
+    check('§9.14 second toggle restores the original page (Immersive-style toggle)',
+      restoredState.blocks === 0 && restoredState.hosts === 0 && restoredState.fetches === 0,
+      `state=${JSON.stringify(restoredState)}`)
+    check('§9.14 restore shows the confirmation toast', /已恢复原文|Original text restored/.test(restoredState.toast || ''), `toast="${restoredState.toast}"`)
+    check('§9.14 restore releases the side panel busy state', restoredState.released, JSON.stringify(restoredState))
+    // The FAB menu's primary item flips to "Show original" while translations
+    // exist. Re-run first (restore above cleaned the page).
+    await fireContentMessage(page, { action: 'lector-toggle-bilingual' })
+    await sleep(2500)
+    await evalIn(page, `document.querySelector('#lector-ai-fab').click()`)
+    await sleep(350)
+    const menuPrimary = await evalIn(page, `document.querySelector('.lector-fab-item')?.getAttribute('aria-label') || ''`)
+    check('§9.14 FAB primary item becomes Show original when translated', /显示原文|Show original/.test(menuPrimary), `label="${menuPrimary}"`)
+    await evalIn(page, `document.querySelector('#lector-ai-fab').click()`)
+    await sleep(350)
+    // Leave the page untranslated for §A4 (it only queries data-lector-id).
+    await fireContentMessage(page, { action: 'lector-toggle-bilingual' })
+    await sleep(400)
 
     // ---- §A4 blockId whitelist (selector injection guard) ----
     const badId = await fireContentMessage(page, { action: 'lector-jump-to', blockId: 'b0"],.evil[x' })
