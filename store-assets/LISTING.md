@@ -1,7 +1,7 @@
 # Chrome Web Store 上架资料 / Listing — Lector AI
 
 > 直接复制粘贴到开发者后台对应字段。中英文都已备好。
-> 版本 0.3.0 · 所有素材在 `store-assets/` 目录。
+> 版本 0.6.0 · 所有素材在 `store-assets/` 目录。
 
 ---
 
@@ -12,12 +12,18 @@
 | 商店图标 Store icon | `icons/icon-128.png` | 128×128 PNG | ✅ |
 | 宣传图（小）Small promo tile | `icons/promo-small.png` | 440×280 PNG | ✅ |
 | 宣传图（大）Marquee promo tile | `icons/promo-marquee.png` | 1400×560 PNG | 选填 |
-| 截图 1 | `screenshots/01-chat.png` | 1280×800 PNG | ✅ |
-| 截图 2 | `screenshots/02-bilingual.png` | 1280×800 PNG | ✅ |
-| 截图 3 | `screenshots/03-vocab.png` | 1280×800 PNG | ✅ |
-| 截图 4 | `screenshots/04-byok.png` | 1280×800 PNG | ✅ |
+| 截图 1 · 侧边栏对话（引用角标） | `screenshots/01-chat.png` | 1280×800 PNG | ✅ |
+| 截图 2 · 段内双语翻译（v0.6 状态浮条） | `screenshots/02-bilingual.png` | 1280×800 PNG | ✅ |
+| 截图 3 · 划词查词卡片（v0.5 学习闭环） | `screenshots/03-lookup.png` | 1280×800 PNG | ✅ |
+| 截图 4 · 单词卡 + 到期复习 SRS | `screenshots/04-review.png` | 1280×800 PNG | ✅ |
+| 截图 5 · 自带密钥 BYOK 设置 | `screenshots/05-byok.png` | 1280×800 PNG | ✅ |
 
-> 截图均为 1280×800、无透明通道的 24-bit PNG，符合商店要求。
+> 截图均为 **1280×800、8-bit RGB（无透明通道）PNG**，由 `scripts/capture-store-assets.mjs`
+> 在无头 Chrome 中驱动 **真实生产 bundle**（dist/ 的 sidepanel.js + content.js）拍摄：
+> 界面、译文、查词卡、SRS 按钮全部是产品真实渲染，非示意图拼贴。
+> 重拍：`npm run build:extension && node scripts/capture-store-assets.mjs`（支持 `--only 01-chat`）。
+> 商店图标与工具栏图标同步重绘（衬线 L + 星芒 + 文字线，`icons/icon.svg` 经
+> `python3 generate-icons.py` 生成 16/32/48/128 全套）；下次发版 build 会自动带上新图标。
 
 ---
 
@@ -246,9 +252,9 @@ Shortcuts: Alt+H highlight · Alt+S save word · Alt+T translate page
 - [x] `dist.zip` 已剔除 `key` 字段，`manifest.json` 位于 zip 根目录
 - [x] 单元测试 321/321 通过，typecheck/build 通过
 - [x] 版本号 0.3.0 三处一致（package.json / src/manifest.json / dist/manifest.json）
-- [x] 商店图标 128×128
-- [x] 小宣传图 440×280
-- [x] 截图 ×4（1280×800，无透明通道）
+- [x] 商店图标 128×128（2026-09 重绘：衬线 L + 星芒 + 文字线）
+- [x] 小宣传图 440×280 / 大宣传图 1400×560（2026-09 重绘）
+- [x] 截图 ×5（1280×800、8-bit RGB 无透明；真实产品 UI 实拍，覆盖 v0.5/0.6 新功能）
 - [ ] 上传后填写隐私实践问卷（见下）
 
 ## 隐私实践 / Privacy Practices

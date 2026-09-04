@@ -1,44 +1,88 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 280" width="440" height="280">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="440" y2="280" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#FBF8F2"/>
-      <stop offset="1" stop-color="#F1E9D8"/>
+      <stop offset="0" stop-color="#FCF9F3"/>
+      <stop offset="1" stop-color="#EFE6D3"/>
     </linearGradient>
-    <linearGradient id="chip" x1="0" y1="0" x2="0" y2="60" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#9C6B3C"/>
-      <stop offset="1" stop-color="#875A2F"/>
+    <radialGradient id="keylight" cx="90" cy="40" r="360" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="chip" x1="0" y1="0" x2="0" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#B07A42"/>
+      <stop offset="0.45" stop-color="#96652F"/>
+      <stop offset="1" stop-color="#66431D"/>
     </linearGradient>
-    <symbol id="spark" viewBox="-10 -10 20 20">
-      <path d="M0,-10 C1.4,-3 3,-1.4 10,0 C3,1.4 1.4,3 0,10 C-1.4,3 -3,1.4 -10,0 C-3,-1.4 -1.4,-3 0,-10 Z" fill="#FFFFFF"/>
-    </symbol>
+    <linearGradient id="lfill" x1="0" y1="14" x2="0" y2="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFDF8"/>
+      <stop offset="1" stop-color="#FFF3E2"/>
+    </linearGradient>
+    <radialGradient id="sparkG" cx="0.42" cy="0.38" r="0.7">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FFEFD2"/>
+    </radialGradient>
+    <filter id="cardShadow" x="-30%" y="-30%" width="170%" height="170%">
+      <feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#5A3D1C" flood-opacity="0.14"/>
+    </filter>
   </defs>
 
   <rect width="440" height="280" fill="url(#bg)"/>
+  <rect width="440" height="280" fill="url(#keylight)"/>
 
-  <!-- Icon mark (L + sparkle), top-left -->
-  <g transform="translate(36,36)">
+  <!-- Brand mark: serif L + text lines + sparkle (matches the store icon) -->
+  <g transform="translate(32,30)">
     <rect width="60" height="60" rx="15" fill="url(#chip)"/>
-    <path d="M18 15 L30 15 L30 38 L46 38 L46 48 L18 48 Z" fill="#FFF8EE"/>
-    <use href="#spark" x="33" y="14" width="16" height="16"/>
+    <rect x="1" y="1" width="58" height="58" rx="14" fill="none" stroke="#FFF3DC" stroke-opacity="0.25" stroke-width="1"/>
+    <g fill="url(#lfill)">
+      <rect x="17" y="13" width="8" height="33" rx="2.2"/>
+      <rect x="13" y="13" width="5.5" height="4.5" rx="1.7"/>
+      <rect x="17" y="38.5" width="25" height="8" rx="2.2"/>
+      <rect x="38" y="43" width="5.5" height="4.5" rx="1.7"/>
+    </g>
+    <rect x="31" y="21.5" width="14" height="2.6" rx="1.3" fill="#FFF6E6" fill-opacity="0.35"/>
+    <rect x="31" y="27" width="10" height="2.6" rx="1.3" fill="#FFF6E6" fill-opacity="0.22"/>
+    <path d="M45.5 9 C46.4 13.1 48.2 14.9 52.3 15.8 C48.2 16.7 46.4 18.5 45.5 22.6 C44.6 18.5 42.8 16.7 38.7 15.8 C42.8 14.9 44.6 13.1 45.5 9 Z" fill="url(#sparkG)"/>
   </g>
 
-  <!-- Brand name -->
-  <text x="36" y="130" font-family="-apple-system, 'Segoe UI', 'PingFang SC', sans-serif" font-size="34" font-weight="700" fill="#2B2620">Lector AI</text>
-  <text x="37" y="158" font-family="-apple-system, 'Segoe UI', 'PingFang SC', sans-serif" font-size="17" fill="#6B6155">Read smarter, in any language</text>
+  <text x="34" y="130" font-family="-apple-system, 'Segoe UI', 'PingFang SC', sans-serif" font-size="33" font-weight="800" fill="#2B241B">Lector AI</text>
+  <text x="35" y="156" font-family="-apple-system, 'Segoe UI', 'PingFang SC', sans-serif" font-size="15.5" font-weight="500" fill="#6E6250">和你一起读网页的 AI 阅读伴侣</text>
+  <text x="35" y="176" font-family="-apple-system, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11.5" fill="#A79A82">Read smarter, in any language · 自带密钥 · 免费无订阅</text>
+
+  <!-- Mini bilingual card: the product's signature moment -->
+  <g filter="url(#cardShadow)">
+    <rect x="228" y="30" width="180" height="150" rx="14" fill="#FFFFFF" stroke="#E9DCC4"/>
+  </g>
+  <text x="248" y="62" font-family="Georgia, 'Times New Roman', serif" font-size="11.5" fill="#4A4032">Insight is less often retrieved</text>
+  <text x="248" y="78" font-family="Georgia, 'Times New Roman', serif" font-size="11.5" fill="#4A4032">than stumbled upon.</text>
+  <text x="248" y="102" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="12" font-weight="600" fill="#8F5E30">洞见往往不是被检索到的，</text>
+  <text x="248" y="119" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="12" font-weight="600" fill="#8F5E30">而是被偶遇的。</text>
+  <line x1="248" y1="134" x2="388" y2="134" stroke="#EFE4CC" stroke-width="1"/>
+  <!-- citation chip -->
+  <rect x="248" y="145" width="26" height="16" rx="5" fill="#F2E6D2"/>
+  <text x="261" y="156.5" text-anchor="middle" font-family="-apple-system, sans-serif" font-size="9.5" font-weight="700" fill="#875A2F">b2</text>
+  <!-- vocab chip -->
+  <rect x="281" y="145" width="80" height="16" rx="5" fill="#FBF4E7" stroke="#E9DCC4"/>
+  <text x="321" y="156.5" text-anchor="middle" font-family="-apple-system, sans-serif" font-size="9.5" font-weight="600" fill="#6E6250">serendipity · C1</text>
+
+  <!-- Done pill floating over the card -->
+  <g filter="url(#cardShadow)">
+    <rect x="252" y="192" width="132" height="26" rx="13" fill="#FFF6EA" stroke="#E2D5BB"/>
+  </g>
+  <text x="318" y="209" text-anchor="middle" font-family="-apple-system, 'PingFang SC', sans-serif" font-size="10.5" font-weight="600" fill="#3E7A4E">✓ 翻译完成 · 9 段</text>
 
   <!-- Feature pills -->
-  <g font-family="-apple-system, 'Segoe UI', 'PingFang SC', sans-serif" font-size="15" font-weight="600">
-    <g transform="translate(36,198)">
-      <rect width="120" height="38" rx="10" fill="#F2E6D2"/>
-      <text x="60" y="24" text-anchor="middle" fill="#875A2F">Chat · Ask</text>
+  <g font-family="-apple-system, 'PingFang SC', sans-serif" font-size="13.5" font-weight="600">
+    <g transform="translate(34,226)">
+      <rect width="88" height="34" rx="10" fill="#F2E6D2"/>
+      <text x="44" y="22" text-anchor="middle" fill="#875A2F">侧边栏对话</text>
     </g>
-    <g transform="translate(166,198)">
-      <rect width="118" height="38" rx="10" fill="#F2E6D2"/>
-      <text x="59" y="24" text-anchor="middle" fill="#875A2F">Translate</text>
+    <g transform="translate(130,226)">
+      <rect width="88" height="34" rx="10" fill="#F2E6D2"/>
+      <text x="44" y="22" text-anchor="middle" fill="#875A2F">双语翻译</text>
     </g>
-    <g transform="translate(294,198)">
-      <rect width="110" height="38" rx="10" fill="#F2E6D2"/>
-      <text x="55" y="24" text-anchor="middle" fill="#875A2F">Vocab</text>
+    <g transform="translate(226,226)">
+      <rect width="88" height="34" rx="10" fill="#F2E6D2"/>
+      <text x="44" y="22" text-anchor="middle" fill="#875A2F">划词查词</text>
     </g>
   </g>
 </svg>

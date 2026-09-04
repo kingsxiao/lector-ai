@@ -1,63 +1,68 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
   <defs>
-    <!-- Brand gradient: warm brown, matching the app accent #9C6B3C to #875A2F -->
-    <linearGradient id="bg" x1="8" y1="8" x2="120" y2="120" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#9C6B3C"/>
-      <stop offset="0.55" stop-color="#875A2F"/>
-      <stop offset="1" stop-color="#6B4A24"/>
+    <!-- Brand gradient: warm amber-brown, lit from top-left (app accent family). -->
+    <linearGradient id="bg" x1="10" y1="6" x2="118" y2="122" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#B07A42"/>
+      <stop offset="0.45" stop-color="#96652F"/>
+      <stop offset="1" stop-color="#66431D"/>
     </linearGradient>
 
-    <!-- Soft top-left highlight for depth -->
-    <radialGradient id="glow" cx="40" cy="34" r="92" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.28"/>
-      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.05"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    <!-- Top-left key light: gives the tile depth without noise. -->
+    <radialGradient id="glow" cx="38" cy="30" r="98" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFE9C4" stop-opacity="0.34"/>
+      <stop offset="0.55" stop-color="#FFE9C4" stop-opacity="0.07"/>
+      <stop offset="1" stop-color="#FFE9C4" stop-opacity="0"/>
     </radialGradient>
 
-    <!-- Subtle bottom-right shadow -->
-    <radialGradient id="shade" cx="104" cy="108" r="80" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#5C3A1F" stop-opacity="0.35"/>
-      <stop offset="1" stop-color="#5C3A1F" stop-opacity="0"/>
+    <!-- Bottom-right shade for a grounded base. -->
+    <radialGradient id="shade" cx="100" cy="112" r="84" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4A2E12" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#4A2E12" stop-opacity="0"/>
     </radialGradient>
 
-    <!-- L mark fill: warm white (on-accent) to faint cream, lit-from-above feel -->
-    <linearGradient id="lfill" x1="0" y1="30" x2="0" y2="96" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#FFFCF6"/>
-      <stop offset="1" stop-color="#FFF8EE"/>
+    <!-- Letterform fill: warm paper white, lit from above. -->
+    <linearGradient id="lfill" x1="0" y1="28" x2="0" y2="98" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFDF8"/>
+      <stop offset="1" stop-color="#FFF3E2"/>
     </linearGradient>
 
-    <!-- Sparkle fill -->
-    <radialGradient id="spark" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0.6"/>
+    <!-- Sparkle with a soft halo behind it. -->
+    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFF6E0" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#FFF6E0" stop-opacity="0"/>
     </radialGradient>
-
-    <!-- 4-point star (sparkle) -->
-    <symbol id="sparkle" viewBox="-10 -10 20 20">
-      <path d="M0,-10 C1.4,-3 3,-1.4 10,0 C3,1.4 1.4,3 0,10 C-1.4,3 -3,1.4 -10,0 C-3,-1.4 -1.4,-3 0,-10 Z" fill="url(#spark)"/>
-    </symbol>
+    <radialGradient id="spark" cx="0.42" cy="0.38" r="0.7">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FFEFD2"/>
+    </radialGradient>
   </defs>
 
-  <!-- Rounded squircle background -->
-  <rect x="6" y="6" width="116" height="116" rx="28" ry="28" fill="url(#bg)"/>
-  <rect x="6" y="6" width="116" height="116" rx="28" ry="28" fill="url(#glow)"/>
-  <rect x="6" y="6" width="116" height="116" rx="28" ry="28" fill="url(#shade)"/>
+  <!-- Tile -->
+  <rect x="4" y="4" width="120" height="120" rx="29" fill="url(#bg)"/>
+  <rect x="4" y="4" width="120" height="120" rx="29" fill="url(#glow)"/>
+  <rect x="4" y="4" width="120" height="120" rx="29" fill="url(#shade)"/>
+  <!-- Hairline rim to catch the edge on light and dark shelves. -->
+  <rect x="5.5" y="5.5" width="117" height="117" rx="27.5" fill="none"
+        stroke="#FFF3DC" stroke-opacity="0.22" stroke-width="1.5"/>
 
-  <!-- Custom geometric "L": a vertical stroke with a flaring foot -->
-  <path d="
-    M 44 32
-    L 60 32
-    L 60 76
-    L 90 76
-    L 90 92
-    L 44 92
-    Z" fill="url(#lfill)"/>
+  <!-- Serif "L": stem + foot + bracket serifs (editorial, like the in-app serif). -->
+  <g fill="url(#lfill)">
+    <!-- stem -->
+    <rect x="42" y="28" width="17" height="66" rx="4.5"/>
+    <!-- top-left flag serif -->
+    <rect x="34" y="28" width="11" height="9" rx="3.5"/>
+    <!-- foot -->
+    <rect x="42" y="77" width="50" height="17" rx="4.5"/>
+    <!-- foot terminal serif (slight bracket, like Georgia's L) -->
+    <rect x="84" y="86" width="11" height="9" rx="3.5"/>
+  </g>
 
-  <!-- Crisp 1px inner accent along the inner corner for definition -->
-  <path d="M 60 74 L 60 76 L 62 76" fill="none" stroke="#E8D5B8" stroke-width="0.8" stroke-opacity="0.7"/>
+  <!-- Two quiet text lines: a paragraph being read. -->
+  <rect x="67" y="47" width="31" height="5.5" rx="2.75" fill="#FFF6E6" fill-opacity="0.34"/>
+  <rect x="67" y="58" width="22" height="5.5" rx="2.75" fill="#FFF6E6" fill-opacity="0.22"/>
 
-  <!-- AI sparkle: a hint of magic near the top of the stroke -->
-  <use href="#sparkle" x="70" y="34" width="22" height="22"/>
-  <!-- tiny secondary sparkle for rhythm -->
-  <use href="#sparkle" x="92" y="58" width="11" height="11" opacity="0.85"/>
+  <!-- AI sparkle: one crisp star with halo, top-right. -->
+  <circle cx="88" cy="34" r="17" fill="url(#halo)"/>
+  <path d="M88 20 C89.9 28.4 93.6 32.1 102 34 C93.6 35.9 89.9 39.6 88 48 C86.1 39.6 82.4 35.9 74 34 C82.4 32.1 86.1 28.4 88 20 Z"
+        fill="url(#spark)"/>
 </svg>

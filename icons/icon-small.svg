@@ -1,29 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-  <!-- Simplified variant for 16px: drop the sparkles, keep just the gradient + bold L.
-       No thin accents. The L stroke is widened so it stays readable at 16px. -->
+  <!-- Simplified variant for 16px: bold L only, no sparkles, no text lines.
+       Strokes widened so the letter holds up at 16px. -->
   <defs>
-    <linearGradient id="bg" x1="8" y1="8" x2="120" y2="120" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#9C6B3C"/>
-      <stop offset="0.55" stop-color="#875A2F"/>
-      <stop offset="1" stop-color="#6B4A24"/>
+    <linearGradient id="bg" x1="10" y1="6" x2="118" y2="122" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#B07A42"/>
+      <stop offset="0.45" stop-color="#96652F"/>
+      <stop offset="1" stop-color="#66431D"/>
     </linearGradient>
-    <radialGradient id="glow" cx="40" cy="34" r="92" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.30"/>
-      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.06"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    <radialGradient id="glow" cx="38" cy="30" r="98" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFE9C4" stop-opacity="0.34"/>
+      <stop offset="0.55" stop-color="#FFE9C4" stop-opacity="0.07"/>
+      <stop offset="1" stop-color="#FFE9C4" stop-opacity="0"/>
     </radialGradient>
   </defs>
 
-  <rect x="6" y="6" width="116" height="116" rx="28" ry="28" fill="url(#bg)"/>
-  <rect x="6" y="6" width="116" height="116" rx="28" ry="28" fill="url(#glow)"/>
+  <rect x="4" y="4" width="120" height="120" rx="29" fill="url(#bg)"/>
+  <rect x="4" y="4" width="120" height="120" rx="29" fill="url(#glow)"/>
 
   <!-- Wider, simpler L optimized for 16px legibility -->
-  <path d="
-    M 42 30
-    L 62 30
-    L 62 74
-    L 92 74
-    L 92 94
-    L 42 94
-    Z" fill="#ffffff"/>
+  <g fill="#FFFDF6">
+    <rect x="38" y="26" width="22" height="72" rx="5"/>
+    <rect x="38" y="81" width="56" height="17" rx="5"/>
+  </g>
 </svg>
